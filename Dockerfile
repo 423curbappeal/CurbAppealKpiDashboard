@@ -1,9 +1,11 @@
 FROM nginx:alpine
 
-# Copy the dashboard file in as the site's homepage
-COPY ["CurbAppeal-KPI-Tracker (2).html", "/usr/share/nginx/html/index.html"]
+# Dashboard file
+COPY index.html /usr/share/nginx/html/index.html
 
-# Nginx listens on 80 by default — Railway maps this automatically
-EXPOSE 80
+# Fixed nginx config — no variable substitution, listens on 8080
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+EXPOSE 8080
 
 CMD ["nginx", "-g", "daemon off;"]
