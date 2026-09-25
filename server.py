@@ -232,6 +232,54 @@ def hcp_money_to_dollars(value):
     except (TypeError, ValueError):
         return 0.0
 
+def hcp_customer_id_from_job(job):
+    customer=job.get("customer") or {}
+    if isinstance(customer, dict) and customer.get("id"):
+        return customer.get("id")
+    return job.get("customer_id")
+
+def hcp_customer_class(customer_id):
+    if not customer_id:
+        return "unknown"
+    data=hcp_get("customers/" + str(customer_id))
+    customer=data.get("customer") if isinstance(data, dict) and isinstance(data.get("customer"), dict) else data
+    if not isinstance(customer, dict):
+        return "unknown"
+
+    raw=(
+        customer.get("customer_type")
+        or customer.get("type")
+        or customer.get("customer_kind")
+    )
+    kind=str(raw or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if kind in {"business","commercial","company"}:
+        return "commercial"
+    if kind in {"homeowner","residential","home_owner","consumer"}:
+        return "residential"
+
+    if customer.get("is_business") is True:
+        return "commercial"
+    if customer.get("is_business") is False:
+        return "residential"
+
+    return "unknown"
+
+def hcp_split_completed_revenue(jobs):
+    totals={"residential":0.0,"commercial":0.0,"unknown":0.0}
+    cache={}
+    for job in jobs:
+        customer_id=hcp_customer_id_from_job(job)
+        if customer_id not in cache:
+            try:
+                cache[customer_id]=hcp_customer_class(customer_id)
+            except Exception:
+                cache[customer_id]="unknown"
+        bucket=cache.get(customer_id) or "unknown"
+        if bucket not in totals:
+            bucket="unknown"
+        totals[bucket] += hcp_money_to_dollars(job.get("total_amount"))
+    return totals
+
 def get_page_access_token(page_id):
     data=graph(page_id, {"fields":"id,name,access_token"})
     page_token=(data.get("access_token") or "").strip()
@@ -290,6 +338,7 @@ class Handler(SimpleHTTPRequestHandler):
 
                 completed_jobs=hcp_list_completed_jobs(start, end)
                 revenue=sum(hcp_money_to_dollars(job.get("total_amount")) for job in completed_jobs)
+                revenue_split=hcp_split_completed_revenue(completed_jobs)
 
                 won_estimates=hcp_list_won_estimates(start, end)
                 sold_revenue=sum(float(est.get("sold_value") or 0) for est in won_estimates)
@@ -300,9 +349,12 @@ class Handler(SimpleHTTPRequestHandler):
                     "week_ending":end.isoformat(),
                     "revenue":round(revenue,2),
                     "jobs_completed":len(completed_jobs),
+                    "revenue_residential":round(revenue_split["residential"],2),
+                    "revenue_commercial":round(revenue_split["commercial"],2),
+                    "revenue_unclassified":round(revenue_split["unknown"],2),
                     "sold_revenue":round(sold_revenue,2),
                     "jobs_sold":len(won_estimates),
-                    "scope_note":"Revenue/jobs completed use the actual HCP completion timestamp. Sold revenue/jobs sold use approved Housecall Pro estimates created within the selected week."
+                    "scope_note":"Revenue/jobs completed use the actual HCP completion timestamp. Residential vs commercial uses each HCP customer's Homeowner/Business type. Sold revenue/jobs sold use approved Housecall Pro estimates created within the selected week."
                 })
             except urllib.error.HTTPError as e:
                 try: detail=json.loads(e.read().decode("utf-8"))
