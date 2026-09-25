@@ -1213,6 +1213,7 @@
   <div style="display:flex; gap:12px; flex-wrap:wrap; margin-top:8px;">
     <button class="btn btn-success" onclick="saveEntry()">✅ Save This Week</button>
     <button class="btn btn-ghost" onclick="clearForm()">Clear Form</button>
+    <button class="btn btn-ghost" id="meta-preview-btn" type="button">📘 Preview Meta</button>
   </div>
 
 </div><!-- /page-washworks -->
@@ -3057,6 +3058,59 @@ function clearMonthlyPartial(ym) {
   saveMonthlyPartials(partials);
   renderMonthly();
 }
+</script>
+<script>
+(function () {
+  const btn = document.getElementById('meta-preview-btn');
+  if (!btn) return;
+
+  let preview = null;
+  const panel = document.createElement('div');
+  panel.id = 'meta-preview-panel';
+  panel.style.cssText = 'display:none;margin-top:12px;padding:14px;border:1px solid var(--border);border-radius:10px;background:var(--surface2);font-size:13px;line-height:1.6;';
+  btn.parentElement.insertAdjacentElement('afterend', panel);
+
+  btn.addEventListener('click', async function () {
+    const date = document.getElementById('entry-date');
+    if (!date || !date.value) {
+      panel.style.display = 'block';
+      panel.textContent = 'Select a week-ending date first.';
+      return;
+    }
+    btn.disabled = true;
+    btn.textContent = 'Loading Meta…';
+    panel.style.display = 'block';
+    panel.textContent = 'Pulling Meta spend and Instant Form leads…';
+    try {
+      const res = await fetch('/api/meta-preview?week_ending=' + encodeURIComponent(date.value), {cache:'no-store'});
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error || 'Meta request failed');
+      preview = data;
+      panel.textContent = '';
+      const summary = document.createElement('div');
+      summary.innerHTML = '<strong>' + data.week_start + ' → ' + data.week_ending + '</strong><br>Meta spend: <strong>$' + Number(data.meta_spend).toFixed(2) + '</strong> · Instant Form leads: <strong>' + Number(data.instant_form_leads) + '</strong>';
+      const apply = document.createElement('button');
+      apply.type = 'button';
+      apply.className = 'btn btn-success btn-sm';
+      apply.style.marginTop = '10px';
+      apply.textContent = 'Apply to Form';
+      apply.addEventListener('click', function () {
+        const spend = document.getElementById('ww-meta-spend');
+        const leads = document.getElementById('ww-meta-leads');
+        if (spend) spend.value = Number(preview.meta_spend).toFixed(2);
+        if (leads) leads.value = Number(preview.instant_form_leads);
+        panel.insertAdjacentHTML('beforeend','<div style="margin-top:8px;">✅ Applied. Review the numbers, then click Save This Week.</div>');
+      });
+      panel.appendChild(summary);
+      panel.appendChild(apply);
+    } catch (err) {
+      panel.textContent = 'Meta preview failed: ' + (err && err.message ? err.message : String(err));
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '📘 Preview Meta';
+    }
+  });
+})();
 </script>
 </body>
 </html>
