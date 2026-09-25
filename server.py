@@ -6,6 +6,8 @@ GRAPH_VERSION = os.getenv("META_GRAPH_VERSION", "v24.0")
 TOKEN = os.getenv("META_ACCESS_TOKEN", "").strip()
 AD_ACCOUNT = os.getenv("META_AD_ACCOUNT_ID", "").strip()
 PAGE_IDS = [x.strip() for x in os.getenv("META_PAGE_IDS", "").split(",") if x.strip()]
+HCP_API_KEY = os.getenv("HCP_API_KEY", "").strip()
+HCP_API_BASE = "https://api.housecallpro.com"
 
 def graph(path, params=None, access_token=None):
     params = dict(params or {})
@@ -26,6 +28,36 @@ def all_pages(path, params=None, access_token=None):
         with urllib.request.urlopen(req, timeout=30) as r:
             data=json.loads(r.read().decode("utf-8"))
     return out
+
+def hcp_get(path, params=None):
+    if not HCP_API_KEY:
+        raise RuntimeError("Housecall Pro is not configured. Add HCP_API_KEY in Railway Variables.")
+
+    query = urllib.parse.urlencode(params or {}, doseq=True)
+    url = HCP_API_BASE + "/" + path.lstrip("/")
+    if query:
+        url += "?" + query
+
+    # Housecall Pro API keys are normally sent as Authorization: Token <key>.
+    # Retry as Bearer only if the account/API variant rejects Token auth.
+    last_error = None
+    for scheme in ("Token", "Bearer"):
+        req = urllib.request.Request(
+            url,
+            headers={
+                "Authorization": scheme + " " + HCP_API_KEY,
+                "Accept": "application/json",
+                "User-Agent": "CurbAppealKPIDashboard/1.0"
+            }
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                return json.loads(r.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            last_error = e
+            if e.code not in (401, 403) or scheme == "Bearer":
+                raise
+    raise last_error
 
 def get_page_access_token(page_id):
     data=graph(page_id, {"fields":"id,name,access_token"})
@@ -53,7 +85,27 @@ class Handler(SimpleHTTPRequestHandler):
     def do_GET(self):
         parsed=urllib.parse.urlparse(self.path)
         if parsed.path == "/api/health":
-            return self.send_json(200, {"ok":True,"meta_configured":bool(TOKEN and AD_ACCOUNT and PAGE_IDS)})
+            return self.send_json(200, {
+                "ok":True,
+                "meta_configured":bool(TOKEN and AD_ACCOUNT and PAGE_IDS),
+                "hcp_configured":bool(HCP_API_KEY)
+            })
+        if parsed.path == "/api/hcp-health":
+            try:
+                if not HCP_API_KEY:
+                    return self.send_json(503, {"ok":False,"error":"Housecall Pro is not configured. Add HCP_API_KEY in Railway Variables."})
+                company=hcp_get("company")
+                return self.send_json(200, {
+                    "ok":True,
+                    "connected":True,
+                    "company_name":company.get("name") or company.get("company_name") or "Housecall Pro"
+                })
+            except urllib.error.HTTPError as e:
+                try: detail=json.loads(e.read().decode("utf-8"))
+                except Exception: detail={"message":str(e)}
+                return self.send_json(502, {"ok":False,"error":"Housecall Pro API request failed","detail":detail})
+            except Exception as e:
+                return self.send_json(400, {"ok":False,"error":str(e)})
         if parsed.path != "/api/meta-preview":
             return super().do_GET()
         try:
