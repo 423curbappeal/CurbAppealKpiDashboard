@@ -3165,6 +3165,9 @@ function clearMonthlyPartial(ym) {
         'Repeat customers: <strong>' + Number(data.repeat_customers) + '</strong>' +
         ' · Repeat customer %: <strong>' + Number(data.repeat_customer_pct).toFixed(1) + '%</strong>' +
         ' · Callbacks: <strong>' + Number(data.callbacks) + '</strong><br>' +
+        (data.reviews_available
+          ? '5-star reviews: <strong>' + Number(data.five_star_reviews) + '</strong><br>'
+          : '5-star reviews: <strong>manual for now</strong><br>') +
         'Technicians: <strong>' + Number(data.tech_count) + '</strong>' +
         ' · Total tech hours: <strong>' + Number(data.total_tech_hours).toFixed(2) + '</strong>' +
         ' · Tech rev/hr: <strong>USD ' + Number(data.tech_rev_per_hour).toFixed(2) + '</strong><br>' +
@@ -3174,6 +3177,9 @@ function clearMonthlyPartial(ym) {
       const note = document.createElement('div');
       note.style.cssText = 'margin-top:5px;color:var(--muted);font-size:11px;';
       note.textContent = (data.scope_note || '') +
+        (!data.reviews_available
+          ? ' Review widget data was not readable enough to auto-count 5-star reviews yet.'
+          : '') +
         (Number(data.tech_time_scheduled_fallback_jobs) > 0
           ? ' ' + Number(data.tech_time_scheduled_fallback_jobs) + ' completed job(s) used scheduled duration because HCP Start/Finish time was missing.'
           : '') +
@@ -3196,6 +3202,7 @@ function clearMonthlyPartial(ym) {
         const commercialRevenue = document.getElementById('ww-revenue-commercial');
         const repeatCustomers = document.getElementById('ww-repeat-customers');
         const callbacks = document.getElementById('ww-callbacks');
+        const fiveStarReviews = document.getElementById('ww-five-star-reviews');
         const techCount = document.getElementById('ww-tech-count');
         const techHours = document.getElementById('ww-tech-hours');
 
@@ -3207,6 +3214,7 @@ function clearMonthlyPartial(ym) {
         }
         if (repeatCustomers) repeatCustomers.value = Number(preview.repeat_customers);
         if (callbacks) callbacks.value = Number(preview.callbacks);
+        if (preview.reviews_available && fiveStarReviews) fiveStarReviews.value = Number(preview.five_star_reviews);
         if (techCount) techCount.value = Number(preview.tech_count);
         if (techHours) techHours.value = Number(preview.hours_per_tech).toFixed(2);
         if (soldRevenue) soldRevenue.value = Number(preview.sold_revenue).toFixed(2);
