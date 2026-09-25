@@ -335,6 +335,49 @@ def hcp_split_completed_revenue(jobs):
         totals[bucket] += hcp_money_to_dollars(job.get("total_amount"))
     return totals
 
+def hcp_repeat_customer_count(completed_jobs, week_start):
+    # A repeat customer is someone with at least one completed job before
+    # the selected week who also has a completed job during this week.
+    prior_customers=set()
+    page=1
+
+    while True:
+        data=hcp_get("jobs", {
+            "page":page,
+            "page_size":100,
+            "work_status[]":["completed"]
+        })
+        batch=data.get("jobs") or data.get("data") or []
+        if not batch:
+            break
+
+        for job in batch:
+            status=str(job.get("work_status") or "").lower()
+            if not status.startswith("complete") or job.get("deleted_at"):
+                continue
+
+            completed_at=((job.get("work_timestamps") or {}).get("completed_at"))
+            completed_dt=hcp_parse_datetime(completed_at)
+            if not completed_dt or completed_dt.date() >= week_start:
+                continue
+
+            customer_id=hcp_customer_id_from_job(job)
+            if customer_id:
+                prior_customers.add(str(customer_id))
+
+        total_pages=int(data.get("total_pages") or 1)
+        if page >= total_pages:
+            break
+        page += 1
+
+    repeat_customers=set()
+    for job in completed_jobs:
+        customer_id=hcp_customer_id_from_job(job)
+        if customer_id and str(customer_id) in prior_customers:
+            repeat_customers.add(str(customer_id))
+
+    return len(repeat_customers)
+
 def get_page_access_token(page_id):
     data=graph(page_id, {"fields":"id,name,access_token"})
     page_token=(data.get("access_token") or "").strip()
@@ -433,6 +476,7 @@ class Handler(SimpleHTTPRequestHandler):
                 completed_jobs=hcp_list_completed_jobs(start, end)
                 revenue=sum(hcp_money_to_dollars(job.get("total_amount")) for job in completed_jobs)
                 revenue_split=hcp_split_completed_revenue(completed_jobs)
+                repeat_customers=hcp_repeat_customer_count(completed_jobs, start)
 
                 won_estimates=hcp_list_won_estimates(start, end)
                 sold_revenue=sum(float(est.get("sold_value") or 0) for est in won_estimates)
@@ -446,9 +490,11 @@ class Handler(SimpleHTTPRequestHandler):
                     "revenue_residential":round(revenue_split["residential"],2),
                     "revenue_commercial":round(revenue_split["commercial"],2),
                     "revenue_unclassified":round(revenue_split["unknown"],2),
+                    "repeat_customers":repeat_customers,
+                    "repeat_customer_pct":round((repeat_customers / len(completed_jobs) * 100.0),1) if completed_jobs else 0.0,
                     "sold_revenue":round(sold_revenue,2),
                     "jobs_sold":len(won_estimates),
-                    "scope_note":"Revenue/jobs completed use the actual HCP completion timestamp. Residential vs commercial uses the Job Type selected on each HCP job, with customer Homeowner/Business type as a fallback. Sold revenue/jobs sold use approved Housecall Pro estimates created within the selected week."
+                    "scope_note":"Revenue/jobs completed use the actual HCP completion timestamp. Residential vs commercial uses the Job Type selected on each HCP job, with customer Homeowner/Business type as a fallback. Repeat customers are customers completed this week who had at least one completed HCP job before the week began. Sold revenue/jobs sold use approved Housecall Pro estimates created within the selected week."
                 })
             except urllib.error.HTTPError as e:
                 try: detail=json.loads(e.read().decode("utf-8"))
