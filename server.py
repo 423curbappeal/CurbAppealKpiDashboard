@@ -327,6 +327,45 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.send_json(502, {"ok":False,"error":"Housecall Pro API request failed","detail":detail})
             except Exception as e:
                 return self.send_json(400, {"ok":False,"error":str(e)})
+        if parsed.path == "/api/hcp-customer-debug":
+            try:
+                q=urllib.parse.parse_qs(parsed.query)
+                week_ending=(q.get("week_ending") or [""])[0]
+                end=datetime.strptime(week_ending,"%Y-%m-%d").date()
+                start=end-timedelta(days=6)
+                jobs=hcp_list_completed_jobs(start, end)
+                samples=[]
+                for job in jobs[:3]:
+                    customer_obj=job.get("customer") if isinstance(job.get("customer"), dict) else {}
+                    customer_id=hcp_customer_id_from_job(job)
+                    detail={}
+                    if customer_id:
+                        try:
+                            raw=hcp_get("customers/" + str(customer_id))
+                            detail=raw.get("customer") if isinstance(raw, dict) and isinstance(raw.get("customer"), dict) else raw
+                            if not isinstance(detail, dict):
+                                detail={}
+                        except Exception:
+                            detail={}
+                    samples.append({
+                        "job_customer_keys":sorted(list(customer_obj.keys())),
+                        "job_customer_type_values":{
+                            "customer_type":customer_obj.get("customer_type"),
+                            "type":customer_obj.get("type"),
+                            "customer_kind":customer_obj.get("customer_kind"),
+                            "is_business":customer_obj.get("is_business")
+                        },
+                        "customer_detail_keys":sorted(list(detail.keys())),
+                        "customer_detail_type_values":{
+                            "customer_type":detail.get("customer_type"),
+                            "type":detail.get("type"),
+                            "customer_kind":detail.get("customer_kind"),
+                            "is_business":detail.get("is_business")
+                        }
+                    })
+                return self.send_json(200,{"ok":True,"samples":samples})
+            except Exception as e:
+                return self.send_json(400,{"ok":False,"error":str(e)})
         if parsed.path == "/api/hcp-preview":
             try:
                 if not HCP_API_KEY:
