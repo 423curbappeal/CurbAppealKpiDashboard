@@ -335,6 +335,31 @@ def hcp_split_completed_revenue(jobs):
         totals[bucket] += hcp_money_to_dollars(job.get("total_amount"))
     return totals
 
+def hcp_job_has_tag(job, target):
+    target_norm=str(target or "").strip().lower()
+    tags=job.get("tags") or job.get("job_tags") or []
+
+    if isinstance(tags, str):
+        tags=[x.strip() for x in tags.split(",") if x.strip()]
+
+    if isinstance(tags, dict):
+        tags=list(tags.values())
+
+    if not isinstance(tags, list):
+        return False
+
+    for tag in tags:
+        if isinstance(tag, dict):
+            value=tag.get("name") or tag.get("label") or tag.get("value") or tag.get("tag")
+        else:
+            value=tag
+        if str(value or "").strip().lower() == target_norm:
+            return True
+    return False
+
+def hcp_callback_count(completed_jobs):
+    return sum(1 for job in completed_jobs if hcp_job_has_tag(job, "Callback"))
+
 def hcp_repeat_customer_count(completed_jobs, week_start):
     # A repeat customer is someone with at least one completed job before
     # the selected week who also has a completed job during this week.
@@ -555,6 +580,7 @@ class Handler(SimpleHTTPRequestHandler):
                 revenue=sum(hcp_money_to_dollars(job.get("total_amount")) for job in completed_jobs)
                 revenue_split=hcp_split_completed_revenue(completed_jobs)
                 repeat_customers=hcp_repeat_customer_count(completed_jobs, start)
+                callbacks=hcp_callback_count(completed_jobs)
                 tech_metrics=hcp_job_tech_metrics(completed_jobs)
 
                 won_estimates=hcp_list_won_estimates(start, end)
@@ -571,6 +597,7 @@ class Handler(SimpleHTTPRequestHandler):
                     "revenue_unclassified":round(revenue_split["unknown"],2),
                     "repeat_customers":repeat_customers,
                     "repeat_customer_pct":round((repeat_customers / len(completed_jobs) * 100.0),1) if completed_jobs else 0.0,
+                    "callbacks":callbacks,
                     "tech_count":tech_metrics["tech_count"],
                     "total_tech_hours":tech_metrics["total_tech_hours"],
                     "hours_per_tech":tech_metrics["hours_per_tech"],
@@ -580,7 +607,7 @@ class Handler(SimpleHTTPRequestHandler):
                     "tech_time_untracked_jobs":tech_metrics["untracked_jobs"],
                     "sold_revenue":round(sold_revenue,2),
                     "jobs_sold":len(won_estimates),
-                    "scope_note":"Revenue/jobs completed use the actual HCP completion timestamp. Residential vs commercial uses the Job Type selected on each HCP job, with customer Homeowner/Business type as a fallback. Repeat customers are customers completed this week who had at least one completed HCP job before the week began. Tech hours use actual HCP Start/Finish timestamps when available and fall back to the job's scheduled start/end window when technicians did not use time tracking. Sold revenue/jobs sold use approved Housecall Pro estimates created within the selected week."
+                    "scope_note":"Revenue/jobs completed use the actual HCP completion timestamp. Residential vs commercial uses the Job Type selected on each HCP job, with customer Homeowner/Business type as a fallback. Repeat customers are customers completed this week who had at least one completed HCP job before the week began. Callbacks count completed jobs tagged Callback in HCP. Tech hours use actual HCP Start/Finish timestamps when available and fall back to the job's scheduled start/end window when technicians did not use time tracking. Sold revenue/jobs sold use approved Housecall Pro estimates created within the selected week."
                 })
             except urllib.error.HTTPError as e:
                 try: detail=json.loads(e.read().decode("utf-8"))
