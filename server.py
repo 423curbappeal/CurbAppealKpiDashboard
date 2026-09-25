@@ -7,17 +7,17 @@ TOKEN = os.getenv("META_ACCESS_TOKEN", "").strip()
 AD_ACCOUNT = os.getenv("META_AD_ACCOUNT_ID", "").strip()
 PAGE_IDS = [x.strip() for x in os.getenv("META_PAGE_IDS", "").split(",") if x.strip()]
 
-def graph(path, params=None):
+def graph(path, params=None, access_token=None):
     params = dict(params or {})
-    params["access_token"] = TOKEN
+    params["access_token"] = (access_token or TOKEN)
     url = "https://graph.facebook.com/" + GRAPH_VERSION + "/" + path.lstrip("/") + "?" + urllib.parse.urlencode(params)
     req = urllib.request.Request(url, headers={"User-Agent":"CurbAppealKPIDashboard/1.0"})
     with urllib.request.urlopen(req, timeout=30) as r:
         return json.loads(r.read().decode("utf-8"))
 
-def all_pages(path, params=None):
+def all_pages(path, params=None, access_token=None):
     out=[]
-    data=graph(path, params)
+    data=graph(path, params, access_token=access_token)
     while True:
         out.extend(data.get("data", []))
         nxt=(data.get("paging") or {}).get("next")
@@ -26,6 +26,13 @@ def all_pages(path, params=None):
         with urllib.request.urlopen(req, timeout=30) as r:
             data=json.loads(r.read().decode("utf-8"))
     return out
+
+def get_page_access_token(page_id):
+    data=graph(page_id, {"fields":"id,name,access_token"})
+    page_token=(data.get("access_token") or "").strip()
+    if not page_token:
+        raise RuntimeError("Meta did not return a Page Access Token for Page " + page_id)
+    return page_token, data.get("name") or page_id
 
 class Handler(SimpleHTTPRequestHandler):
     def end_headers(self):
@@ -73,20 +80,38 @@ class Handler(SimpleHTTPRequestHandler):
             page_breakdown=[]
             for page_id in PAGE_IDS:
                 page_count=0
-                forms=all_pages(page_id+"/leadgen_forms",{"fields":"id,name,status","limit":"100"})
+
+                # Meta requires Page lead-form endpoints to be called with a
+                # Page Access Token. Derive it from the configured user token
+                # instead of storing a second secret in Railway.
+                page_token, page_name=get_page_access_token(page_id)
+
+                forms=all_pages(
+                    page_id+"/leadgen_forms",
+                    {"fields":"id,name,status","limit":"100"},
+                    access_token=page_token
+                )
                 for form in forms:
                     forms_checked += 1
-                    rows=all_pages(form["id"]+"/leads",{
-                        "fields":"id,created_time",
-                        "filtering":json.dumps([
-                            {"field":"time_created","operator":"GREATER_THAN_OR_EQUAL","value":int(start_dt.timestamp())},
-                            {"field":"time_created","operator":"LESS_THAN","value":int(end_dt.timestamp())}
-                        ]),
-                        "limit":"100"
-                    })
+                    rows=all_pages(
+                        form["id"]+"/leads",
+                        {
+                            "fields":"id,created_time",
+                            "filtering":json.dumps([
+                                {"field":"time_created","operator":"GREATER_THAN_OR_EQUAL","value":int(start_dt.timestamp())},
+                                {"field":"time_created","operator":"LESS_THAN","value":int(end_dt.timestamp())}
+                            ]),
+                            "limit":"100"
+                        },
+                        access_token=page_token
+                    )
                     page_count += len(rows)
                 leads += page_count
-                page_breakdown.append({"page_id":page_id,"instant_form_leads":page_count})
+                page_breakdown.append({
+                    "page_id":page_id,
+                    "page_name":page_name,
+                    "instant_form_leads":page_count
+                })
 
             return self.send_json(200,{
                 "ok":True,
