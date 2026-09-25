@@ -3084,7 +3084,11 @@ function clearMonthlyPartial(ym) {
     try {
       const res = await fetch('/api/meta-preview?week_ending=' + encodeURIComponent(date.value), {cache:'no-store'});
       const data = await res.json();
-      if (!res.ok || !data.ok) throw new Error(data.error || 'Meta request failed');
+      if (!res.ok || !data.ok) {
+        const metaMessage = data && data.detail && data.detail.error && data.detail.error.message ? data.detail.error.message : '';
+        const metaCode = data && data.detail && data.detail.error && data.detail.error.code ? ' [Meta code ' + data.detail.error.code + ']' : '';
+        throw new Error((data.error || 'Meta request failed') + (metaMessage ? ': ' + metaMessage : '') + metaCode);
+      }
       preview = data;
       panel.textContent = '';
       const summary = document.createElement('div');
