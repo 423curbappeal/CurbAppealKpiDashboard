@@ -396,7 +396,8 @@ def hcp_assigned_employee_ids(job):
 def hcp_job_tech_metrics(completed_jobs):
     unique_techs=set()
     total_tech_hours=0.0
-    tracked_jobs=0
+    actual_time_jobs=0
+    scheduled_fallback_jobs=0
     untracked_jobs=0
 
     for job in completed_jobs:
@@ -404,23 +405,44 @@ def hcp_job_tech_metrics(completed_jobs):
         for tech_id in tech_ids:
             unique_techs.add(tech_id)
 
+        if not tech_ids:
+            untracked_jobs += 1
+            continue
+
         timestamps=job.get("work_timestamps") or {}
         started=hcp_parse_datetime(timestamps.get("started_at"))
         completed=hcp_parse_datetime(timestamps.get("completed_at"))
 
-        if not tech_ids or not started or not completed or completed <= started:
-            untracked_jobs += 1
-            continue
+        duration_hours=None
+        source=None
 
-        duration_hours=(completed-started).total_seconds()/3600.0
+        if started and completed and completed > started:
+            candidate=(completed-started).total_seconds()/3600.0
+            if 0 < candidate <= 24:
+                duration_hours=candidate
+                source="actual"
 
-        # Ignore obviously bad open/forgotten timers instead of corrupting KPI data.
-        if duration_hours <= 0 or duration_hours > 24:
+        # If the crew did not use HCP Start/Finish, fall back to the job's
+        # scheduled window so tech productivity still auto-populates.
+        if duration_hours is None:
+            schedule=job.get("schedule") or {}
+            scheduled_start=hcp_parse_datetime(schedule.get("scheduled_start"))
+            scheduled_end=hcp_parse_datetime(schedule.get("scheduled_end"))
+            if scheduled_start and scheduled_end and scheduled_end > scheduled_start:
+                candidate=(scheduled_end-scheduled_start).total_seconds()/3600.0
+                if 0 < candidate <= 24:
+                    duration_hours=candidate
+                    source="scheduled"
+
+        if duration_hours is None:
             untracked_jobs += 1
             continue
 
         total_tech_hours += duration_hours * len(tech_ids)
-        tracked_jobs += 1
+        if source == "actual":
+            actual_time_jobs += 1
+        else:
+            scheduled_fallback_jobs += 1
 
     tech_count=len(unique_techs)
     avg_hours_per_tech=(total_tech_hours / tech_count) if tech_count else 0.0
@@ -429,7 +451,8 @@ def hcp_job_tech_metrics(completed_jobs):
         "tech_count":tech_count,
         "total_tech_hours":round(total_tech_hours,2),
         "hours_per_tech":round(avg_hours_per_tech,2),
-        "tracked_jobs":tracked_jobs,
+        "actual_time_jobs":actual_time_jobs,
+        "scheduled_fallback_jobs":scheduled_fallback_jobs,
         "untracked_jobs":untracked_jobs
     }
 
@@ -552,11 +575,12 @@ class Handler(SimpleHTTPRequestHandler):
                     "total_tech_hours":tech_metrics["total_tech_hours"],
                     "hours_per_tech":tech_metrics["hours_per_tech"],
                     "tech_rev_per_hour":round((revenue / tech_metrics["total_tech_hours"]),2) if tech_metrics["total_tech_hours"] else 0.0,
-                    "tech_time_tracked_jobs":tech_metrics["tracked_jobs"],
+                    "tech_time_actual_jobs":tech_metrics["actual_time_jobs"],
+                    "tech_time_scheduled_fallback_jobs":tech_metrics["scheduled_fallback_jobs"],
                     "tech_time_untracked_jobs":tech_metrics["untracked_jobs"],
                     "sold_revenue":round(sold_revenue,2),
                     "jobs_sold":len(won_estimates),
-                    "scope_note":"Revenue/jobs completed use the actual HCP completion timestamp. Residential vs commercial uses the Job Type selected on each HCP job, with customer Homeowner/Business type as a fallback. Repeat customers are customers completed this week who had at least one completed HCP job before the week began. Tech hours use each completed job's actual HCP started/completed timestamps multiplied by assigned technicians. Sold revenue/jobs sold use approved Housecall Pro estimates created within the selected week."
+                    "scope_note":"Revenue/jobs completed use the actual HCP completion timestamp. Residential vs commercial uses the Job Type selected on each HCP job, with customer Homeowner/Business type as a fallback. Repeat customers are customers completed this week who had at least one completed HCP job before the week began. Tech hours use actual HCP Start/Finish timestamps when available and fall back to the job's scheduled start/end window when technicians did not use time tracking. Sold revenue/jobs sold use approved Housecall Pro estimates created within the selected week."
                 })
             except urllib.error.HTTPError as e:
                 try: detail=json.loads(e.read().decode("utf-8"))
