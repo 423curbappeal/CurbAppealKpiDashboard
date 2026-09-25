@@ -1214,6 +1214,7 @@
     <button class="btn btn-success" onclick="saveEntry()">✅ Save This Week</button>
     <button class="btn btn-ghost" onclick="clearForm()">Clear Form</button>
     <button class="btn btn-ghost" id="meta-preview-btn" type="button">📘 Preview Meta</button>
+    <button class="btn btn-ghost" id="hcp-preview-btn" type="button">🧰 Preview HCP</button>
   </div>
 
 </div><!-- /page-washworks -->
@@ -3112,6 +3113,68 @@ function clearMonthlyPartial(ym) {
     } finally {
       btn.disabled = false;
       btn.textContent = '📘 Preview Meta';
+    }
+  });
+})();
+</script>
+<script>
+(function () {
+  const btn = document.getElementById('hcp-preview-btn');
+  if (!btn) return;
+
+  let preview = null;
+  const panel = document.createElement('div');
+  panel.id = 'hcp-preview-panel';
+  panel.style.cssText = 'display:none;margin-top:12px;padding:14px;border:1px solid var(--border);border-radius:10px;background:var(--surface2);font-size:13px;line-height:1.6;';
+  btn.parentElement.insertAdjacentElement('afterend', panel);
+
+  btn.addEventListener('click', async function () {
+    const date = document.getElementById('entry-date');
+    if (!date || !date.value) {
+      panel.style.display = 'block';
+      panel.textContent = 'Select a week-ending date first.';
+      return;
+    }
+    btn.disabled = true;
+    btn.textContent = 'Loading HCP…';
+    panel.style.display = 'block';
+    panel.textContent = 'Pulling completed jobs and revenue from Housecall Pro…';
+    try {
+      const res = await fetch('/api/hcp-preview?week_ending=' + encodeURIComponent(date.value), {cache:'no-store'});
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        const detail = data && data.detail ? JSON.stringify(data.detail) : '';
+        throw new Error((data.error || 'Housecall Pro request failed') + (detail ? ': ' + detail : ''));
+      }
+      preview = data;
+      panel.textContent = '';
+      const summary = document.createElement('div');
+      summary.innerHTML = '<strong>' + data.week_start + ' → ' + data.week_ending + '</strong><br>Completed-job revenue: <strong>
+</html>
+ + Number(data.revenue).toFixed(2) + '</strong> · Jobs completed: <strong>' + Number(data.jobs_completed) + '</strong>';
+      const note = document.createElement('div');
+      note.style.cssText = 'margin-top:5px;color:var(--muted);font-size:11px;';
+      note.textContent = data.scope_note || '';
+      const apply = document.createElement('button');
+      apply.type = 'button';
+      apply.className = 'btn btn-success btn-sm';
+      apply.style.marginTop = '10px';
+      apply.textContent = 'Apply to Form';
+      apply.addEventListener('click', function () {
+        const revenue = document.getElementById('ww-revenue');
+        const jobs = document.getElementById('ww-jobs-completed');
+        if (revenue) revenue.value = Number(preview.revenue).toFixed(2);
+        if (jobs) jobs.value = Number(preview.jobs_completed);
+        panel.insertAdjacentHTML('beforeend','<div style="margin-top:8px;">✅ Applied Revenue + Jobs Completed. Review, then click Save This Week.</div>');
+      });
+      panel.appendChild(summary);
+      panel.appendChild(note);
+      panel.appendChild(apply);
+    } catch (err) {
+      panel.textContent = 'HCP preview failed: ' + (err && err.message ? err.message : String(err));
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '🧰 Preview HCP';
     }
   });
 })();
