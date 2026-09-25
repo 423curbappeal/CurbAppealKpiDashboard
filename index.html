@@ -1430,17 +1430,23 @@ PLATFORMS.forEach(p => platformCache[p] = {});
 // ── Storage ───────────────────────────────────────────────────
 // Migrate data from old key if present (one-time, safe to run every load)
 (function migrateLegacy() {
-  const old = localStorage.getItem('kpi_entries');
-  if (!old) return;
-  const existing = JSON.parse(localStorage.getItem('gudzy_kpi') || '[]');
-  const legacy = JSON.parse(old);
-  if (!legacy.length) return;
-  // Merge: existing entries win on date conflicts
-  const existingDates = new Set(existing.map(e => e.date));
-  const merged = [...existing, ...legacy.filter(e => !existingDates.has(e.date))];
-  merged.sort((a,b) => b.date.localeCompare(a.date));
-  localStorage.setItem('gudzy_kpi', JSON.stringify(merged));
-  localStorage.removeItem('kpi_entries'); // clean up old key
+  try {
+    const old = localStorage.getItem('kpi_entries');
+    if (!old) return;
+    let existing = [];
+    let legacy = [];
+    try { existing = JSON.parse(localStorage.getItem('gudzy_kpi') || '[]'); } catch (_) { existing = []; }
+    try { legacy = JSON.parse(old); } catch (_) { localStorage.removeItem('kpi_entries'); return; }
+    if (!Array.isArray(existing)) existing = [];
+    if (!Array.isArray(legacy) || !legacy.length) return;
+    const existingDates = new Set(existing.map(e => e.date));
+    const merged = [...existing, ...legacy.filter(e => !existingDates.has(e.date))];
+    merged.sort((a,b) => String(b.date || '').localeCompare(String(a.date || '')));
+    localStorage.setItem('gudzy_kpi', JSON.stringify(merged));
+    localStorage.removeItem('kpi_entries');
+  } catch (e) {
+    console.warn('Legacy KPI migration skipped:', e);
+  }
 })();
 
 function getData() { return JSON.parse(localStorage.getItem('gudzy_kpi') || '[]'); }
