@@ -264,17 +264,72 @@ def hcp_customer_class(customer_id):
 
     return "unknown"
 
+def hcp_classify_text(value):
+    text=str(value or "").strip().lower()
+    if not text:
+        return None
+    if "commercial" in text or text in {"business","company"}:
+        return "commercial"
+    if "residential" in text or text in {"homeowner","home_owner","consumer"}:
+        return "residential"
+    return None
+
+def hcp_job_type_class(job):
+    # Housecall Pro can expose Job Type differently across API versions.
+    # Check common direct fields first.
+    for key in ("job_type","job_type_name","type_name"):
+        value=job.get(key)
+        if isinstance(value, dict):
+            value=value.get("name") or value.get("value") or value.get("label")
+        bucket=hcp_classify_text(value)
+        if bucket:
+            return bucket
+
+    # Then inspect structured job fields when present.
+    fields=job.get("job_fields") or job.get("fields") or []
+    if isinstance(fields, dict):
+        iterable=fields.items()
+        for key, value in iterable:
+            key_text=str(key or "").lower()
+            if "job type" in key_text or "job_type" in key_text or "property type" in key_text:
+                if isinstance(value, dict):
+                    value=value.get("name") or value.get("value") or value.get("label")
+                bucket=hcp_classify_text(value)
+                if bucket:
+                    return bucket
+    elif isinstance(fields, list):
+        for field in fields:
+            if not isinstance(field, dict):
+                continue
+            name=str(field.get("name") or field.get("label") or field.get("field_name") or "").lower()
+            if "job type" not in name and "job_type" not in name and "property type" not in name:
+                continue
+            value=field.get("value") or field.get("selected_value") or field.get("name_value")
+            if isinstance(value, dict):
+                value=value.get("name") or value.get("value") or value.get("label")
+            bucket=hcp_classify_text(value)
+            if bucket:
+                return bucket
+
+    return None
+
 def hcp_split_completed_revenue(jobs):
     totals={"residential":0.0,"commercial":0.0,"unknown":0.0}
     cache={}
     for job in jobs:
-        customer_id=hcp_customer_id_from_job(job)
-        if customer_id not in cache:
-            try:
-                cache[customer_id]=hcp_customer_class(customer_id)
-            except Exception:
-                cache[customer_id]="unknown"
-        bucket=cache.get(customer_id) or "unknown"
+        # Preferred source: Job Type selected on the HCP job itself.
+        bucket=hcp_job_type_class(job)
+
+        # Fallback: customer Homeowner/Business type if it exists.
+        if not bucket:
+            customer_id=hcp_customer_id_from_job(job)
+            if customer_id not in cache:
+                try:
+                    cache[customer_id]=hcp_customer_class(customer_id)
+                except Exception:
+                    cache[customer_id]="unknown"
+            bucket=cache.get(customer_id) or "unknown"
+
         if bucket not in totals:
             bucket="unknown"
         totals[bucket] += hcp_money_to_dollars(job.get("total_amount"))
@@ -393,7 +448,7 @@ class Handler(SimpleHTTPRequestHandler):
                     "revenue_unclassified":round(revenue_split["unknown"],2),
                     "sold_revenue":round(sold_revenue,2),
                     "jobs_sold":len(won_estimates),
-                    "scope_note":"Revenue/jobs completed use the actual HCP completion timestamp. Residential vs commercial uses each HCP customer's Homeowner/Business type. Sold revenue/jobs sold use approved Housecall Pro estimates created within the selected week."
+                    "scope_note":"Revenue/jobs completed use the actual HCP completion timestamp. Residential vs commercial uses the Job Type selected on each HCP job, with customer Homeowner/Business type as a fallback. Sold revenue/jobs sold use approved Housecall Pro estimates created within the selected week."
                 })
             except urllib.error.HTTPError as e:
                 try: detail=json.loads(e.read().decode("utf-8"))
