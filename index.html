@@ -3163,7 +3163,8 @@ function clearMonthlyPartial(ym) {
           : 'Residential: <strong>USD ' + Number(data.revenue_residential).toFixed(2) + '</strong>' +
             ' · Commercial: <strong>USD ' + Number(data.revenue_commercial).toFixed(2) + '</strong><br>') +
         'Repeat customers: <strong>' + Number(data.repeat_customers) + '</strong>' +
-        ' · Repeat customer %: <strong>' + Number(data.repeat_customer_pct).toFixed(1) + '%</strong><br>' +
+        ' · Repeat customer %: <strong>' + Number(data.repeat_customer_pct).toFixed(1) + '%</strong>' +
+        ' · Callbacks: <strong>' + Number(data.callbacks) + '</strong><br>' +
         'Technicians: <strong>' + Number(data.tech_count) + '</strong>' +
         ' · Total tech hours: <strong>' + Number(data.total_tech_hours).toFixed(2) + '</strong>' +
         ' · Tech rev/hr: <strong>USD ' + Number(data.tech_rev_per_hour).toFixed(2) + '</strong><br>' +
@@ -3194,6 +3195,7 @@ function clearMonthlyPartial(ym) {
         const residentialRevenue = document.getElementById('ww-revenue-residential');
         const commercialRevenue = document.getElementById('ww-revenue-commercial');
         const repeatCustomers = document.getElementById('ww-repeat-customers');
+        const callbacks = document.getElementById('ww-callbacks');
         const techCount = document.getElementById('ww-tech-count');
         const techHours = document.getElementById('ww-tech-hours');
 
@@ -3204,6 +3206,7 @@ function clearMonthlyPartial(ym) {
           if (commercialRevenue) commercialRevenue.value = Number(preview.revenue_commercial).toFixed(2);
         }
         if (repeatCustomers) repeatCustomers.value = Number(preview.repeat_customers);
+        if (callbacks) callbacks.value = Number(preview.callbacks);
         if (techCount) techCount.value = Number(preview.tech_count);
         if (techHours) techHours.value = Number(preview.hours_per_tech).toFixed(2);
         if (soldRevenue) soldRevenue.value = Number(preview.sold_revenue).toFixed(2);
@@ -3212,7 +3215,7 @@ function clearMonthlyPartial(ym) {
         const splitText = Number(preview.revenue_unclassified) > 0
           ? ' Residential/Commercial was left unchanged because HCP does not have a reliable customer type on these jobs.'
           : ' Residential/Commercial was applied too.';
-        panel.insertAdjacentHTML('beforeend','<div style="margin-top:8px;">✅ Applied Revenue, Jobs Completed, Repeat Customers, Technician Count/Hours, Sold Revenue, and Jobs Sold.' + splitText + ' Review, then click Save This Week.</div>');
+        panel.insertAdjacentHTML('beforeend','<div style="margin-top:8px;">✅ Applied Revenue, Jobs Completed, Repeat Customers, Callbacks, Technician Count/Hours, Sold Revenue, and Jobs Sold.' + splitText + ' Review, then click Save This Week.</div>');
       });
 
       panel.appendChild(summary);
