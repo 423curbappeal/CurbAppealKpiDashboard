@@ -3156,15 +3156,9 @@ function clearMonthlyPartial(ym) {
       const summary = document.createElement('div');
       summary.innerHTML =
         '<strong>' + data.week_start + ' → ' + data.week_ending + '</strong><br>' +
-        'Completed revenue: <strong>
-</body>
-</html>
- + Number(data.revenue).toFixed(2) + '</strong>' +
+        'Completed revenue: <strong>USD ' + Number(data.revenue).toFixed(2) + '</strong>' +
         ' · Jobs completed: <strong>' + Number(data.jobs_completed) + '</strong><br>' +
-        'Sold revenue: <strong>
-</body>
-</html>
- + Number(data.sold_revenue).toFixed(2) + '</strong>' +
+        'Sold revenue: <strong>USD ' + Number(data.sold_revenue).toFixed(2) + '</strong>' +
         ' · Jobs sold: <strong>' + Number(data.jobs_sold) + '</strong>';
 
       const note = document.createElement('div');
