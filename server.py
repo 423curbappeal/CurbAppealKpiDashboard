@@ -59,30 +59,77 @@ def hcp_get(path, params=None):
                 raise
     raise last_error
 
+def hcp_parse_datetime(value):
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except Exception:
+        return None
+
 def hcp_list_completed_jobs(start, end):
-    jobs=[]
+    matched=[]
     page=1
     while True:
         data=hcp_get("jobs", {
             "page":page,
             "page_size":100,
-            "work_status[]":["completed"],
-            "scheduled_start_min":start.isoformat(),
-            "scheduled_start_max":end.isoformat()
+            "work_status[]":["completed"]
         })
         batch=data.get("jobs") or data.get("data") or []
-        jobs.extend(batch)
+        for job in batch:
+            status=str(job.get("work_status") or "").lower()
+            if not status.startswith("complete"):
+                continue
+            if job.get("deleted_at"):
+                continue
+            completed_at=((job.get("work_timestamps") or {}).get("completed_at"))
+            completed_dt=hcp_parse_datetime(completed_at)
+            if completed_dt and start <= completed_dt.date() <= end:
+                matched.append(job)
+
         total_pages=int(data.get("total_pages") or 1)
         if page >= total_pages or not batch:
             break
         page += 1
+    return matched
 
-    # HCP's list filter accepts "completed", while returned statuses may be
-    # "complete rated" / "complete unrated". Keep only completed rows.
-    return [
-        job for job in jobs
-        if str(job.get("work_status") or "").lower().startswith("complete")
-    ]
+def hcp_list_created_jobs(start, end):
+    matched=[]
+    page=1
+    while True:
+        data=hcp_get("jobs", {
+            "page":page,
+            "page_size":100,
+            "sort_by":"created_at",
+            "sort_direction":"desc"
+        })
+        batch=data.get("jobs") or data.get("data") or []
+        if not batch:
+            break
+
+        saw_older=False
+        for job in batch:
+            created_dt=hcp_parse_datetime(job.get("created_at"))
+            if not created_dt:
+                continue
+            created_date=created_dt.date()
+            if created_date < start:
+                saw_older=True
+                continue
+            if created_date > end:
+                continue
+
+            status=str(job.get("work_status") or "").lower()
+            if "cancel" in status or job.get("deleted_at"):
+                continue
+            matched.append(job)
+
+        total_pages=int(data.get("total_pages") or 1)
+        if saw_older or page >= total_pages:
+            break
+        page += 1
+    return matched
 
 def hcp_money_to_dollars(value):
     try:
@@ -146,16 +193,21 @@ class Handler(SimpleHTTPRequestHandler):
                 end=datetime.strptime(week_ending,"%Y-%m-%d").date()
                 start=end-timedelta(days=6)
 
-                jobs=hcp_list_completed_jobs(start, end)
-                revenue=sum(hcp_money_to_dollars(job.get("total_amount")) for job in jobs)
+                completed_jobs=hcp_list_completed_jobs(start, end)
+                revenue=sum(hcp_money_to_dollars(job.get("total_amount")) for job in completed_jobs)
+
+                sold_jobs=hcp_list_created_jobs(start, end)
+                sold_revenue=sum(hcp_money_to_dollars(job.get("total_amount")) for job in sold_jobs)
 
                 return self.send_json(200,{
                     "ok":True,
                     "week_start":start.isoformat(),
                     "week_ending":end.isoformat(),
                     "revenue":round(revenue,2),
-                    "jobs_completed":len(jobs),
-                    "scope_note":"Housecall Pro completed jobs scheduled within the selected week."
+                    "jobs_completed":len(completed_jobs),
+                    "sold_revenue":round(sold_revenue,2),
+                    "jobs_sold":len(sold_jobs),
+                    "scope_note":"Revenue/jobs completed use the actual HCP completion timestamp. Sold revenue/jobs sold use the HCP job-created date and exclude canceled/deleted jobs."
                 })
             except urllib.error.HTTPError as e:
                 try: detail=json.loads(e.read().decode("utf-8"))
