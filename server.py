@@ -8,6 +8,7 @@ AD_ACCOUNT = os.getenv("META_AD_ACCOUNT_ID", "").strip()
 PAGE_IDS = [x.strip() for x in os.getenv("META_PAGE_IDS", "").split(",") if x.strip()]
 HCP_API_KEY = os.getenv("HCP_API_KEY", "").strip()
 HCP_API_BASE = "https://api.housecallpro.com"
+HCP_REVIEWS_WIDGET_URL = "https://client.housecallpro.com/reviews/widget/cc375611-9a34-4c00-a095-ddf5d91cd6b6"
 
 def graph(path, params=None, access_token=None):
     params = dict(params or {})
@@ -481,6 +482,144 @@ def hcp_job_tech_metrics(completed_jobs):
         "untracked_jobs":untracked_jobs
     }
 
+def hcp_fetch_public(url):
+    req=urllib.request.Request(
+        url,
+        headers={
+            "User-Agent":"Mozilla/5.0 CurbAppealKPIDashboard/1.0",
+            "Accept":"text/html,application/xhtml+xml,application/json"
+        }
+    )
+    with urllib.request.urlopen(req, timeout=30) as r:
+        return r.read().decode("utf-8", errors="replace")
+
+def hcp_review_date(value):
+    if not value:
+        return None
+    text=str(value).strip()
+    dt=hcp_parse_datetime(text)
+    if dt:
+        return dt.date()
+    for fmt in ("%b %d, %Y","%B %d, %Y","%m/%d/%Y","%Y-%m-%d"):
+        try:
+            return datetime.strptime(text,fmt).date()
+        except Exception:
+            pass
+    return None
+
+def hcp_review_rating(obj):
+    if not isinstance(obj, dict):
+        return None
+    for key in ("rating","stars","star_rating","review_rating","score","rating_value","ratingValue"):
+        value=obj.get(key)
+        if isinstance(value, dict):
+            value=value.get("ratingValue") or value.get("value") or value.get("rating")
+        try:
+            n=float(value)
+            if 0 <= n <= 5:
+                return n
+        except Exception:
+            pass
+    nested=obj.get("reviewRating")
+    if isinstance(nested, dict):
+        try:
+            n=float(nested.get("ratingValue"))
+            if 0 <= n <= 5:
+                return n
+        except Exception:
+            pass
+    return None
+
+def hcp_review_date_from_obj(obj):
+    if not isinstance(obj, dict):
+        return None
+    for key in (
+        "created_at","createdAt","date","review_date","reviewDate",
+        "published_at","publishedAt","datePublished","submitted_at","submittedAt"
+    ):
+        if key in obj:
+            d=hcp_review_date(obj.get(key))
+            if d:
+                return d
+    return None
+
+def hcp_collect_review_objects(value, out):
+    if isinstance(value, dict):
+        rating=hcp_review_rating(value)
+        review_date=hcp_review_date_from_obj(value)
+        if rating is not None and review_date is not None:
+            ident=value.get("id") or value.get("review_id") or value.get("reviewId")
+            out.append((str(ident or ""), rating, review_date))
+        for child in value.values():
+            hcp_collect_review_objects(child,out)
+    elif isinstance(value, list):
+        for child in value:
+            hcp_collect_review_objects(child,out)
+
+def hcp_reviews_for_week(start, end):
+    import re
+    html=hcp_fetch_public(HCP_REVIEWS_WIDGET_URL)
+
+    candidates=[]
+    json_blobs=[]
+
+    # Parse JSON-bearing script tags used by modern React/Next.js widgets.
+    for match in re.finditer(r'<script[^>]*>(.*?)</script>', html, re.I|re.S):
+        body=(match.group(1) or "").strip()
+        if not body:
+            continue
+        if body.startswith("{") or body.startswith("["):
+            try:
+                json_blobs.append(json.loads(body))
+            except Exception:
+                pass
+
+    # Also parse common __NEXT_DATA__ assignments.
+    for match in re.finditer(r'__NEXT_DATA__[^>]*>(.*?)</script>', html, re.I|re.S):
+        body=(match.group(1) or "").strip()
+        if body:
+            try:
+                json_blobs.append(json.loads(body))
+            except Exception:
+                pass
+
+    for blob in json_blobs:
+        hcp_collect_review_objects(blob,candidates)
+
+    # Fallback for JSON-LD style rating/date pairs directly in HTML.
+    if not candidates:
+        date_rating_patterns=[
+            r'"datePublished"\s*:\s*"([^"]+)".{0,1000}?"ratingValue"\s*:\s*"?([0-5](?:\.\d+)?)"?',
+            r'"ratingValue"\s*:\s*"?([0-5](?:\.\d+)?)"?.{0,1000}?"datePublished"\s*:\s*"([^"]+)"'
+        ]
+        for idx, pattern in enumerate(date_rating_patterns):
+            for m in re.finditer(pattern, html, re.I|re.S):
+                if idx == 0:
+                    d=hcp_review_date(m.group(1)); rating=float(m.group(2))
+                else:
+                    rating=float(m.group(1)); d=hcp_review_date(m.group(2))
+                if d:
+                    candidates.append(("",rating,d))
+
+    dedup=set()
+    normalized=[]
+    for ident,rating,d in candidates:
+        key=(ident or "",round(float(rating),2),d.isoformat())
+        if key in dedup:
+            continue
+        dedup.add(key)
+        normalized.append((rating,d))
+
+    five_star=sum(1 for rating,d in normalized if rating >= 4.999 and start <= d <= end)
+
+    return {
+        "available": bool(normalized),
+        "five_star_reviews": five_star,
+        "review_records_found": len(normalized),
+        "json_payloads_found": len(json_blobs),
+        "widget_html_bytes": len(html.encode("utf-8"))
+    }
+
 def get_page_access_token(page_id):
     data=graph(page_id, {"fields":"id,name,access_token"})
     page_token=(data.get("access_token") or "").strip()
@@ -582,6 +721,16 @@ class Handler(SimpleHTTPRequestHandler):
                 repeat_customers=hcp_repeat_customer_count(completed_jobs, start)
                 callbacks=hcp_callback_count(completed_jobs)
                 tech_metrics=hcp_job_tech_metrics(completed_jobs)
+                try:
+                    review_metrics=hcp_reviews_for_week(start,end)
+                except Exception:
+                    review_metrics={
+                        "available":False,
+                        "five_star_reviews":0,
+                        "review_records_found":0,
+                        "json_payloads_found":0,
+                        "widget_html_bytes":0
+                    }
 
                 won_estimates=hcp_list_won_estimates(start, end)
                 sold_revenue=sum(float(est.get("sold_value") or 0) for est in won_estimates)
@@ -598,6 +747,11 @@ class Handler(SimpleHTTPRequestHandler):
                     "repeat_customers":repeat_customers,
                     "repeat_customer_pct":round((repeat_customers / len(completed_jobs) * 100.0),1) if completed_jobs else 0.0,
                     "callbacks":callbacks,
+                    "five_star_reviews":review_metrics["five_star_reviews"],
+                    "reviews_available":review_metrics["available"],
+                    "review_records_found":review_metrics["review_records_found"],
+                    "reviews_json_payloads_found":review_metrics["json_payloads_found"],
+                    "reviews_widget_html_bytes":review_metrics["widget_html_bytes"],
                     "tech_count":tech_metrics["tech_count"],
                     "total_tech_hours":tech_metrics["total_tech_hours"],
                     "hours_per_tech":tech_metrics["hours_per_tech"],
