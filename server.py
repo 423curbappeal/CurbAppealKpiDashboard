@@ -137,6 +137,45 @@ def hcp_money_to_dollars(value):
     except (TypeError, ValueError):
         return 0.0
 
+def hcp_list_won_estimates(start, end):
+    matched=[]
+    page=1
+    approved_statuses={"pro_approved","customer_approved"}
+
+    while True:
+        data=hcp_get("estimates", {
+            "page":page,
+            "page_size":100
+        })
+        batch=data.get("estimates") or data.get("data") or []
+        if not batch:
+            break
+
+        for estimate in batch:
+            created_dt=hcp_parse_datetime(estimate.get("created_at"))
+            if not created_dt:
+                continue
+            created_date=created_dt.date()
+            if created_date < start or created_date > end:
+                continue
+
+            approval_status=str(estimate.get("approval_status") or "").lower()
+            if approval_status not in approved_statuses:
+                continue
+
+            work_status=str(estimate.get("work_status") or "").lower()
+            if "cancel" in work_status or estimate.get("deleted_at"):
+                continue
+
+            matched.append(estimate)
+
+        total_pages=int(data.get("total_pages") or 1)
+        if page >= total_pages:
+            break
+        page += 1
+
+    return matched
+
 def get_page_access_token(page_id):
     data=graph(page_id, {"fields":"id,name,access_token"})
     page_token=(data.get("access_token") or "").strip()
@@ -196,8 +235,8 @@ class Handler(SimpleHTTPRequestHandler):
                 completed_jobs=hcp_list_completed_jobs(start, end)
                 revenue=sum(hcp_money_to_dollars(job.get("total_amount")) for job in completed_jobs)
 
-                sold_jobs=hcp_list_created_jobs(start, end)
-                sold_revenue=sum(hcp_money_to_dollars(job.get("total_amount")) for job in sold_jobs)
+                won_estimates=hcp_list_won_estimates(start, end)
+                sold_revenue=sum(hcp_money_to_dollars(est.get("total_amount")) for est in won_estimates)
 
                 return self.send_json(200,{
                     "ok":True,
@@ -206,8 +245,8 @@ class Handler(SimpleHTTPRequestHandler):
                     "revenue":round(revenue,2),
                     "jobs_completed":len(completed_jobs),
                     "sold_revenue":round(sold_revenue,2),
-                    "jobs_sold":len(sold_jobs),
-                    "scope_note":"Revenue/jobs completed use the actual HCP completion timestamp. Sold revenue/jobs sold use the HCP job-created date and exclude canceled/deleted jobs."
+                    "jobs_sold":len(won_estimates),
+                    "scope_note":"Revenue/jobs completed use the actual HCP completion timestamp. Sold revenue/jobs sold use approved Housecall Pro estimates created within the selected week."
                 })
             except urllib.error.HTTPError as e:
                 try: detail=json.loads(e.read().decode("utf-8"))
