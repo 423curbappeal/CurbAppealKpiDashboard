@@ -3173,8 +3173,11 @@ function clearMonthlyPartial(ym) {
       const note = document.createElement('div');
       note.style.cssText = 'margin-top:5px;color:var(--muted);font-size:11px;';
       note.textContent = (data.scope_note || '') +
+        (Number(data.tech_time_scheduled_fallback_jobs) > 0
+          ? ' ' + Number(data.tech_time_scheduled_fallback_jobs) + ' completed job(s) used scheduled duration because HCP Start/Finish time was missing.'
+          : '') +
         (Number(data.tech_time_untracked_jobs) > 0
-          ? ' ⚠️ ' + Number(data.tech_time_untracked_jobs) + ' completed job(s) lacked usable technician time tracking, so tech-hour metrics are partial.'
+          ? ' ⚠️ ' + Number(data.tech_time_untracked_jobs) + ' completed job(s) still had no usable actual or scheduled duration, so tech-hour metrics are partial.'
           : '');
 
       const apply = document.createElement('button');
