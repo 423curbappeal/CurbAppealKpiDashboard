@@ -3060,38 +3060,40 @@ function clearMonthlyPartial(ym) {
 
 let metaPreviewData = null;
 async function previewMeta() {
-  const dateEl=document.getElementById('entry-date');
+  const dateEl = document.getElementById('entry-date');
   if (!dateEl || !dateEl.value) { showToast('⚠️ Select a week-ending date first','#f97316'); return; }
-  const btn=document.getElementById('meta-preview-btn');
-  const panel=document.getElementById('meta-preview-panel');
-  const result=document.getElementById('meta-preview-result');
-  const apply=document.getElementById('meta-apply-btn');
-  btn.disabled=true; btn.textContent='Loading Meta…';
-  panel.style.display='block'; apply.style.display='none';
-  result.textContent='Pulling Meta Ads spend and Instant Form leads…';
+  const btn = document.getElementById('meta-preview-btn');
+  const panel = document.getElementById('meta-preview-panel');
+  const result = document.getElementById('meta-preview-result');
+  const apply = document.getElementById('meta-apply-btn');
+  btn.disabled = true;
+  btn.textContent = 'Loading Meta…';
+  panel.style.display = 'block';
+  apply.style.display = 'none';
+  result.textContent = 'Pulling Meta Ads spend and Instant Form leads…';
   try {
-    const r=await fetch('/api/meta-preview?week_ending='+encodeURIComponent(dateEl.value),{cache:'no-store'});
-    const d=await r.json();
-    if (!r.ok || !d.ok) throw new Error(d.error + (d.detail?.error?.message ? ': '+d.detail.error.message : ''));
-    metaPreviewData=d;
-    result.innerHTML='<strong>'+d.week_start+' → '+d.week_ending+'</strong><br>Meta spend: <strong>
-</body>
-</html>
-+Number(d.meta_spend).toFixed(2)+'</strong> · Instant Form leads: <strong>'+d.instant_form_leads+'</strong><br><span style="color:var(--muted);font-size:12px;">'+d.scope_note+'</span>';
-    apply.style.display='inline-flex';
-  } catch(e) {
-    metaPreviewData=null;
-    result.innerHTML='<span style="color:var(--red);">Meta preview failed: '+String(e.message||e)+'</span>';
+    const r = await fetch('/api/meta-preview?week_ending=' + encodeURIComponent(dateEl.value), {cache:'no-store'});
+    const d = await r.json();
+    if (!r.ok || !d.ok) throw new Error((d.error || 'Request failed') + (d.detail?.error?.message ? ': ' + d.detail.error.message : ''));
+    metaPreviewData = d;
+    result.innerHTML = '<strong>' + d.week_start + ' → ' + d.week_ending + '</strong><br>' +
+      'Meta spend: <strong>$' + Number(d.meta_spend).toFixed(2) + '</strong> · Instant Form leads: <strong>' + d.instant_form_leads + '</strong><br>' +
+      '<span style="color:var(--muted);font-size:12px;">' + d.scope_note + '</span>';
+    apply.style.display = 'inline-flex';
+  } catch (e) {
+    metaPreviewData = null;
+    result.innerHTML = '<span style="color:var(--red);">Meta preview failed: ' + String(e.message || e) + '</span>';
   } finally {
-    btn.disabled=false; btn.textContent='📘 Preview Meta';
+    btn.disabled = false;
+    btn.textContent = '📘 Preview Meta';
   }
 }
 function applyMetaPreview() {
   if (!metaPreviewData) return;
-  const spend=document.getElementById('ww-meta-spend');
-  const leads=document.getElementById('ww-meta-leads');
-  if (spend) { spend.value=Number(metaPreviewData.meta_spend).toFixed(2); spend.dispatchEvent(new Event('input',{bubbles:true})); }
-  if (leads) { leads.value=metaPreviewData.instant_form_leads; leads.dispatchEvent(new Event('input',{bubbles:true})); }
+  const spend = document.getElementById('ww-meta-spend');
+  const leads = document.getElementById('ww-meta-leads');
+  if (spend) { spend.value = Number(metaPreviewData.meta_spend).toFixed(2); spend.dispatchEvent(new Event('input',{bubbles:true})); }
+  if (leads) { leads.value = metaPreviewData.instant_form_leads; leads.dispatchEvent(new Event('input',{bubbles:true})); }
   showToast('✅ Meta preview applied — review, then Save This Week');
 }
 
