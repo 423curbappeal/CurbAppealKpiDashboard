@@ -378,6 +378,61 @@ def hcp_repeat_customer_count(completed_jobs, week_start):
 
     return len(repeat_customers)
 
+def hcp_assigned_employee_ids(job):
+    ids=job.get("assigned_employee_ids") or []
+    if isinstance(ids, list) and ids:
+        return [str(x) for x in ids if x]
+
+    employees=job.get("assigned_employees") or []
+    out=[]
+    if isinstance(employees, list):
+        for employee in employees:
+            if isinstance(employee, dict) and employee.get("id"):
+                out.append(str(employee.get("id")))
+            elif employee:
+                out.append(str(employee))
+    return out
+
+def hcp_job_tech_metrics(completed_jobs):
+    unique_techs=set()
+    total_tech_hours=0.0
+    tracked_jobs=0
+    untracked_jobs=0
+
+    for job in completed_jobs:
+        tech_ids=hcp_assigned_employee_ids(job)
+        for tech_id in tech_ids:
+            unique_techs.add(tech_id)
+
+        timestamps=job.get("work_timestamps") or {}
+        started=hcp_parse_datetime(timestamps.get("started_at"))
+        completed=hcp_parse_datetime(timestamps.get("completed_at"))
+
+        if not tech_ids or not started or not completed or completed <= started:
+            untracked_jobs += 1
+            continue
+
+        duration_hours=(completed-started).total_seconds()/3600.0
+
+        # Ignore obviously bad open/forgotten timers instead of corrupting KPI data.
+        if duration_hours <= 0 or duration_hours > 24:
+            untracked_jobs += 1
+            continue
+
+        total_tech_hours += duration_hours * len(tech_ids)
+        tracked_jobs += 1
+
+    tech_count=len(unique_techs)
+    avg_hours_per_tech=(total_tech_hours / tech_count) if tech_count else 0.0
+
+    return {
+        "tech_count":tech_count,
+        "total_tech_hours":round(total_tech_hours,2),
+        "hours_per_tech":round(avg_hours_per_tech,2),
+        "tracked_jobs":tracked_jobs,
+        "untracked_jobs":untracked_jobs
+    }
+
 def get_page_access_token(page_id):
     data=graph(page_id, {"fields":"id,name,access_token"})
     page_token=(data.get("access_token") or "").strip()
@@ -477,6 +532,7 @@ class Handler(SimpleHTTPRequestHandler):
                 revenue=sum(hcp_money_to_dollars(job.get("total_amount")) for job in completed_jobs)
                 revenue_split=hcp_split_completed_revenue(completed_jobs)
                 repeat_customers=hcp_repeat_customer_count(completed_jobs, start)
+                tech_metrics=hcp_job_tech_metrics(completed_jobs)
 
                 won_estimates=hcp_list_won_estimates(start, end)
                 sold_revenue=sum(float(est.get("sold_value") or 0) for est in won_estimates)
@@ -492,9 +548,15 @@ class Handler(SimpleHTTPRequestHandler):
                     "revenue_unclassified":round(revenue_split["unknown"],2),
                     "repeat_customers":repeat_customers,
                     "repeat_customer_pct":round((repeat_customers / len(completed_jobs) * 100.0),1) if completed_jobs else 0.0,
+                    "tech_count":tech_metrics["tech_count"],
+                    "total_tech_hours":tech_metrics["total_tech_hours"],
+                    "hours_per_tech":tech_metrics["hours_per_tech"],
+                    "tech_rev_per_hour":round((revenue / tech_metrics["total_tech_hours"]),2) if tech_metrics["total_tech_hours"] else 0.0,
+                    "tech_time_tracked_jobs":tech_metrics["tracked_jobs"],
+                    "tech_time_untracked_jobs":tech_metrics["untracked_jobs"],
                     "sold_revenue":round(sold_revenue,2),
                     "jobs_sold":len(won_estimates),
-                    "scope_note":"Revenue/jobs completed use the actual HCP completion timestamp. Residential vs commercial uses the Job Type selected on each HCP job, with customer Homeowner/Business type as a fallback. Repeat customers are customers completed this week who had at least one completed HCP job before the week began. Sold revenue/jobs sold use approved Housecall Pro estimates created within the selected week."
+                    "scope_note":"Revenue/jobs completed use the actual HCP completion timestamp. Residential vs commercial uses the Job Type selected on each HCP job, with customer Homeowner/Business type as a fallback. Repeat customers are customers completed this week who had at least one completed HCP job before the week began. Tech hours use each completed job's actual HCP started/completed timestamps multiplied by assigned technicians. Sold revenue/jobs sold use approved Housecall Pro estimates created within the selected week."
                 })
             except urllib.error.HTTPError as e:
                 try: detail=json.loads(e.read().decode("utf-8"))
