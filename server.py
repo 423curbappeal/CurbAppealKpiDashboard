@@ -137,10 +137,49 @@ def hcp_money_to_dollars(value):
     except (TypeError, ValueError):
         return 0.0
 
+def hcp_normalize_status(value):
+    return str(value or "").strip().lower().replace(" ", "_").replace("-", "_")
+
+def hcp_is_approved(value):
+    status=hcp_normalize_status(value)
+    return status in {"approved","pro_approved","customer_approved"} or (
+        "approved" in status and "declin" not in status
+    )
+
+def hcp_estimate_sold_value(estimate):
+    options=estimate.get("options") or []
+
+    # Newer HCP estimate flows track approval per option. Prefer approved
+    # option values when that information is present.
+    approved_options=[]
+    for option in options:
+        option_status=(
+            option.get("approval_status")
+            or option.get("status")
+            or option.get("approval_state")
+        )
+        if hcp_is_approved(option_status):
+            approved_options.append(option)
+
+    if approved_options:
+        return sum(hcp_money_to_dollars(o.get("total_amount")) for o in approved_options)
+
+    # Older/simpler estimates expose approval at the estimate level.
+    estimate_status=(
+        estimate.get("approval_status")
+        or estimate.get("status")
+        or estimate.get("estimate_status")
+    )
+    if hcp_is_approved(estimate_status):
+        if len(options) == 1:
+            return hcp_money_to_dollars(options[0].get("total_amount"))
+        return hcp_money_to_dollars(estimate.get("total_amount"))
+
+    return None
+
 def hcp_list_won_estimates(start, end):
     matched=[]
     page=1
-    approved_statuses={"pro_approved","customer_approved"}
 
     while True:
         data=hcp_get("estimates", {
@@ -151,23 +190,34 @@ def hcp_list_won_estimates(start, end):
         if not batch:
             break
 
-        for estimate in batch:
-            created_dt=hcp_parse_datetime(estimate.get("created_at"))
+        for summary in batch:
+            created_dt=hcp_parse_datetime(summary.get("created_at"))
             if not created_dt:
                 continue
             created_date=created_dt.date()
             if created_date < start or created_date > end:
                 continue
 
-            approval_status=str(estimate.get("approval_status") or "").lower()
-            if approval_status not in approved_statuses:
+            estimate=summary
+            estimate_id=summary.get("id")
+            if estimate_id:
+                # The list endpoint can omit approval details on some HCP
+                # accounts. Fetch the single estimate before deciding.
+                try:
+                    detail=hcp_get("estimates/" + str(estimate_id))
+                    if isinstance(detail, dict):
+                        estimate=detail.get("estimate") or detail
+                except Exception:
+                    estimate=summary
+
+            sold_value=hcp_estimate_sold_value(estimate)
+            if sold_value is None:
                 continue
 
-            work_status=str(estimate.get("work_status") or "").lower()
-            if "cancel" in work_status or estimate.get("deleted_at"):
-                continue
-
-            matched.append(estimate)
+            matched.append({
+                "id": estimate.get("id") or estimate_id,
+                "sold_value": sold_value
+            })
 
         total_pages=int(data.get("total_pages") or 1)
         if page >= total_pages:
@@ -175,6 +225,12 @@ def hcp_list_won_estimates(start, end):
         page += 1
 
     return matched
+
+def hcp_money_to_dollars(value):
+    try:
+        return float(value or 0) / 100.0
+    except (TypeError, ValueError):
+        return 0.0
 
 def get_page_access_token(page_id):
     data=graph(page_id, {"fields":"id,name,access_token"})
@@ -236,7 +292,7 @@ class Handler(SimpleHTTPRequestHandler):
                 revenue=sum(hcp_money_to_dollars(job.get("total_amount")) for job in completed_jobs)
 
                 won_estimates=hcp_list_won_estimates(start, end)
-                sold_revenue=sum(hcp_money_to_dollars(est.get("total_amount")) for est in won_estimates)
+                sold_revenue=sum(float(est.get("sold_value") or 0) for est in won_estimates)
 
                 return self.send_json(200,{
                     "ok":True,
