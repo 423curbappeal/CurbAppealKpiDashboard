@@ -9,6 +9,8 @@ PAGE_IDS = [x.strip() for x in os.getenv("META_PAGE_IDS", "").split(",") if x.st
 HCP_API_KEY = os.getenv("HCP_API_KEY", "").strip()
 HCP_API_BASE = "https://api.housecallpro.com"
 HCP_REVIEWS_WIDGET_URL = "https://client.housecallpro.com/reviews/widget/cc375611-9a34-4c00-a095-ddf5d91cd6b6"
+REVIEWS_WEBHOOK_SECRET = os.getenv("REVIEWS_WEBHOOK_SECRET", "").strip()
+REVIEW_DATA_PATH = os.getenv("REVIEW_DATA_PATH", "/data/reviews.json").strip() or "/data/reviews.json"
 
 def graph(path, params=None, access_token=None):
     params = dict(params or {})
@@ -620,6 +622,57 @@ def hcp_reviews_for_week(start, end):
         "widget_html_bytes": len(html.encode("utf-8"))
     }
 
+def review_store_load():
+    try:
+        with open(REVIEW_DATA_PATH, "r", encoding="utf-8") as f:
+            data=json.load(f)
+        return data if isinstance(data, list) else []
+    except FileNotFoundError:
+        return []
+    except Exception:
+        return []
+
+def review_store_save(rows):
+    directory=os.path.dirname(REVIEW_DATA_PATH) or "."
+    os.makedirs(directory, exist_ok=True)
+    tmp=REVIEW_DATA_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(rows, f, separators=(",",":"))
+    os.replace(tmp, REVIEW_DATA_PATH)
+
+def review_rating_number(value):
+    text=str(value or "").strip().upper()
+    names={"ONE":1,"TWO":2,"THREE":3,"FOUR":4,"FIVE":5}
+    if text in names:
+        return names[text]
+    try:
+        n=float(value)
+        if 0 <= n <= 5:
+            return n
+    except Exception:
+        pass
+    return None
+
+def review_count_for_week(start, end):
+    rows=review_store_load()
+    seen=set()
+    count=0
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        review_id=str(row.get("review_id") or "").strip()
+        if review_id and review_id in seen:
+            continue
+        if review_id:
+            seen.add(review_id)
+        rating=review_rating_number(row.get("rating"))
+        created=hcp_parse_datetime(row.get("create_time"))
+        if rating is None or not created:
+            continue
+        if rating >= 4.999 and start <= created.date() <= end:
+            count += 1
+    return count, len(rows)
+
 def get_page_access_token(page_id):
     data=graph(page_id, {"fields":"id,name,access_token"})
     page_token=(data.get("access_token") or "").strip()
@@ -643,6 +696,48 @@ class Handler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+
+    def do_POST(self):
+        parsed=urllib.parse.urlparse(self.path)
+        if parsed.path != "/api/google-review":
+            return self.send_json(404, {"ok":False,"error":"Not found"})
+
+        try:
+            length=int(self.headers.get("Content-Length","0") or 0)
+            if length <= 0 or length > 65536:
+                return self.send_json(400, {"ok":False,"error":"Invalid request body"})
+
+            body=json.loads(self.rfile.read(length).decode("utf-8"))
+
+            supplied_secret=str(body.get("secret") or "").strip()
+            if not REVIEWS_WEBHOOK_SECRET or supplied_secret != REVIEWS_WEBHOOK_SECRET:
+                return self.send_json(401, {"ok":False,"error":"Unauthorized"})
+
+            review_id=str(body.get("review_id") or "").strip()
+            rating=body.get("rating")
+            create_time=str(body.get("create_time") or "").strip()
+
+            if not review_id or review_rating_number(rating) is None or not hcp_parse_datetime(create_time):
+                return self.send_json(400, {"ok":False,"error":"review_id, rating, and create_time are required"})
+
+            rows=review_store_load()
+            existing={str(r.get("review_id") or "") for r in rows if isinstance(r,dict)}
+            if review_id not in existing:
+                rows.append({
+                    "review_id":review_id,
+                    "rating":rating,
+                    "create_time":create_time
+                })
+                review_store_save(rows)
+
+            return self.send_json(200, {
+                "ok":True,
+                "stored": review_id not in existing,
+                "records": len(rows)
+            })
+        except Exception as e:
+            return self.send_json(400, {"ok":False,"error":str(e)})
+
     def do_GET(self):
         parsed=urllib.parse.urlparse(self.path)
         if parsed.path == "/api/health":
@@ -651,6 +746,17 @@ class Handler(SimpleHTTPRequestHandler):
                 "meta_configured":bool(TOKEN and AD_ACCOUNT and PAGE_IDS),
                 "hcp_configured":bool(HCP_API_KEY)
             })
+        if parsed.path == "/api/reviews-health":
+            try:
+                rows=review_store_load()
+                return self.send_json(200,{
+                    "ok":True,
+                    "configured":bool(REVIEWS_WEBHOOK_SECRET),
+                    "records":len(rows),
+                    "storage_path":REVIEW_DATA_PATH
+                })
+            except Exception as e:
+                return self.send_json(400,{"ok":False,"error":str(e)})
         if parsed.path == "/api/hcp-health":
             try:
                 if not HCP_API_KEY:
@@ -721,16 +827,14 @@ class Handler(SimpleHTTPRequestHandler):
                 repeat_customers=hcp_repeat_customer_count(completed_jobs, start)
                 callbacks=hcp_callback_count(completed_jobs)
                 tech_metrics=hcp_job_tech_metrics(completed_jobs)
-                try:
-                    review_metrics=hcp_reviews_for_week(start,end)
-                except Exception:
-                    review_metrics={
-                        "available":False,
-                        "five_star_reviews":0,
-                        "review_records_found":0,
-                        "json_payloads_found":0,
-                        "widget_html_bytes":0
-                    }
+                review_count, review_records_total = review_count_for_week(start,end)
+                review_metrics={
+                    "available":True,
+                    "five_star_reviews":review_count,
+                    "review_records_found":review_records_total,
+                    "json_payloads_found":0,
+                    "widget_html_bytes":0
+                }
 
                 won_estimates=hcp_list_won_estimates(start, end)
                 sold_revenue=sum(float(est.get("sold_value") or 0) for est in won_estimates)
