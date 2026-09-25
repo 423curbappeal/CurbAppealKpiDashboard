@@ -59,6 +59,37 @@ def hcp_get(path, params=None):
                 raise
     raise last_error
 
+def hcp_list_completed_jobs(start, end):
+    jobs=[]
+    page=1
+    while True:
+        data=hcp_get("jobs", {
+            "page":page,
+            "page_size":100,
+            "work_status[]":["completed"],
+            "scheduled_start_min":start.isoformat(),
+            "scheduled_start_max":end.isoformat()
+        })
+        batch=data.get("jobs") or data.get("data") or []
+        jobs.extend(batch)
+        total_pages=int(data.get("total_pages") or 1)
+        if page >= total_pages or not batch:
+            break
+        page += 1
+
+    # HCP's list filter accepts "completed", while returned statuses may be
+    # "complete rated" / "complete unrated". Keep only completed rows.
+    return [
+        job for job in jobs
+        if str(job.get("work_status") or "").lower().startswith("complete")
+    ]
+
+def hcp_money_to_dollars(value):
+    try:
+        return float(value or 0) / 100.0
+    except (TypeError, ValueError):
+        return 0.0
+
 def get_page_access_token(page_id):
     data=graph(page_id, {"fields":"id,name,access_token"})
     page_token=(data.get("access_token") or "").strip()
@@ -99,6 +130,32 @@ class Handler(SimpleHTTPRequestHandler):
                     "ok":True,
                     "connected":True,
                     "company_name":company.get("name") or company.get("company_name") or "Housecall Pro"
+                })
+            except urllib.error.HTTPError as e:
+                try: detail=json.loads(e.read().decode("utf-8"))
+                except Exception: detail={"message":str(e)}
+                return self.send_json(502, {"ok":False,"error":"Housecall Pro API request failed","detail":detail})
+            except Exception as e:
+                return self.send_json(400, {"ok":False,"error":str(e)})
+        if parsed.path == "/api/hcp-preview":
+            try:
+                if not HCP_API_KEY:
+                    return self.send_json(503, {"ok":False,"error":"Housecall Pro is not configured. Add HCP_API_KEY in Railway Variables."})
+                q=urllib.parse.parse_qs(parsed.query)
+                week_ending=(q.get("week_ending") or [""])[0]
+                end=datetime.strptime(week_ending,"%Y-%m-%d").date()
+                start=end-timedelta(days=6)
+
+                jobs=hcp_list_completed_jobs(start, end)
+                revenue=sum(hcp_money_to_dollars(job.get("total_amount")) for job in jobs)
+
+                return self.send_json(200,{
+                    "ok":True,
+                    "week_start":start.isoformat(),
+                    "week_ending":end.isoformat(),
+                    "revenue":round(revenue,2),
+                    "jobs_completed":len(jobs),
+                    "scope_note":"Housecall Pro completed jobs scheduled within the selected week."
                 })
             except urllib.error.HTTPError as e:
                 try: detail=json.loads(e.read().decode("utf-8"))
