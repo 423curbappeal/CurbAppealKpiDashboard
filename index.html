@@ -3158,10 +3158,11 @@ function clearMonthlyPartial(ym) {
         '<strong>' + data.week_start + ' → ' + data.week_ending + '</strong><br>' +
         'Completed revenue: <strong>USD ' + Number(data.revenue).toFixed(2) + '</strong>' +
         ' · Jobs completed: <strong>' + Number(data.jobs_completed) + '</strong><br>' +
-        'Residential: <strong>USD ' + Number(data.revenue_residential).toFixed(2) + '</strong>' +
-        ' · Commercial: <strong>USD ' + Number(data.revenue_commercial).toFixed(2) + '</strong>' +
-        (Number(data.revenue_unclassified) > 0 ? ' · Unclassified: <strong>USD ' + Number(data.revenue_unclassified).toFixed(2) + '</strong>' : '') +
-        '<br>Sold revenue: <strong>USD ' + Number(data.sold_revenue).toFixed(2) + '</strong>' +
+        (Number(data.revenue_unclassified) > 0
+          ? 'Residential / Commercial: <strong>manual</strong><br>'
+          : 'Residential: <strong>USD ' + Number(data.revenue_residential).toFixed(2) + '</strong>' +
+            ' · Commercial: <strong>USD ' + Number(data.revenue_commercial).toFixed(2) + '</strong><br>') +
+        'Sold revenue: <strong>USD ' + Number(data.sold_revenue).toFixed(2) + '</strong>' +
         ' · Jobs sold: <strong>' + Number(data.jobs_sold) + '</strong>';
 
       const note = document.createElement('div');
@@ -3184,15 +3185,17 @@ function clearMonthlyPartial(ym) {
 
         if (revenue) revenue.value = Number(preview.revenue).toFixed(2);
         if (jobsCompleted) jobsCompleted.value = Number(preview.jobs_completed);
-        if (residentialRevenue) residentialRevenue.value = Number(preview.revenue_residential).toFixed(2);
-        if (commercialRevenue) commercialRevenue.value = Number(preview.revenue_commercial).toFixed(2);
+        if (Number(preview.revenue_unclassified) === 0) {
+          if (residentialRevenue) residentialRevenue.value = Number(preview.revenue_residential).toFixed(2);
+          if (commercialRevenue) commercialRevenue.value = Number(preview.revenue_commercial).toFixed(2);
+        }
         if (soldRevenue) soldRevenue.value = Number(preview.sold_revenue).toFixed(2);
         if (jobsSold) jobsSold.value = Number(preview.jobs_sold);
 
-        const warning = Number(preview.revenue_unclassified) > 0
-          ? ' ⚠️ USD ' + Number(preview.revenue_unclassified).toFixed(2) + ' could not be classified as residential/commercial.'
-          : '';
-        panel.insertAdjacentHTML('beforeend','<div style="margin-top:8px;">✅ Applied Revenue, Residential/Commercial Revenue, Jobs Completed, Sold Revenue, and Jobs Sold.' + warning + ' Review, then click Save This Week.</div>');
+        const splitText = Number(preview.revenue_unclassified) > 0
+          ? ' Residential/Commercial was left unchanged because HCP does not have a reliable customer type on these jobs.'
+          : ' Residential/Commercial was applied too.';
+        panel.insertAdjacentHTML('beforeend','<div style="margin-top:8px;">✅ Applied Revenue, Jobs Completed, Sold Revenue, and Jobs Sold.' + splitText + ' Review, then click Save This Week.</div>');
       });
 
       panel.appendChild(summary);
