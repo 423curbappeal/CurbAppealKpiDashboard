@@ -11,6 +11,8 @@ HCP_API_BASE = "https://api.housecallpro.com"
 HCP_REVIEWS_WIDGET_URL = "https://client.housecallpro.com/reviews/widget/cc375611-9a34-4c00-a095-ddf5d91cd6b6"
 REVIEWS_WEBHOOK_SECRET = os.getenv("REVIEWS_WEBHOOK_SECRET", "").strip()
 REVIEW_DATA_PATH = os.getenv("REVIEW_DATA_PATH", "/data/reviews.json").strip() or "/data/reviews.json"
+QB_WEBHOOK_SECRET = os.getenv("QB_WEBHOOK_SECRET", REVIEWS_WEBHOOK_SECRET).strip()
+QB_EXPENSE_DATA_PATH = os.getenv("QB_EXPENSE_DATA_PATH", "/data/qb_expenses.json").strip() or "/data/qb_expenses.json"
 
 def graph(path, params=None, access_token=None):
     params = dict(params or {})
@@ -673,6 +675,78 @@ def review_count_for_week(start, end):
             count += 1
     return count, len(rows)
 
+def qb_expense_store_load():
+    try:
+        with open(QB_EXPENSE_DATA_PATH, "r", encoding="utf-8") as f:
+            data=json.load(f)
+        return data if isinstance(data, list) else []
+    except FileNotFoundError:
+        return []
+    except Exception:
+        return []
+
+def qb_expense_store_save(rows):
+    directory=os.path.dirname(QB_EXPENSE_DATA_PATH) or "."
+    os.makedirs(directory, exist_ok=True)
+    tmp=QB_EXPENSE_DATA_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(rows, f, separators=(",",":"))
+    os.replace(tmp, QB_EXPENSE_DATA_PATH)
+
+def qb_parse_date(value):
+    if not value:
+        return None
+    text=str(value).strip()
+    dt=hcp_parse_datetime(text)
+    if dt:
+        return dt.date()
+    for fmt in ("%Y-%m-%d","%m/%d/%Y","%m/%d/%y"):
+        try:
+            return datetime.strptime(text,fmt).date()
+        except Exception:
+            pass
+    return None
+
+def qb_expense_preview(start,end):
+    rows=qb_expense_store_load()
+    grouped={}
+    total=0.0
+    count=0
+    seen=set()
+
+    for row in rows:
+        if not isinstance(row,dict):
+            continue
+        tx_date=qb_parse_date(row.get("transaction_date"))
+        if not tx_date or tx_date < start or tx_date > end:
+            continue
+
+        unique_key=str(row.get("unique_key") or "")
+        if unique_key and unique_key in seen:
+            continue
+        if unique_key:
+            seen.add(unique_key)
+
+        try:
+            amount=float(row.get("amount") or 0)
+        except Exception:
+            amount=0.0
+
+        account=str(row.get("account_name") or "Uncategorized").strip() or "Uncategorized"
+        grouped[account]=grouped.get(account,0.0)+amount
+        total += amount
+        count += 1
+
+    groups=[
+        {"account_name":name,"amount":round(amount,2)}
+        for name,amount in sorted(grouped.items(), key=lambda kv: abs(kv[1]), reverse=True)
+    ]
+    return {
+        "expense_total":round(total,2),
+        "expense_records":count,
+        "groups":groups
+    }
+
 def get_page_access_token(page_id):
     data=graph(page_id, {"fields":"id,name,access_token"})
     page_token=(data.get("access_token") or "").strip()
@@ -699,6 +773,69 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         parsed=urllib.parse.urlparse(self.path)
+        if parsed.path == "/api/quickbooks-expense":
+            try:
+                length=int(self.headers.get("Content-Length","0") or 0)
+                if length <= 0 or length > 65536:
+                    return self.send_json(400, {"ok":False,"error":"Invalid request body"})
+
+                body=json.loads(self.rfile.read(length).decode("utf-8"))
+                supplied_secret=str(body.get("secret") or "").strip()
+                if not QB_WEBHOOK_SECRET or supplied_secret != QB_WEBHOOK_SECRET:
+                    return self.send_json(401, {"ok":False,"error":"Unauthorized"})
+
+                transaction_id=str(body.get("transaction_id") or "").strip()
+                line_id=str(body.get("line_id") or "").strip()
+                transaction_date=str(body.get("transaction_date") or "").strip()
+                account_name=str(body.get("account_name") or "").strip()
+                vendor_name=str(body.get("vendor_name") or "").strip()
+                transaction_type=str(body.get("transaction_type") or "Expense").strip()
+                memo=str(body.get("memo") or "").strip()
+
+                try:
+                    amount=float(body.get("amount"))
+                except Exception:
+                    return self.send_json(400, {"ok":False,"error":"amount must be numeric"})
+
+                if not transaction_id or not qb_parse_date(transaction_date):
+                    return self.send_json(400, {"ok":False,"error":"transaction_id and transaction_date are required"})
+
+                unique_key=transaction_id + "::" + (line_id or account_name or "total")
+                rows=qb_expense_store_load()
+                existing_index=None
+                for i,row in enumerate(rows):
+                    if isinstance(row,dict) and str(row.get("unique_key") or "") == unique_key:
+                        existing_index=i
+                        break
+
+                record={
+                    "unique_key":unique_key,
+                    "transaction_id":transaction_id,
+                    "line_id":line_id,
+                    "transaction_date":transaction_date,
+                    "amount":amount,
+                    "account_name":account_name or "Uncategorized",
+                    "vendor_name":vendor_name,
+                    "transaction_type":transaction_type,
+                    "memo":memo
+                }
+
+                stored=existing_index is None
+                if existing_index is None:
+                    rows.append(record)
+                else:
+                    rows[existing_index]=record
+                qb_expense_store_save(rows)
+
+                return self.send_json(200,{
+                    "ok":True,
+                    "stored":stored,
+                    "updated":not stored,
+                    "records":len(rows)
+                })
+            except Exception as e:
+                return self.send_json(400, {"ok":False,"error":str(e)})
+
         if parsed.path != "/api/google-review":
             return self.send_json(404, {"ok":False,"error":"Not found"})
 
@@ -746,6 +883,32 @@ class Handler(SimpleHTTPRequestHandler):
                 "meta_configured":bool(TOKEN and AD_ACCOUNT and PAGE_IDS),
                 "hcp_configured":bool(HCP_API_KEY)
             })
+        if parsed.path == "/api/qb-preview":
+            try:
+                q=urllib.parse.parse_qs(parsed.query)
+                week_ending=(q.get("week_ending") or [""])[0]
+                end=datetime.strptime(week_ending,"%Y-%m-%d").date()
+                start=end-timedelta(days=6)
+                preview=qb_expense_preview(start,end)
+                preview.update({
+                    "ok":True,
+                    "week_start":start.isoformat(),
+                    "week_ending":end.isoformat()
+                })
+                return self.send_json(200,preview)
+            except Exception as e:
+                return self.send_json(400,{"ok":False,"error":str(e)})
+        if parsed.path == "/api/qb-health":
+            try:
+                rows=qb_expense_store_load()
+                return self.send_json(200,{
+                    "ok":True,
+                    "configured":bool(QB_WEBHOOK_SECRET),
+                    "records":len(rows),
+                    "storage_path":QB_EXPENSE_DATA_PATH
+                })
+            except Exception as e:
+                return self.send_json(400,{"ok":False,"error":str(e)})
         if parsed.path == "/api/reviews-health":
             try:
                 rows=review_store_load()
