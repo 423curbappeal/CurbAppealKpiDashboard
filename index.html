@@ -1215,6 +1215,7 @@
     <button class="btn btn-ghost" onclick="clearForm()">Clear Form</button>
     <button class="btn btn-ghost" id="meta-preview-btn" type="button">📘 Preview Meta</button>
     <button class="btn btn-ghost" id="hcp-preview-btn" type="button">🧰 Preview HCP</button>
+    <button class="btn btn-ghost" id="qb-preview-btn" type="button">💰 Preview QB</button>
   </div>
 
 </div><!-- /page-washworks -->
@@ -3234,6 +3235,71 @@ function clearMonthlyPartial(ym) {
     } finally {
       btn.disabled = false;
       btn.textContent = '🧰 Preview HCP';
+    }
+  });
+})();
+</script>
+<script>
+(function () {
+  const btn = document.getElementById('qb-preview-btn');
+  if (!btn) return;
+
+  const panel = document.createElement('div');
+  panel.id = 'qb-preview-panel';
+  panel.style.cssText = 'display:none;margin-top:12px;padding:14px;border:1px solid var(--border);border-radius:10px;background:var(--surface2);font-size:13px;line-height:1.6;';
+  btn.parentElement.insertAdjacentElement('afterend', panel);
+
+  btn.addEventListener('click', async function () {
+    const date = document.getElementById('entry-date');
+    if (!date || !date.value) {
+      panel.style.display = 'block';
+      panel.textContent = 'Select a week-ending date first.';
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Loading QB…';
+    panel.style.display = 'block';
+    panel.textContent = 'Pulling received QuickBooks expense records…';
+
+    try {
+      const res = await fetch('/api/qb-preview?week_ending=' + encodeURIComponent(date.value), {cache:'no-store'});
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || 'QuickBooks preview failed');
+      }
+
+      panel.textContent = '';
+
+      const summary = document.createElement('div');
+      summary.innerHTML =
+        '<strong>' + data.week_start + ' → ' + data.week_ending + '</strong><br>' +
+        'Expense records received: <strong>' + Number(data.expense_records) + '</strong>' +
+        ' · Total received expenses: <strong>USD ' + Number(data.expense_total).toFixed(2) + '</strong>';
+
+      const groups = document.createElement('div');
+      groups.style.cssText = 'margin-top:10px;';
+      if (!data.groups || data.groups.length === 0) {
+        groups.textContent = 'No QuickBooks expense records have been received for this week yet.';
+      } else {
+        groups.innerHTML = '<strong>QuickBooks categories/accounts:</strong><br>' +
+          data.groups.map(function (g) {
+            return '• ' + String(g.account_name) + ': USD ' + Number(g.amount).toFixed(2);
+          }).join('<br>');
+      }
+
+      const note = document.createElement('div');
+      note.style.cssText = 'margin-top:8px;color:var(--muted);font-size:11px;';
+      note.textContent = 'This first stage shows the exact QuickBooks account/category names. Once we validate them, the dashboard will map them into Labor, Direct Job Costs, Marketing, Vehicles, Software, and Overhead automatically.';
+
+      panel.appendChild(summary);
+      panel.appendChild(groups);
+      panel.appendChild(note);
+    } catch (err) {
+      panel.textContent = 'QuickBooks preview failed: ' + (err && err.message ? err.message : String(err));
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '💰 Preview QB';
     }
   });
 })();
