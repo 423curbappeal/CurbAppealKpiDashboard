@@ -1589,9 +1589,140 @@ PLATFORMS.forEach(p => platformCache[p] = {});
   }
 })();
 
-function getData() { return JSON.parse(localStorage.getItem('gudzy_kpi') || '[]'); }
-function saveData(arr) { localStorage.setItem('gudzy_kpi', JSON.stringify(arr)); }
+function readLocalJson(key, fallback) {
+  try {
+    const value = JSON.parse(localStorage.getItem(key) || '');
+    return value == null ? fallback : value;
+  } catch (_) {
+    return fallback;
+  }
+}
+
+function normalizeKpiEntries(arr) {
+  const byDate = new Map();
+  (Array.isArray(arr) ? arr : []).forEach(entry => {
+    if (!entry || typeof entry !== 'object') return;
+    const d = String(entry.date || '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return;
+    byDate.set(d, entry);
+  });
+  return Array.from(byDate.values()).sort((a,b) => String(b.date).localeCompare(String(a.date)));
+}
+
+let kpiStateCache = {
+  entries: normalizeKpiEntries(readLocalJson('gudzy_kpi', [])),
+  monthly_partials: readLocalJson('monthly_partials', {}),
+  usernames: readLocalJson('ghudzy_usernames', {})
+};
+let kpiServerSyncReady = false;
+let kpiSyncTimer = null;
+let kpiSyncInFlight = false;
+let kpiSyncPending = false;
+
+function persistLocalKpiState() {
+  localStorage.setItem('gudzy_kpi', JSON.stringify(kpiStateCache.entries || []));
+  localStorage.setItem('monthly_partials', JSON.stringify(kpiStateCache.monthly_partials || {}));
+  localStorage.setItem('ghudzy_usernames', JSON.stringify(kpiStateCache.usernames || {}));
+}
+
+function currentKpiStatePayload() {
+  return {
+    version: 1,
+    entries: normalizeKpiEntries(kpiStateCache.entries || []),
+    monthly_partials: kpiStateCache.monthly_partials || {},
+    usernames: kpiStateCache.usernames || {}
+  };
+}
+
+async function pushKpiStateToServer() {
+  if (!kpiServerSyncReady) return;
+  if (kpiSyncInFlight) {
+    kpiSyncPending = true;
+    return;
+  }
+  kpiSyncInFlight = true;
+  try {
+    const res = await fetch('/api/kpi-state', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(currentKpiStatePayload())
+    });
+    if (!res.ok) throw new Error('KPI state save failed: HTTP ' + res.status);
+  } catch (err) {
+    console.warn('Persistent KPI save failed; browser backup is still intact.', err);
+  } finally {
+    kpiSyncInFlight = false;
+    if (kpiSyncPending) {
+      kpiSyncPending = false;
+      pushKpiStateToServer();
+    }
+  }
+}
+
+function scheduleKpiServerSync(delay=500) {
+  if (!kpiServerSyncReady) return;
+  if (kpiSyncTimer) clearTimeout(kpiSyncTimer);
+  kpiSyncTimer = setTimeout(() => {
+    kpiSyncTimer = null;
+    pushKpiStateToServer();
+  }, delay);
+}
+
+function getData() {
+  return normalizeKpiEntries(kpiStateCache.entries || []);
+}
+
+function saveData(arr) {
+  kpiStateCache.entries = normalizeKpiEntries(arr);
+  persistLocalKpiState();
+  scheduleKpiServerSync();
+}
+
 function getEntry(d) { return getData().find(e => e.date === d) || null; }
+
+async function initializePersistentKpiState() {
+  try {
+    const localState = currentKpiStatePayload();
+    const res = await fetch('/api/kpi-state', {cache:'no-store'});
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const remote = await res.json();
+    if (!remote || !remote.ok) throw new Error(remote && remote.error ? remote.error : 'Invalid KPI state response');
+
+    const serverEntries = normalizeKpiEntries(remote.entries || []);
+    const mergedByDate = new Map(serverEntries.map(e => [e.date, e]));
+    localState.entries.forEach(e => {
+      if (!mergedByDate.has(e.date)) mergedByDate.set(e.date, e);
+    });
+
+    kpiStateCache = {
+      entries: normalizeKpiEntries(Array.from(mergedByDate.values())),
+      monthly_partials: Object.assign({}, localState.monthly_partials || {}, remote.monthly_partials || {}),
+      usernames: Object.assign({}, localState.usernames || {}, remote.usernames || {})
+    };
+    persistLocalKpiState();
+    kpiServerSyncReady = true;
+
+    const serverComparable = JSON.stringify({
+      version:1,
+      entries:serverEntries,
+      monthly_partials:remote.monthly_partials || {},
+      usernames:remote.usernames || {}
+    });
+    if (JSON.stringify(currentKpiStatePayload()) !== serverComparable) {
+      scheduleKpiServerSync(0);
+    }
+
+    updateFollowerSnapshot();
+    renderUsernameFields();
+    const active = document.querySelector('.page.active')?.id || '';
+    if (active === 'page-dashboard') renderDashboard();
+    if (active === 'page-history') renderHistory();
+    if (active === 'page-monthly') renderMonthly();
+    if (active === 'page-averages') renderAverages();
+  } catch (err) {
+    console.warn('Persistent KPI history unavailable; continuing with browser backup.', err);
+  }
+}
 
 // get the most recent prior entry before `dateStr`
 function getPriorEntry(dateStr) {
@@ -1621,11 +1752,13 @@ const PLATFORM_LINKS = {
 };
 const PLATFORM_ICONS = { instagram:'📸', tiktok:'🎵', facebook:'👤', snapchat:'👻', youtube:'▶️' };
 
-function getUsernames() { return JSON.parse(localStorage.getItem('ghudzy_usernames') || '{}'); }
+function getUsernames() { return {...(kpiStateCache.usernames || {})}; }
 function saveUsername(p, val) {
   const obj = getUsernames();
   obj[p] = val.trim();
-  localStorage.setItem('ghudzy_usernames', JSON.stringify(obj));
+  kpiStateCache.usernames = obj;
+  persistLocalKpiState();
+  scheduleKpiServerSync(800);
   renderUsernameFields();
 }
 
@@ -2549,17 +2682,18 @@ function showToast(msg, bg) {
 
 // ── Export / Import ───────────────────────────────────────────
 function exportData() {
-  const arr = getData();
-  if (!arr.length) { showToast('No data to backup yet', '#6b6b8a'); return; }
-  const blob = new Blob([JSON.stringify(arr, null, 2)], { type: 'application/json' });
+  const state = currentKpiStatePayload();
+  if (!state.entries.length) { showToast('No data to backup yet', '#6b6b8a'); return; }
+  const backup = {type:'curb-appeal-kpi-backup', exported_at:new Date().toISOString(), ...state};
+  const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   const today = localYmd(new Date());
   a.href = url;
-  a.download = `gudzy-kpis-backup-${today}.json`;
+  a.download = `curb-appeal-kpis-backup-${today}.json`;
   a.click();
   URL.revokeObjectURL(url);
-  showToast('💾 Backup downloaded!');
+  showToast('💾 Full KPI backup downloaded!');
 }
 
 function importData(e) {
@@ -2569,15 +2703,26 @@ function importData(e) {
   reader.onload = function(ev) {
     try {
       const imported = JSON.parse(ev.target.result);
-      if (!Array.isArray(imported)) throw new Error('Invalid format');
+      const importedEntries = Array.isArray(imported) ? imported : imported.entries;
+      if (!Array.isArray(importedEntries)) throw new Error('Invalid format');
+
       const existing = getData();
       const existingDates = new Set(existing.map(e => e.date));
-      // Merge: keep existing entries, add any new ones from the backup
-      const merged = [...existing, ...imported.filter(e => !existingDates.has(e.date))];
-      merged.sort((a,b) => b.date.localeCompare(a.date));
-      saveData(merged);
-      showToast(`✅ Restored ${imported.length} weeks of data!`);
-      // Reset file input so same file can be re-imported if needed
+      const merged = [...existing, ...importedEntries.filter(e => !existingDates.has(e.date))];
+      kpiStateCache.entries = normalizeKpiEntries(merged);
+
+      if (!Array.isArray(imported)) {
+        if (imported.monthly_partials && typeof imported.monthly_partials === 'object') {
+          kpiStateCache.monthly_partials = Object.assign({}, imported.monthly_partials, kpiStateCache.monthly_partials || {});
+        }
+        if (imported.usernames && typeof imported.usernames === 'object') {
+          kpiStateCache.usernames = Object.assign({}, imported.usernames, kpiStateCache.usernames || {});
+        }
+      }
+
+      persistLocalKpiState();
+      scheduleKpiServerSync(0);
+      showToast(`✅ Restored ${importedEntries.length} weeks of KPI data!`);
       document.getElementById('import-file').value = '';
     } catch(err) {
       showToast('⚠️ Invalid backup file', '#ef4444');
@@ -2639,11 +2784,16 @@ function syncGhudzyDate() {
   renderPlatformForm('instagram');
   updateSummary();
   updateROAS();
+  initializePersistentKpiState();
 })();
 
 // ── Monthly Summary ───────────────────────────────────────────
-function getMonthlyPartials() { return JSON.parse(localStorage.getItem('monthly_partials')||'{}'); }
-function saveMonthlyPartials(obj) { localStorage.setItem('monthly_partials', JSON.stringify(obj)); }
+function getMonthlyPartials() { return {...(kpiStateCache.monthly_partials || {})}; }
+function saveMonthlyPartials(obj) {
+  kpiStateCache.monthly_partials = obj && typeof obj === 'object' ? obj : {};
+  persistLocalKpiState();
+  scheduleKpiServerSync();
+}
 
 function renderMonthly() {
   const el = document.getElementById('monthly-content');
