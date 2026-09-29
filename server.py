@@ -1387,6 +1387,38 @@ def hcp_employee_directory():
     except Exception:
         return {}
 
+def hcp_list_scheduled_jobs(start,end):
+    matched=[]
+    page=1
+    start_iso=start.isoformat()+"T00:00:00"
+    end_iso=end.isoformat()+"T23:59:59"
+    while True:
+        data=hcp_get("jobs",{
+            "page":page,
+            "page_size":100,
+            "scheduled_start_min":start_iso,
+            "scheduled_start_max":end_iso
+        })
+        batch=data.get("jobs") or data.get("data") or []
+        if not batch:
+            break
+        for job in batch:
+            if not isinstance(job,dict) or job.get("deleted_at"):
+                continue
+            status=str(job.get("work_status") or "").strip().lower()
+            if "cancel" in status:
+                continue
+            schedule=job.get("schedule") or {}
+            scheduled_start=schedule.get("scheduled_start") or job.get("scheduled_start")
+            scheduled_date=hcp_local_date(scheduled_start)
+            if scheduled_date and start <= scheduled_date <= end:
+                matched.append(job)
+        total_pages=int(data.get("total_pages") or 1)
+        if page>=total_pages:
+            break
+        page += 1
+    return matched
+
 def hcp_job_duration_hours(job):
     if not isinstance(job,dict):
         return None,"untracked"
@@ -1407,7 +1439,8 @@ def hcp_job_duration_hours(job):
     return None,"untracked"
 
 def hcp_technician_scorecards(start,end):
-    jobs=hcp_list_completed_jobs(start,end)
+    completed_jobs=hcp_list_completed_jobs(start,end)
+    scheduled_jobs=hcp_list_scheduled_jobs(start,end)
     employees=hcp_employee_directory()
     stats={}
 
@@ -1419,126 +1452,140 @@ def hcp_technician_scorecards(start,end):
         name=normalized_name(tech_id)
         if name in ("ro sneed","roylee sneed") or name.startswith("ro sneed ") or name.startswith("roylee sneed "):
             return "owner"
-        if name.startswith("micah " ) or name=="micah":
+        if name.startswith("micah ") or name=="micah":
             return "micah"
         if name.startswith("calien ") or name=="calien" or name.startswith("callian ") or name=="callian":
             return "calien"
         return "other"
 
-    def tech_row(tech_id):
+    def row_for(tech_id):
         tech_id=str(tech_id)
+        kind=tech_kind(tech_id)
+        if kind=="owner":
+            return None
         if tech_id not in stats:
             info=employees.get(tech_id) or {}
-            kind=tech_kind(tech_id)
             stats[tech_id]={
                 "employee_id":tech_id,
                 "name":info.get("name") or ("Employee "+tech_id[-6:]),
                 "role":info.get("role") or "",
                 "commission_role":kind,
-                "jobs_completed":0,
-                "solo_jobs":0,
-                "team_jobs":0,
-                "owner_assisted_jobs":0,
+                "booked_jobs":0,
+                "completed_jobs":0,
+                "booked_revenue":0.0,
+                "completed_revenue":0.0,
+                "projected_commission":0.0,
+                "earned_commission":0.0,
+                "solo_commission_jobs":0,
                 "micah_calien_jobs":0,
                 "callbacks":0,
                 "hours":0.0,
                 "actual_time_jobs":0,
                 "scheduled_fallback_jobs":0,
                 "untracked_time_jobs":0,
-                "revenue_serviced":0.0,
-                "allocated_revenue":0.0,
-                "estimated_commission":0.0,
                 "commission_unmodeled_jobs":0
             }
         return stats[tech_id]
 
+    def commission_rate_for(tech_id,tech_ids):
+        kind=tech_kind(tech_id)
+        if kind=="owner":
+            return 0.0
+        recognized=[tid for tid in tech_ids if tech_kind(tid) in ("micah","calien")]
+        unknown=[tid for tid in tech_ids if tech_kind(tid)=="other"]
+        has_micah=any(tech_kind(tid)=="micah" for tid in tech_ids)
+        has_calien=any(tech_kind(tid)=="calien" for tid in tech_ids)
+        if kind not in ("micah","calien"):
+            return None
+        if unknown:
+            return None
+        if has_micah and has_calien:
+            return 0.135 if kind=="micah" else 0.09
+        if len(recognized)==1:
+            return 0.225
+        return None
+
+    # Booked week: credit the FULL job value to every assigned non-owner tech.
+    # Team revenue is intentionally not divided and is not meant to be summed across techs.
+    scheduled_by_id={}
+    for job in scheduled_jobs:
+        jid=str(job.get("id") or "")
+        if jid: scheduled_by_id[jid]=job
+        tech_ids=hcp_assigned_employee_ids(job)
+        job_value=hcp_money_to_dollars(job.get("total_amount"))
+        for tech_id in tech_ids:
+            row=row_for(tech_id)
+            if row is None:
+                continue
+            row["booked_jobs"] += 1
+            row["booked_revenue"] += job_value
+            rate=commission_rate_for(tech_id,tech_ids)
+            if rate is None:
+                row["commission_unmodeled_jobs"] += 1
+            else:
+                row["projected_commission"] += job_value * rate
+                if rate==0.225:
+                    row["solo_commission_jobs"] += 1
+                elif tech_kind(tech_id) in ("micah","calien"):
+                    row["micah_calien_jobs"] += 1
+
+    # Completed week: actual serviced revenue/earned commission from jobs completed this week.
     jobs_without_assignments=0
-    for job in jobs:
+    for job in completed_jobs:
         tech_ids=hcp_assigned_employee_ids(job)
         if not tech_ids:
             jobs_without_assignments += 1
             continue
-
-        kinds={str(tid):tech_kind(tid) for tid in tech_ids}
-        commission_techs=[tid for tid in tech_ids if kinds.get(str(tid)) in ("micah","calien")]
-        has_micah=any(kinds.get(str(tid))=="micah" for tid in tech_ids)
-        has_calien=any(kinds.get(str(tid))=="calien" for tid in tech_ids)
-        has_owner=any(kinds.get(str(tid))=="owner" for tid in tech_ids)
-        unknown_commission_techs=[tid for tid in tech_ids if kinds.get(str(tid))=="other"]
-
         job_value=hcp_money_to_dollars(job.get("total_amount"))
         duration,source=hcp_job_duration_hours(job)
         is_callback=hcp_job_has_tag(job,"Callback")
-        allocated=(job_value/len(tech_ids)) if tech_ids else 0.0
-
         for tech_id in tech_ids:
-            kind=kinds.get(str(tech_id))
-            row=tech_row(tech_id)
-            row["jobs_completed"] += 1
-            if len(tech_ids) == 1:
-                row["solo_jobs"] += 1
-            else:
-                row["team_jobs"] += 1
-            if has_owner and kind in ("micah","calien"):
-                row["owner_assisted_jobs"] += 1
-            if has_micah and has_calien and kind in ("micah","calien"):
-                row["micah_calien_jobs"] += 1
+            row=row_for(tech_id)
+            if row is None:
+                continue
+            row["completed_jobs"] += 1
+            row["completed_revenue"] += job_value
             if is_callback:
                 row["callbacks"] += 1
-            row["revenue_serviced"] += job_value
-            row["allocated_revenue"] += allocated
-
-            commission_rate=None
-            if kind=="owner":
-                commission_rate=0.0
-            elif kind in ("micah","calien"):
-                if unknown_commission_techs:
-                    commission_rate=None
-                elif has_micah and has_calien:
-                    commission_rate=0.135 if kind=="micah" else 0.09
-                elif len(commission_techs)==1:
-                    commission_rate=0.225
-            if commission_rate is None:
-                row["commission_unmodeled_jobs"] += 1
-            else:
-                row["estimated_commission"] += job_value * commission_rate
-
+            rate=commission_rate_for(tech_id,tech_ids)
+            if rate is not None:
+                row["earned_commission"] += job_value * rate
             if duration is None:
                 row["untracked_time_jobs"] += 1
             else:
                 row["hours"] += duration
-                if source == "actual":
+                if source=="actual":
                     row["actual_time_jobs"] += 1
                 else:
                     row["scheduled_fallback_jobs"] += 1
 
     rows=[]
     for row in stats.values():
-        jobs_count=int(row["jobs_completed"])
         hours=float(row["hours"])
-        serviced=float(row["revenue_serviced"])
-        allocated=float(row["allocated_revenue"])
+        completed_revenue=float(row["completed_revenue"])
+        completed_count=int(row["completed_jobs"])
         rows.append({
             **row,
+            "booked_revenue":round(float(row["booked_revenue"]),2),
+            "completed_revenue":round(completed_revenue,2),
+            "projected_commission":round(float(row["projected_commission"]),2),
+            "earned_commission":round(float(row["earned_commission"]),2),
             "hours":round(hours,2),
-            "revenue_serviced":round(serviced,2),
-            "allocated_revenue":round(allocated,2),
-            "avg_ticket":round((serviced/jobs_count),2) if jobs_count else 0.0,
-            "revenue_per_hour":round((serviced/hours),2) if hours else 0.0,
-            "allocated_revenue_per_hour":round((allocated/hours),2) if hours else 0.0,
-            "estimated_commission":round(float(row["estimated_commission"]),2),
-            "commission_pct_of_serviced_revenue":round((float(row["estimated_commission"])/serviced*100.0),1) if serviced else 0.0
+            "avg_ticket":round((completed_revenue/completed_count),2) if completed_count else 0.0,
+            "revenue_per_hour":round((completed_revenue/hours),2) if hours else 0.0
         })
 
-    rows.sort(key=lambda r:(r.get("revenue_serviced",0),r.get("jobs_completed",0)),reverse=True)
+    rows.sort(key=lambda r:(r.get("booked_revenue",0),r.get("completed_revenue",0)),reverse=True)
     return {
         "ok":True,
         "week_start":start.isoformat(),
         "week_ending":end.isoformat(),
         "technicians":rows,
-        "jobs_completed":len(jobs),
+        "scheduled_jobs":len(scheduled_jobs),
+        "completed_jobs":len(completed_jobs),
         "jobs_without_assignments":jobs_without_assignments,
-        "commission_note":"Commission model: Micah 22.5% when he is the only commission tech, or 13.5% when working with Calien. Calien 22.5% when he is the only commission tech, or 9% when working with Micah. Ro receives 0% commission and is treated as owner/helper, so his presence does not reduce Micah or Calien from the 22.5% solo rate. Jobs involving another commission-eligible technician are left unmodeled. Upsell commission is not included."
+        "revenue_note":"Each technician receives the full value of every job they are assigned to. Revenue is not split between teammates, and owner/helper assignments are excluded from technician scorecards. Because team members can share the same job, technician revenue totals should not be summed together.",
+        "commission_note":"Projected commission uses all non-cancelled jobs scheduled in the selected week; earned commission uses jobs actually completed in the selected week. Micah: 22.5% when he is the only commission tech, 13.5% when paired with Calien. Calien: 22.5% when he is the only commission tech, 9% when paired with Micah. Ro is excluded and receives 0%."
     }
 
 def hcp_job_tech_metrics(completed_jobs):
