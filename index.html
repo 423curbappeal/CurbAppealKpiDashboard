@@ -488,6 +488,22 @@
     <button class="btn btn-ghost btn-sm" onclick="loadExistingEntry()">Load Existing</button>
   </div>
 
+  <!-- Automated Needs Attention -->
+  <div id="needs-attention-card" style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:18px;margin-bottom:16px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+      <div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <div style="font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:0.8px;">🚨 Needs Attention · Auto</div>
+          <span id="na-badge" style="font-size:11px;font-weight:800;padding:3px 8px;border-radius:999px;background:var(--surface2);color:var(--muted);">Loading</span>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:3px;">Automatically prioritizes collections, stale estimates, booking pace, and close rate</div>
+      </div>
+      <button class="btn btn-ghost btn-sm" id="needs-attention-refresh" type="button">↻ Refresh</button>
+    </div>
+    <div id="needs-attention-status" style="font-size:12px;color:var(--muted);margin-bottom:10px;">Checking the business…</div>
+    <div id="needs-attention-list" style="display:grid;gap:8px;"></div>
+  </div>
+
   <!-- Automated Owner Brief -->
   <div id="owner-brief-card" style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:18px;margin-bottom:20px;">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
@@ -3116,6 +3132,84 @@ function clearMonthlyPartial(ym) {
   saveMonthlyPartials(partials);
   renderMonthly();
 }
+</script>
+<script>
+(function () {
+  const card=document.getElementById('needs-attention-card');
+  if (!card) return;
+  const refresh=document.getElementById('needs-attention-refresh');
+  const status=document.getElementById('needs-attention-status');
+  const list=document.getElementById('needs-attention-list');
+  const badge=document.getElementById('na-badge');
+
+  const palette={
+    critical:{border:'rgba(239,68,68,0.45)',bg:'rgba(239,68,68,0.08)',label:'Critical',labelBg:'rgba(239,68,68,0.16)',labelColor:'#ef4444'},
+    warning:{border:'rgba(245,158,11,0.45)',bg:'rgba(245,158,11,0.08)',label:'Watch',labelBg:'rgba(245,158,11,0.16)',labelColor:'#f59e0b'},
+    good:{border:'rgba(34,197,94,0.35)',bg:'rgba(34,197,94,0.07)',label:'Good',labelBg:'rgba(34,197,94,0.14)',labelColor:'#22c55e'},
+    info:{border:'var(--border)',bg:'var(--surface2)',label:'Info',labelBg:'var(--surface3)',labelColor:'var(--muted)'}
+  };
+
+  async function loadNeedsAttention() {
+    if (refresh) { refresh.disabled=true; refresh.textContent='Loading…'; }
+    if (status) status.textContent='Checking live Housecall Pro data…';
+    try {
+      const res=await fetch('/api/needs-attention',{cache:'no-store'});
+      const data=await res.json();
+      if (!res.ok || !data.ok) {
+        const detail=data && data.detail ? JSON.stringify(data.detail) : '';
+        throw new Error((data.error || 'Needs Attention request failed') + (detail ? ': ' + detail : ''));
+      }
+
+      const summary=data.summary || {};
+      const count=Number(summary.attention_count || 0);
+      if (badge) {
+        badge.textContent=count ? count+' item'+(count===1?'':'s')+' need attention' : 'All clear';
+        badge.style.background=count ? 'rgba(239,68,68,0.14)' : 'rgba(34,197,94,0.14)';
+        badge.style.color=count ? '#ef4444' : '#22c55e';
+      }
+      if (status) status.textContent='Updated '+new Date().toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})+' · weekly booking goal $'+Number(data.weekly_revenue_goal || 0).toLocaleString();
+
+      list.innerHTML='';
+      const alerts=Array.isArray(data.alerts) ? data.alerts : [];
+      alerts.forEach(alert => {
+        const sev=palette[alert.severity] || palette.info;
+        const row=document.createElement('div');
+        row.style.cssText='display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;border:1px solid '+sev.border+';background:'+sev.bg+';border-radius:10px;padding:10px 12px;';
+        const icon=document.createElement('div');
+        icon.style.cssText='font-size:18px;line-height:1;';
+        icon.textContent=alert.icon || '•';
+        const body=document.createElement('div');
+        const title=document.createElement('div');
+        title.style.cssText='font-size:12px;font-weight:800;color:var(--text);';
+        title.textContent=alert.title || '';
+        const detail=document.createElement('div');
+        detail.style.cssText='font-size:11px;color:var(--muted);margin-top:2px;line-height:1.35;';
+        detail.textContent=alert.detail || '';
+        body.appendChild(title); body.appendChild(detail);
+        const pill=document.createElement('span');
+        pill.style.cssText='font-size:10px;font-weight:800;padding:3px 7px;border-radius:999px;white-space:nowrap;background:'+sev.labelBg+';color:'+sev.labelColor+';';
+        pill.textContent=sev.label;
+        row.appendChild(icon); row.appendChild(body); row.appendChild(pill); list.appendChild(row);
+      });
+
+      if (!alerts.length) {
+        list.innerHTML='<div style="font-size:12px;color:var(--green);padding:8px 0;">✅ No attention items right now.</div>';
+      }
+    } catch (err) {
+      if (status) status.textContent='Needs Attention failed: '+(err && err.message ? err.message : String(err));
+      if (badge) { badge.textContent='Unavailable'; badge.style.background='var(--surface2)'; badge.style.color='var(--muted)'; }
+      if (list) list.innerHTML='';
+    } finally {
+      if (refresh) { refresh.disabled=false; refresh.textContent='↻ Refresh'; }
+    }
+  }
+
+  window.refreshNeedsAttention=loadNeedsAttention;
+  if (refresh) refresh.addEventListener('click',loadNeedsAttention);
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded',() => setTimeout(loadNeedsAttention,150));
+  else setTimeout(loadNeedsAttention,150);
+  setInterval(loadNeedsAttention,10*60*1000);
+})();
 </script>
 <script>
 (function () {
