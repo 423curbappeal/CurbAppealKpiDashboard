@@ -177,7 +177,7 @@ def hcp_job_customer_name(job):
 def hcp_invoice_due_amount(invoice):
     if not isinstance(invoice,dict):
         return 0.0
-    for key in ("due_amount","amount_due","balance_due","balance"):
+    for key in ("due_amount","amount_due","dueAmount","balance_due","balanceDue","balance"):
         if invoice.get(key) is not None:
             return hcp_money_to_dollars(invoice.get(key))
     return 0.0
@@ -201,7 +201,7 @@ def hcp_invoice_customer_name(invoice):
         value=str(invoice.get(key) or "").strip()
         if value:
             return value
-    number=str(invoice.get("invoice_number") or invoice.get("number") or invoice.get("id") or "").strip()
+    number=str(invoice.get("invoice_number") or invoice.get("invoiceNumber") or invoice.get("number") or invoice.get("id") or "").strip()
     return ("Invoice " + number) if number else "Unknown customer"
 
 def hcp_operations_brief():
@@ -263,7 +263,7 @@ def hcp_operations_brief():
         due_date=hcp_invoice_due_date(invoice)
         outstanding.append({
             "id":invoice.get("id") or invoice.get("uuid"),
-            "invoice_number":invoice.get("invoice_number") or invoice.get("number"),
+            "invoice_number":invoice.get("invoice_number") or invoice.get("invoiceNumber") or invoice.get("number"),
             "customer_name":hcp_invoice_customer_name(invoice),
             "due_date":due_date.isoformat() if due_date else None,
             "due_amount":round(due,2),
