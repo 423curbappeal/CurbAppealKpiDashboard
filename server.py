@@ -359,9 +359,10 @@ def ghl_recent_leads(lookback_days=7,max_contacts=250):
             c2["_added_dt"]=added
             contacts.append(c2)
         last=batch[-1] if batch else {}
-        start_after=last.get("dateAdded") or last.get("createdAt") or last.get("date_added")
+        last_added=ghl_parse_datetime(last.get("dateAdded") or last.get("createdAt") or last.get("date_added"))
+        start_after=int(last_added.timestamp()*1000) if last_added else None
         start_after_id=last.get("id")
-        if saw_older or not start_after_id:
+        if saw_older or start_after is None or not start_after_id:
             break
     contacts.sort(key=lambda c:c.get("_added_dt") or datetime.min.replace(tzinfo=timezone.utc),reverse=True)
     return contacts[:max_contacts]
