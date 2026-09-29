@@ -225,16 +225,18 @@ def hcp_estimate_pipeline_class(estimate):
 
     return "open", hcp_estimate_pipeline_value(estimate)
 
-def hcp_estimate_pipeline_snapshot(lookback_days=120, recent_days=30, max_details=24):
+def hcp_estimate_pipeline_snapshot(lookback_days=120, recent_days=30, max_pages=5):
     today=datetime.now(timezone.utc).date()
     lookback_start=today-timedelta(days=max(1,int(lookback_days)))
     recent_start=today-timedelta(days=max(1,int(recent_days))-1)
 
     summaries=[]
     page=1
-    while True:
+    pages_scanned=0
+    while page <= max_pages:
         data=hcp_get("estimates", {"page":page,"page_size":100})
         batch=data.get("estimates") or data.get("data") or []
+        pages_scanned += 1
         if not batch:
             break
 
@@ -250,58 +252,16 @@ def hcp_estimate_pipeline_snapshot(lookback_days=120, recent_days=30, max_detail
 
     summaries.sort(key=lambda x: str(x.get("created_at") or ""), reverse=True)
 
-    # The list endpoint usually has enough data for pipeline status/value, but
-    # HCP can omit option approval details. Only hydrate the most useful records
-    # so the dashboard stays fast instead of making hundreds of API calls.
-    hydrate=[]
-    for summary in summaries:
-        created_dt=hcp_parse_datetime(summary.get("created_at"))
-        is_recent=bool(created_dt and created_dt.date() >= recent_start)
-        has_status=bool(hcp_estimate_status_text(summary))
-        has_options=bool(summary.get("options"))
-        has_value=hcp_estimate_pipeline_value(summary) > 0
-        if is_recent or not (has_status and has_value) or not has_options:
-            hydrate.append(summary)
-
-    hydrate=hydrate[:max_details]
-    hydrated={}
-
-    def fetch_detail(summary):
-        estimate_id=summary.get("id")
-        if not estimate_id:
-            return None, None
-        try:
-            detail=hcp_get("estimates/" + str(estimate_id))
-            detail_estimate=detail.get("estimate") if isinstance(detail,dict) and isinstance(detail.get("estimate"),dict) else detail
-            if isinstance(detail_estimate,dict):
-                merged=dict(summary)
-                merged.update(detail_estimate)
-                return str(estimate_id), merged
-        except Exception:
-            pass
-        return str(estimate_id), summary
-
-    if hydrate:
-        with ThreadPoolExecutor(max_workers=min(6,len(hydrate))) as pool:
-            futures=[pool.submit(fetch_detail,summary) for summary in hydrate]
-            for future in as_completed(futures):
-                estimate_id,estimate=future.result()
-                if estimate_id and isinstance(estimate,dict):
-                    hydrated[estimate_id]=estimate
-
     rows=[]
-    for summary in summaries:
-        estimate_id=summary.get("id")
-        estimate=hydrated.get(str(estimate_id),summary)
-        created_dt=hcp_parse_datetime(estimate.get("created_at") or summary.get("created_at"))
+    for estimate in summaries:
+        created_dt=hcp_parse_datetime(estimate.get("created_at"))
         if not created_dt:
             continue
         created_date=created_dt.date()
         age=max(0,(today-created_date).days)
         bucket,value=hcp_estimate_pipeline_class(estimate)
-
         rows.append({
-            "id": estimate.get("id") or estimate_id,
+            "id": estimate.get("id"),
             "customer_name": hcp_estimate_customer_name(estimate),
             "created_at": created_date.isoformat(),
             "age_days": age,
@@ -317,10 +277,7 @@ def hcp_estimate_pipeline_snapshot(lookback_days=120, recent_days=30, max_detail
     open_rows=[r for r in rows if r["status"]=="open"]
 
     def group_age(min_age,max_age=None):
-        matched=[
-            r for r in open_rows
-            if r["age_days"] >= min_age and (max_age is None or r["age_days"] <= max_age)
-        ]
+        matched=[r for r in open_rows if r["age_days"] >= min_age and (max_age is None or r["age_days"] <= max_age)]
         return {
             "count":len(matched),
             "value":round(sum(float(r.get("value") or 0) for r in matched),2)
@@ -328,24 +285,20 @@ def hcp_estimate_pipeline_snapshot(lookback_days=120, recent_days=30, max_detail
 
     decided=len(recent_won)+len(recent_lost)
     close_rate=(len(recent_won)/decided*100.0) if decided else 0.0
-
     followups=[r for r in open_rows if r["age_days"] >= 4]
     followups.sort(key=lambda r:(r["age_days"],r["value"]),reverse=True)
+
+    incomplete=sum(1 for r in rows if not r.get("status_text") or float(r.get("value") or 0) <= 0)
 
     return {
         "ok":True,
         "as_of":today.isoformat(),
         "lookback_days":lookback_days,
         "recent_days":recent_days,
-        "truncated":len(hydrate) < sum(
-            1 for summary in summaries
-            if (
-                (hcp_parse_datetime(summary.get("created_at")) and hcp_parse_datetime(summary.get("created_at")).date() >= recent_start)
-                or not (hcp_estimate_status_text(summary) and hcp_estimate_pipeline_value(summary) > 0)
-                or not summary.get("options")
-            )
-        ),
-        "details_checked":len(hydrated),
+        "pages_scanned":pages_scanned,
+        "truncated":page >= max_pages and int(data.get("total_pages") or 1) > max_pages,
+        "summary_rows":len(rows),
+        "incomplete_rows":incomplete,
         "recent":{
             "estimates_created":len(recent),
             "quoted_value":round(sum(float(r.get("value") or 0) for r in recent),2),
