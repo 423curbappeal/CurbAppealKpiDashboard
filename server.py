@@ -136,6 +136,212 @@ def hcp_list_created_jobs(start, end):
         page += 1
     return matched
 
+def hcp_estimate_status_text(estimate):
+    values=[]
+    for key in ("approval_status","status","estimate_status","approval_state"):
+        value=estimate.get(key) if isinstance(estimate,dict) else None
+        if value:
+            values.append(str(value))
+    return " | ".join(values)
+
+def hcp_is_declined_status(value):
+    status=hcp_normalize_status(value)
+    return any(word in status for word in ("declin","reject","cancel","expired","lost"))
+
+def hcp_estimate_pipeline_value(estimate):
+    if not isinstance(estimate,dict):
+        return 0.0
+
+    top=hcp_money_to_dollars(estimate.get("total_amount"))
+    if top > 0:
+        return top
+
+    options=estimate.get("options") or []
+    values=[]
+    for option in options:
+        if not isinstance(option,dict):
+            continue
+        amount=hcp_money_to_dollars(option.get("total_amount"))
+        if amount > 0:
+            values.append(amount)
+
+    # Estimate options are usually alternatives, so summing every option can
+    # materially overstate pipeline value. Use the largest option as the best
+    # available fallback when HCP omits a top-level estimate total.
+    return max(values) if values else 0.0
+
+def hcp_estimate_customer_name(estimate):
+    if not isinstance(estimate,dict):
+        return "Unknown customer"
+
+    customer=estimate.get("customer")
+    if isinstance(customer,dict):
+        for key in ("display_name","name","company_name","company"):
+            value=str(customer.get(key) or "").strip()
+            if value:
+                return value
+        first=str(customer.get("first_name") or "").strip()
+        last=str(customer.get("last_name") or "").strip()
+        full=(first+" "+last).strip()
+        if full:
+            return full
+
+    for key in ("customer_name","name"):
+        value=str(estimate.get(key) or "").strip()
+        if value:
+            return value
+
+    estimate_id=str(estimate.get("id") or "").strip()
+    return ("Estimate "+estimate_id[-8:]) if estimate_id else "Unknown customer"
+
+def hcp_estimate_pipeline_class(estimate):
+    sold_value=hcp_estimate_sold_value(estimate)
+    if sold_value is not None:
+        return "won", sold_value
+
+    if not isinstance(estimate,dict):
+        return "open", 0.0
+
+    top_status=hcp_estimate_status_text(estimate)
+    if hcp_is_declined_status(top_status):
+        return "lost", hcp_estimate_pipeline_value(estimate)
+
+    options=estimate.get("options") or []
+    option_statuses=[]
+    for option in options:
+        if not isinstance(option,dict):
+            continue
+        status=(
+            option.get("approval_status")
+            or option.get("status")
+            or option.get("approval_state")
+        )
+        if status:
+            option_statuses.append(status)
+
+    if option_statuses and all(hcp_is_declined_status(s) for s in option_statuses):
+        return "lost", hcp_estimate_pipeline_value(estimate)
+
+    return "open", hcp_estimate_pipeline_value(estimate)
+
+def hcp_estimate_pipeline_snapshot(lookback_days=120, recent_days=30, max_details=200):
+    today=datetime.now(timezone.utc).date()
+    lookback_start=today-timedelta(days=max(1,int(lookback_days)))
+    recent_start=today-timedelta(days=max(1,int(recent_days))-1)
+
+    summaries=[]
+    page=1
+    while True:
+        data=hcp_get("estimates", {"page":page,"page_size":100})
+        batch=data.get("estimates") or data.get("data") or []
+        if not batch:
+            break
+
+        for summary in batch:
+            created_dt=hcp_parse_datetime(summary.get("created_at"))
+            if created_dt and created_dt.date() >= lookback_start:
+                summaries.append(summary)
+
+        total_pages=int(data.get("total_pages") or 1)
+        if page >= total_pages:
+            break
+        page += 1
+
+    # Newest first keeps the most actionable estimates if a very large account
+    # hits the defensive detail-call cap.
+    summaries.sort(
+        key=lambda x: hcp_parse_datetime(x.get("created_at")) or datetime.min.replace(tzinfo=timezone.utc),
+        reverse=True
+    )
+
+    rows=[]
+    truncated=len(summaries) > max_details
+    for summary in summaries[:max_details]:
+        estimate=summary
+        estimate_id=summary.get("id")
+        if estimate_id:
+            try:
+                detail=hcp_get("estimates/" + str(estimate_id))
+                detail_estimate=detail.get("estimate") if isinstance(detail,dict) and isinstance(detail.get("estimate"),dict) else detail
+                if isinstance(detail_estimate,dict):
+                    merged=dict(summary)
+                    merged.update(detail_estimate)
+                    estimate=merged
+            except Exception:
+                estimate=summary
+
+        created_dt=hcp_parse_datetime(estimate.get("created_at") or summary.get("created_at"))
+        if not created_dt:
+            continue
+        created_date=created_dt.date()
+        age=max(0,(today-created_date).days)
+        bucket,value=hcp_estimate_pipeline_class(estimate)
+
+        rows.append({
+            "id": estimate.get("id") or estimate_id,
+            "customer_name": hcp_estimate_customer_name(estimate),
+            "created_at": created_date.isoformat(),
+            "age_days": age,
+            "status": bucket,
+            "status_text": hcp_estimate_status_text(estimate),
+            "value": round(float(value or 0),2)
+        })
+
+    recent=[r for r in rows if datetime.strptime(r["created_at"],"%Y-%m-%d").date() >= recent_start]
+    recent_won=[r for r in recent if r["status"]=="won"]
+    recent_lost=[r for r in recent if r["status"]=="lost"]
+    recent_open=[r for r in recent if r["status"]=="open"]
+
+    open_rows=[r for r in rows if r["status"]=="open"]
+
+    def group_age(min_age,max_age=None):
+        matched=[
+            r for r in open_rows
+            if r["age_days"] >= min_age and (max_age is None or r["age_days"] <= max_age)
+        ]
+        return {
+            "count":len(matched),
+            "value":round(sum(float(r.get("value") or 0) for r in matched),2)
+        }
+
+    decided=len(recent_won)+len(recent_lost)
+    close_rate=(len(recent_won)/decided*100.0) if decided else 0.0
+
+    followups=[r for r in open_rows if r["age_days"] >= 4]
+    followups.sort(key=lambda r:(r["age_days"],r["value"]),reverse=True)
+
+    return {
+        "ok":True,
+        "as_of":today.isoformat(),
+        "lookback_days":lookback_days,
+        "recent_days":recent_days,
+        "truncated":truncated,
+        "details_checked":len(rows),
+        "recent":{
+            "estimates_created":len(recent),
+            "quoted_value":round(sum(float(r.get("value") or 0) for r in recent),2),
+            "won_count":len(recent_won),
+            "won_value":round(sum(float(r.get("value") or 0) for r in recent_won),2),
+            "lost_count":len(recent_lost),
+            "lost_value":round(sum(float(r.get("value") or 0) for r in recent_lost),2),
+            "open_count":len(recent_open),
+            "open_value":round(sum(float(r.get("value") or 0) for r in recent_open),2),
+            "close_rate":round(close_rate,1)
+        },
+        "open_pipeline":{
+            "count":len(open_rows),
+            "value":round(sum(float(r.get("value") or 0) for r in open_rows),2),
+            "aging":{
+                "0_3":group_age(0,3),
+                "4_7":group_age(4,7),
+                "8_14":group_age(8,14),
+                "15_30":group_age(15,30),
+                "31_plus":group_age(31,None)
+            }
+        },
+        "followups":followups[:12]
+    }
+
 def hcp_money_to_dollars(value):
     try:
         return float(value or 0) / 100.0
@@ -975,6 +1181,18 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.send_json(200,{"ok":True,"samples":samples})
             except Exception as e:
                 return self.send_json(400,{"ok":False,"error":str(e)})
+        if parsed.path == "/api/hcp-estimate-pipeline":
+            try:
+                if not HCP_API_KEY:
+                    return self.send_json(503, {"ok":False,"error":"Housecall Pro is not configured. Add HCP_API_KEY in Railway Variables."})
+                snapshot=hcp_estimate_pipeline_snapshot()
+                return self.send_json(200,snapshot)
+            except urllib.error.HTTPError as e:
+                try: detail=json.loads(e.read().decode("utf-8"))
+                except Exception: detail={"message":str(e)}
+                return self.send_json(502, {"ok":False,"error":"Housecall Pro API request failed","detail":detail})
+            except Exception as e:
+                return self.send_json(400, {"ok":False,"error":str(e)})
         if parsed.path == "/api/hcp-preview":
             try:
                 if not HCP_API_KEY:
