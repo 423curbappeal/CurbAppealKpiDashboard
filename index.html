@@ -488,6 +488,35 @@
     <button class="btn btn-ghost btn-sm" onclick="loadExistingEntry()">Load Existing</button>
   </div>
 
+  <!-- Automated Owner Brief -->
+  <div id="owner-brief-card" style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:18px;margin-bottom:20px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+      <div>
+        <div style="font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:0.8px;">⚡ Owner Brief · Auto</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:3px;">Live schedule + accounts receivable from Housecall Pro · refreshes every 10 minutes</div>
+      </div>
+      <button class="btn btn-ghost btn-sm" id="owner-brief-refresh" type="button">↻ Refresh</button>
+    </div>
+    <div id="owner-brief-status" style="font-size:12px;color:var(--muted);margin-bottom:12px;">Loading owner brief…</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(145px,1fr));gap:10px;margin-bottom:14px;">
+      <div style="background:var(--surface2);border-radius:10px;padding:12px;"><div style="font-size:10px;color:var(--muted);font-weight:700;">TODAY</div><div id="ob-today-revenue" style="font-size:18px;font-weight:800;color:var(--green);">—</div><div id="ob-today-jobs" style="font-size:11px;color:var(--muted);">—</div></div>
+      <div style="background:var(--surface2);border-radius:10px;padding:12px;"><div style="font-size:10px;color:var(--muted);font-weight:700;">NEXT 7 DAYS</div><div id="ob-next7-revenue" style="font-size:18px;font-weight:800;color:var(--blue);">—</div><div id="ob-next7-jobs" style="font-size:11px;color:var(--muted);">—</div></div>
+      <div style="background:var(--surface2);border-radius:10px;padding:12px;"><div style="font-size:10px;color:var(--muted);font-weight:700;">OUTSTANDING AR</div><div id="ob-ar-total" style="font-size:18px;font-weight:800;">—</div><div id="ob-ar-count" style="font-size:11px;color:var(--muted);">—</div></div>
+      <div style="background:var(--surface2);border-radius:10px;padding:12px;"><div style="font-size:10px;color:var(--muted);font-weight:700;">OVERDUE</div><div id="ob-ar-overdue" style="font-size:18px;font-weight:800;color:var(--orange);">—</div><div id="ob-ar-overdue-count" style="font-size:11px;color:var(--muted);">—</div></div>
+      <div style="background:var(--surface2);border-radius:10px;padding:12px;"><div style="font-size:10px;color:var(--muted);font-weight:700;">DUE NEXT 7 DAYS</div><div id="ob-ar-next7" style="font-size:18px;font-weight:800;">—</div><div id="ob-ar-next7-count" style="font-size:11px;color:var(--muted);">—</div></div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;">
+      <div style="background:var(--surface2);border-radius:10px;padding:12px;">
+        <div style="font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:7px;">Today&apos;s jobs</div>
+        <div id="ob-today-list" style="display:grid;gap:6px;font-size:12px;"></div>
+      </div>
+      <div style="background:var(--surface2);border-radius:10px;padding:12px;">
+        <div style="font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:7px;">Largest overdue invoices</div>
+        <div id="ob-overdue-list" style="display:grid;gap:6px;font-size:12px;"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- ── WASHWORKS ─────────────────────────────────────────── -->
   <div class="section-label">🚿 Curb Appeal Business</div>
 
@@ -3087,6 +3116,96 @@ function clearMonthlyPartial(ym) {
   saveMonthlyPartials(partials);
   renderMonthly();
 }
+</script>
+<script>
+(function () {
+  const card=document.getElementById('owner-brief-card');
+  if (!card) return;
+  const refresh=document.getElementById('owner-brief-refresh');
+  const status=document.getElementById('owner-brief-status');
+  const todayList=document.getElementById('ob-today-list');
+  const overdueList=document.getElementById('ob-overdue-list');
+  const money=(n) => '$' + Number(n || 0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+  const setText=(id,value) => { const el=document.getElementById(id); if (el) el.textContent=value; };
+
+  function shortTime(value) {
+    if (!value) return '';
+    const d=new Date(value);
+    if (Number.isNaN(d.getTime())) return '';
+    return d.toLocaleTimeString([], {hour:'numeric',minute:'2-digit'});
+  }
+
+  async function loadOwnerBrief() {
+    if (refresh) { refresh.disabled=true; refresh.textContent='Loading…'; }
+    if (status) status.textContent='Pulling schedule and receivables from Housecall Pro…';
+    try {
+      const res=await fetch('/api/hcp-operations-brief',{cache:'no-store'});
+      const data=await res.json();
+      if (!res.ok || !data.ok) {
+        const detail=data && data.detail ? JSON.stringify(data.detail) : '';
+        throw new Error((data.error || 'Owner brief request failed') + (detail ? ': ' + detail : ''));
+      }
+      const today=data.today_jobs || {};
+      const next7=data.next7 || {};
+      const ar=data.ar || {};
+      setText('ob-today-revenue',money(today.revenue));
+      setText('ob-today-jobs',Number(today.count || 0)+' scheduled job'+(Number(today.count || 0)===1?'':'s'));
+      setText('ob-next7-revenue',money(next7.revenue));
+      setText('ob-next7-jobs',Number(next7.count || 0)+' scheduled jobs');
+      setText('ob-ar-total',money(ar.outstanding_amount));
+      setText('ob-ar-count',Number(ar.outstanding_count || 0)+' unpaid invoices');
+      setText('ob-ar-overdue',money(ar.overdue_amount));
+      setText('ob-ar-overdue-count',Number(ar.overdue_count || 0)+' overdue');
+      setText('ob-ar-next7',money(ar.due_next7_amount));
+      setText('ob-ar-next7-count',Number(ar.due_next7_count || 0)+' due soon');
+
+      todayList.innerHTML='';
+      const jobs=Array.isArray(today.items) ? today.items : [];
+      if (!jobs.length) {
+        todayList.innerHTML='<div style="color:var(--muted);">No scheduled jobs today.</div>';
+      } else {
+        jobs.forEach(job => {
+          const row=document.createElement('div');
+          row.style.cssText='display:flex;justify-content:space-between;gap:10px;border-bottom:1px solid var(--border);padding:5px 0;';
+          const left=document.createElement('span');
+          left.textContent=(shortTime(job.scheduled_start) ? shortTime(job.scheduled_start)+' · ' : '')+(job.customer_name || 'Job');
+          const right=document.createElement('strong');
+          right.textContent=money(job.value);
+          row.appendChild(left); row.appendChild(right); todayList.appendChild(row);
+        });
+      }
+
+      overdueList.innerHTML='';
+      const overdue=Array.isArray(ar.largest_overdue) ? ar.largest_overdue : [];
+      if (!overdue.length) {
+        overdueList.innerHTML='<div style="color:var(--green);">✅ No overdue invoices.</div>';
+      } else {
+        overdue.forEach(inv => {
+          const row=document.createElement('div');
+          row.style.cssText='display:flex;justify-content:space-between;gap:10px;border-bottom:1px solid var(--border);padding:5px 0;';
+          const left=document.createElement('span');
+          left.textContent=(inv.customer_name || 'Invoice')+(inv.due_date ? ' · due '+inv.due_date : '');
+          const right=document.createElement('strong');
+          right.textContent=money(inv.due_amount);
+          row.appendChild(left); row.appendChild(right); overdueList.appendChild(row);
+        });
+      }
+      if (status) status.textContent='Updated '+new Date().toLocaleTimeString([], {hour:'numeric',minute:'2-digit'});
+    } catch (err) {
+      if (status) status.textContent='Owner brief failed: '+(err && err.message ? err.message : String(err));
+      if (todayList) todayList.innerHTML='';
+      if (overdueList) overdueList.innerHTML='';
+    } finally {
+      if (refresh) { refresh.disabled=false; refresh.textContent='↻ Refresh'; }
+    }
+  }
+
+  window.refreshOwnerBrief=loadOwnerBrief;
+  if (refresh) refresh.addEventListener('click',loadOwnerBrief);
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded',() => setTimeout(loadOwnerBrief,250));
+  else setTimeout(loadOwnerBrief,250);
+  setInterval(loadOwnerBrief,10*60*1000);
+})();
 </script>
 <script>
 (function () {

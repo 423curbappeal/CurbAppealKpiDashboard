@@ -1,6 +1,7 @@
 import json, os, time, urllib.parse, urllib.request, urllib.error
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 
 GRAPH_VERSION = os.getenv("META_GRAPH_VERSION", "v24.0")
@@ -14,6 +15,8 @@ REVIEWS_WEBHOOK_SECRET = os.getenv("REVIEWS_WEBHOOK_SECRET", "").strip()
 REVIEW_DATA_PATH = os.getenv("REVIEW_DATA_PATH", "/data/reviews.json").strip() or "/data/reviews.json"
 QB_WEBHOOK_SECRET = os.getenv("QB_WEBHOOK_SECRET", REVIEWS_WEBHOOK_SECRET).strip()
 QB_EXPENSE_DATA_PATH = os.getenv("QB_EXPENSE_DATA_PATH", "/data/qb_expenses.json").strip() or "/data/qb_expenses.json"
+BUSINESS_TIMEZONE = os.getenv("BUSINESS_TIMEZONE", "America/New_York").strip() or "America/New_York"
+BUSINESS_TZ = ZoneInfo(BUSINESS_TIMEZONE)
 
 def graph(path, params=None, access_token=None):
     params = dict(params or {})
@@ -136,6 +139,163 @@ def hcp_list_created_jobs(start, end):
             break
         page += 1
     return matched
+
+def hcp_local_date(value):
+    dt=hcp_parse_datetime(value)
+    if not dt:
+        return None
+    if dt.tzinfo is None:
+        dt=dt.replace(tzinfo=BUSINESS_TZ)
+    else:
+        dt=dt.astimezone(BUSINESS_TZ)
+    return dt.date()
+
+def hcp_customer_name_from_obj(obj):
+    if not isinstance(obj,dict):
+        return None
+    for key in ("display_name","name","company_name","company"):
+        value=str(obj.get(key) or "").strip()
+        if value:
+            return value
+    first=str(obj.get("first_name") or "").strip()
+    last=str(obj.get("last_name") or "").strip()
+    full=(first+" "+last).strip()
+    return full or None
+
+def hcp_job_customer_name(job):
+    if not isinstance(job,dict):
+        return "Unknown customer"
+    name=hcp_customer_name_from_obj(job.get("customer"))
+    if name:
+        return name
+    for key in ("customer_name","company_name"):
+        value=str(job.get(key) or "").strip()
+        if value:
+            return value
+    return "Job " + str(job.get("id") or "")[-8:]
+
+def hcp_invoice_due_amount(invoice):
+    if not isinstance(invoice,dict):
+        return 0.0
+    for key in ("due_amount","amount_due","dueAmount","balance_due","balanceDue","balance"):
+        if invoice.get(key) is not None:
+            return hcp_money_to_dollars(invoice.get(key))
+    return 0.0
+
+def hcp_invoice_due_date(invoice):
+    if not isinstance(invoice,dict):
+        return None
+    for key in ("due_at","due_date","dueAt"):
+        value=invoice.get(key)
+        if value:
+            return hcp_local_date(value)
+    return None
+
+def hcp_invoice_customer_name(invoice):
+    if not isinstance(invoice,dict):
+        return "Unknown customer"
+    name=hcp_customer_name_from_obj(invoice.get("customer"))
+    if name:
+        return name
+    for key in ("customer_name","display_name"):
+        value=str(invoice.get(key) or "").strip()
+        if value:
+            return value
+    number=str(invoice.get("invoice_number") or invoice.get("invoiceNumber") or invoice.get("number") or invoice.get("id") or "").strip()
+    return ("Invoice " + number) if number else "Unknown customer"
+
+def hcp_operations_brief():
+    today=datetime.now(BUSINESS_TZ).date()
+    next7_end=today+timedelta(days=6)
+    start_iso=today.isoformat()+"T00:00:00"
+    end_iso=next7_end.isoformat()+"T23:59:59"
+
+    jobs_data=hcp_get("jobs", {
+        "page":1,
+        "page_size":100,
+        "scheduled_start_min":start_iso,
+        "scheduled_start_max":end_iso
+    })
+    jobs=jobs_data.get("jobs") or jobs_data.get("data") or []
+    scheduled=[]
+    for job in jobs:
+        if not isinstance(job,dict) or job.get("deleted_at"):
+            continue
+        status=str(job.get("work_status") or "").strip().lower()
+        if "cancel" in status:
+            continue
+        schedule=job.get("schedule") or {}
+        scheduled_start=schedule.get("scheduled_start") or job.get("scheduled_start")
+        scheduled_date=hcp_local_date(scheduled_start)
+        if not scheduled_date or scheduled_date < today or scheduled_date > next7_end:
+            continue
+        scheduled.append({
+            "id":job.get("id"),
+            "customer_name":hcp_job_customer_name(job),
+            "scheduled_start":scheduled_start,
+            "scheduled_date":scheduled_date.isoformat(),
+            "status":status or "scheduled",
+            "value":round(hcp_money_to_dollars(job.get("total_amount")),2)
+        })
+
+    scheduled.sort(key=lambda j:str(j.get("scheduled_start") or ""))
+    today_jobs=[j for j in scheduled if j["scheduled_date"]==today.isoformat()]
+
+    invoices=[]
+    page=1
+    while page <= 4:
+        data=hcp_get("invoices", {"page":page,"page_size":100})
+        batch=data.get("invoices") or data.get("data") or []
+        if not batch:
+            break
+        invoices.extend([x for x in batch if isinstance(x,dict)])
+        total_pages=int(data.get("total_pages") or 1)
+        if page >= total_pages:
+            break
+        page += 1
+
+    outstanding=[]
+    for invoice in invoices:
+        due=hcp_invoice_due_amount(invoice)
+        if due <= 0:
+            continue
+        due_date=hcp_invoice_due_date(invoice)
+        outstanding.append({
+            "id":invoice.get("id") or invoice.get("uuid"),
+            "invoice_number":invoice.get("invoice_number") or invoice.get("invoiceNumber") or invoice.get("number"),
+            "customer_name":hcp_invoice_customer_name(invoice),
+            "due_date":due_date.isoformat() if due_date else None,
+            "due_amount":round(due,2),
+            "status":str(invoice.get("status") or "").strip().lower()
+        })
+
+    overdue=[x for x in outstanding if x.get("due_date") and datetime.strptime(x["due_date"],"%Y-%m-%d").date() < today]
+    due_next7=[x for x in outstanding if x.get("due_date") and today <= datetime.strptime(x["due_date"],"%Y-%m-%d").date() <= next7_end]
+    overdue.sort(key=lambda x:(x.get("due_amount") or 0),reverse=True)
+
+    return {
+        "ok":True,
+        "as_of":today.isoformat(),
+        "timezone":BUSINESS_TIMEZONE,
+        "today_jobs":{
+            "count":len(today_jobs),
+            "revenue":round(sum(float(j.get("value") or 0) for j in today_jobs),2),
+            "items":today_jobs[:8]
+        },
+        "next7":{
+            "count":len(scheduled),
+            "revenue":round(sum(float(j.get("value") or 0) for j in scheduled),2)
+        },
+        "ar":{
+            "outstanding_count":len(outstanding),
+            "outstanding_amount":round(sum(float(x.get("due_amount") or 0) for x in outstanding),2),
+            "overdue_count":len(overdue),
+            "overdue_amount":round(sum(float(x.get("due_amount") or 0) for x in overdue),2),
+            "due_next7_count":len(due_next7),
+            "due_next7_amount":round(sum(float(x.get("due_amount") or 0) for x in due_next7),2),
+            "largest_overdue":overdue[:6]
+        }
+    }
 
 def hcp_estimate_status_text(estimate):
     values=[]
@@ -1164,6 +1324,17 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.send_json(200,{"ok":True,"samples":samples})
             except Exception as e:
                 return self.send_json(400,{"ok":False,"error":str(e)})
+        if parsed.path == "/api/hcp-operations-brief":
+            try:
+                if not HCP_API_KEY:
+                    return self.send_json(503, {"ok":False,"error":"Housecall Pro is not configured. Add HCP_API_KEY in Railway Variables."})
+                return self.send_json(200,hcp_operations_brief())
+            except urllib.error.HTTPError as e:
+                try: detail=json.loads(e.read().decode("utf-8"))
+                except Exception: detail={"message":str(e)}
+                return self.send_json(502, {"ok":False,"error":"Housecall Pro API request failed","detail":detail})
+            except Exception as e:
+                return self.send_json(400, {"ok":False,"error":str(e)})
         if parsed.path == "/api/hcp-estimate-pipeline":
             try:
                 if not HCP_API_KEY:
