@@ -18,6 +18,10 @@ QB_EXPENSE_DATA_PATH = os.getenv("QB_EXPENSE_DATA_PATH", "/data/qb_expenses.json
 BUSINESS_TIMEZONE = os.getenv("BUSINESS_TIMEZONE", "America/New_York").strip() or "America/New_York"
 BUSINESS_TZ = ZoneInfo(BUSINESS_TIMEZONE)
 WEEKLY_REVENUE_GOAL = float(os.getenv("WEEKLY_REVENUE_GOAL", "6000") or 6000)
+GHL_API_TOKEN = os.getenv("GHL_API_TOKEN", "").strip()
+GHL_LOCATION_ID = os.getenv("GHL_LOCATION_ID", "").strip()
+GHL_API_BASE = "https://services.leadconnectorhq.com"
+GHL_API_VERSION = os.getenv("GHL_API_VERSION", "v3").strip() or "v3"
 _RUNTIME_CACHE = {}
 
 def cached_runtime(key, ttl_seconds, loader):
@@ -48,6 +52,210 @@ def all_pages(path, params=None, access_token=None):
         with urllib.request.urlopen(req, timeout=30) as r:
             data=json.loads(r.read().decode("utf-8"))
     return out
+
+def ghl_get(path, params=None):
+    if not GHL_API_TOKEN or not GHL_LOCATION_ID:
+        raise RuntimeError("HighLevel is not configured. Add GHL_API_TOKEN and GHL_LOCATION_ID in Railway Variables.")
+    query=urllib.parse.urlencode(params or {},doseq=True)
+    url=GHL_API_BASE + "/" + path.lstrip("/")
+    if query:
+        url += "?" + query
+    req=urllib.request.Request(
+        url,
+        headers={
+            "Authorization":"Bearer " + GHL_API_TOKEN,
+            "Accept":"application/json",
+            "Version":GHL_API_VERSION,
+            "User-Agent":"CurbAppealKPIDashboard/1.0"
+        }
+    )
+    with urllib.request.urlopen(req,timeout=30) as r:
+        return json.loads(r.read().decode("utf-8"))
+
+def ghl_parse_datetime(value):
+    if value is None or value == "":
+        return None
+    text=str(value).strip()
+    if text.isdigit():
+        try:
+            n=int(text)
+            if n > 100000000000:
+                return datetime.fromtimestamp(n/1000.0,tz=timezone.utc)
+            if n > 1000000000:
+                return datetime.fromtimestamp(n,tz=timezone.utc)
+        except Exception:
+            pass
+    try:
+        dt=datetime.fromisoformat(text.replace("Z","+00:00"))
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    except Exception:
+        return None
+
+def ghl_message_list(conversation_id,limit=100):
+    data=ghl_get("conversations/"+str(conversation_id)+"/messages",{"limit":limit})
+    messages=data.get("messages") if isinstance(data,dict) else None
+    if isinstance(messages,dict):
+        return messages.get("messages") or []
+    if isinstance(messages,list):
+        return messages
+    return data.get("data") or [] if isinstance(data,dict) else []
+
+def ghl_is_meaningful_message(message):
+    if not isinstance(message,dict):
+        return False
+    mtype=str(message.get("messageType") or message.get("type") or "").upper()
+    if "ACTIVITY_" in mtype or mtype.startswith("TYPE_ACTIVITY"):
+        return False
+    return str(message.get("direction") or "").lower() in {"inbound","outbound"}
+
+def ghl_is_manual_outbound(message):
+    if not ghl_is_meaningful_message(message):
+        return False
+    if str(message.get("direction") or "").lower() != "outbound":
+        return False
+    source=str(message.get("source") or "").strip().lower()
+    automated_sources={"workflow","campaign","bulk_actions","bulk_action","automation","api","trigger"}
+    return source not in automated_sources
+
+def ghl_is_missed_call(message):
+    if not isinstance(message,dict):
+        return False
+    if str(message.get("direction") or "").lower() != "inbound":
+        return False
+    mtype=str(message.get("messageType") or "").upper()
+    if "CALL" not in mtype and "VOICEMAIL" not in mtype:
+        return False
+    status=str(message.get("status") or "").lower()
+    meta=message.get("meta") if isinstance(message.get("meta"),dict) else {}
+    call_status=str(meta.get("callStatus") or message.get("callStatus") or "").lower()
+    return status=="voicemail" or call_status=="voicemail" or "voicemail" in mtype
+
+def ghl_channel_name(message):
+    mtype=str((message or {}).get("messageType") or "").upper()
+    if "CALL" in mtype or "VOICEMAIL" in mtype: return "Call"
+    if "SMS" in mtype: return "SMS"
+    if "EMAIL" in mtype: return "Email"
+    if "FACEBOOK" in mtype or mtype.endswith("_FB"): return "Facebook"
+    if "INSTAGRAM" in mtype or "_IG" in mtype: return "Instagram"
+    if "WEBCHAT" in mtype or "LIVE_CHAT" in mtype: return "Web Chat"
+    if "WHATSAPP" in mtype: return "WhatsApp"
+    return mtype.replace("TYPE_","").title() if mtype else "Message"
+
+def ghl_lead_response_snapshot(lookback_days=7,max_conversations=60):
+    now=datetime.now(timezone.utc)
+    cutoff=now-timedelta(days=max(1,int(lookback_days)))
+    data=ghl_get("conversations/search",{
+        "locationId":GHL_LOCATION_ID,
+        "limit":100,
+        "sort":"desc",
+        "status":"all",
+        "sortBy":"last_message_date"
+    })
+    conversations=data.get("conversations") or data.get("data") or []
+
+    recent=[]
+    for conv in conversations:
+        if not isinstance(conv,dict) or not conv.get("id"):
+            continue
+        last_dt=ghl_parse_datetime(conv.get("lastMessageDate") or conv.get("last_message_date"))
+        if last_dt and last_dt < cutoff:
+            continue
+        recent.append(conv)
+        if len(recent) >= max_conversations:
+            break
+
+    results=[]
+    def inspect(conv):
+        cid=conv.get("id")
+        try:
+            messages=[m for m in ghl_message_list(cid,100) if ghl_is_meaningful_message(m)]
+        except Exception:
+            messages=[]
+        messages.sort(key=lambda m: ghl_parse_datetime(m.get("dateAdded") or m.get("date_added")) or datetime.min.replace(tzinfo=timezone.utc))
+        window=[m for m in messages if (ghl_parse_datetime(m.get("dateAdded") or m.get("date_added")) or datetime.min.replace(tzinfo=timezone.utc)) >= cutoff]
+        if not window:
+            return None
+
+        inbound=[m for m in window if str(m.get("direction") or "").lower()=="inbound"]
+        if not inbound:
+            return None
+
+        first_in=inbound[0]
+        first_in_dt=ghl_parse_datetime(first_in.get("dateAdded") or first_in.get("date_added"))
+        first_manual=None
+        for m in window:
+            dt=ghl_parse_datetime(m.get("dateAdded") or m.get("date_added"))
+            if first_in_dt and dt and dt >= first_in_dt and ghl_is_manual_outbound(m):
+                first_manual=m
+                break
+        first_manual_dt=ghl_parse_datetime(first_manual.get("dateAdded") or first_manual.get("date_added")) if first_manual else None
+        response_minutes=((first_manual_dt-first_in_dt).total_seconds()/60.0) if first_manual_dt and first_in_dt and first_manual_dt >= first_in_dt else None
+
+        latest=window[-1]
+        latest_dt=ghl_parse_datetime(latest.get("dateAdded") or latest.get("date_added"))
+        waiting=str(latest.get("direction") or "").lower()=="inbound"
+        wait_minutes=max(0.0,(now-latest_dt).total_seconds()/60.0) if waiting and latest_dt else 0.0
+        missed=sum(1 for m in inbound if ghl_is_missed_call(m))
+        name=str(conv.get("fullName") or conv.get("contactName") or conv.get("name") or conv.get("phone") or "Unknown lead").strip()
+        body=str(latest.get("body") or conv.get("lastMessageBody") or "").strip().replace("\n"," ")
+        if len(body)>90: body=body[:87]+"..."
+        return {
+            "conversation_id":cid,
+            "contact_id":conv.get("contactId"),
+            "name":name,
+            "channel":ghl_channel_name(latest),
+            "unread_count":int(conv.get("unreadCount") or 0),
+            "waiting":waiting,
+            "wait_minutes":round(wait_minutes,1),
+            "last_message_at":latest_dt.isoformat() if latest_dt else None,
+            "last_message_preview":body,
+            "first_response_minutes":round(response_minutes,1) if response_minutes is not None else None,
+            "missed_calls":missed
+        }
+
+    if recent:
+        with ThreadPoolExecutor(max_workers=min(6,len(recent))) as pool:
+            futures=[pool.submit(inspect,c) for c in recent]
+            for future in as_completed(futures):
+                try:
+                    item=future.result()
+                    if item: results.append(item)
+                except Exception:
+                    pass
+
+    response_times=[float(r["first_response_minutes"]) for r in results if r.get("first_response_minutes") is not None]
+    response_times.sort()
+    median=0.0
+    if response_times:
+        n=len(response_times)
+        median=response_times[n//2] if n%2 else (response_times[n//2-1]+response_times[n//2])/2.0
+    waiting=[r for r in results if r.get("waiting")]
+    waiting.sort(key=lambda r:r.get("wait_minutes") or 0,reverse=True)
+    responded=len(response_times)
+    total=len(results)
+    under15=sum(1 for x in response_times if x <= 15)
+
+    return {
+        "ok":True,
+        "as_of":now.isoformat(),
+        "lookback_days":lookback_days,
+        "conversations_analyzed":total,
+        "summary":{
+            "inbound_conversations":total,
+            "responded_conversations":responded,
+            "response_rate":round((responded/total*100.0),1) if total else 0.0,
+            "avg_first_response_minutes":round(sum(response_times)/len(response_times),1) if response_times else 0.0,
+            "median_first_response_minutes":round(median,1),
+            "under_15_minutes_pct":round((under15/len(response_times)*100.0),1) if response_times else 0.0,
+            "waiting_now":len(waiting),
+            "waiting_15_plus":sum(1 for r in waiting if float(r.get("wait_minutes") or 0)>=15),
+            "waiting_60_plus":sum(1 for r in waiting if float(r.get("wait_minutes") or 0)>=60),
+            "unread_conversations":sum(1 for r in results if int(r.get("unread_count") or 0)>0),
+            "missed_calls":sum(int(r.get("missed_calls") or 0) for r in results)
+        },
+        "waiting":waiting[:15],
+        "scope_note":"Tracks recent HighLevel conversations with inbound activity. First-response time counts manual outbound replies and excludes workflow/campaign/API automation."
+    }
 
 def hcp_get(path, params=None):
     if not HCP_API_KEY:
@@ -1866,7 +2074,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self.send_json(200, {
                 "ok":True,
                 "meta_configured":bool(TOKEN and AD_ACCOUNT and PAGE_IDS),
-                "hcp_configured":bool(HCP_API_KEY)
+                "hcp_configured":bool(HCP_API_KEY),
+                "ghl_configured":bool(GHL_API_TOKEN and GHL_LOCATION_ID)
             })
         if parsed.path == "/api/qb-preview":
             try:
@@ -1921,6 +2130,21 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.send_json(502, {"ok":False,"error":"Housecall Pro API request failed","detail":detail})
             except Exception as e:
                 return self.send_json(400, {"ok":False,"error":str(e)})
+        if parsed.path == "/api/ghl-lead-response":
+            try:
+                if not GHL_API_TOKEN or not GHL_LOCATION_ID:
+                    return self.send_json(503,{
+                        "ok":False,
+                        "configured":False,
+                        "error":"HighLevel is not configured. Add GHL_API_TOKEN and GHL_LOCATION_ID in Railway Variables."
+                    })
+                return self.send_json(200,cached_runtime("ghl_lead_response",60,ghl_lead_response_snapshot))
+            except urllib.error.HTTPError as e:
+                try: detail=json.loads(e.read().decode("utf-8"))
+                except Exception: detail={"message":str(e)}
+                return self.send_json(502,{"ok":False,"configured":True,"error":"HighLevel API request failed","detail":detail})
+            except Exception as e:
+                return self.send_json(400,{"ok":False,"configured":True,"error":str(e)})
         if parsed.path == "/api/hcp-tech-scorecards":
             try:
                 if not HCP_API_KEY:
