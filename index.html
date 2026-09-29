@@ -535,6 +535,22 @@
     </div>
   </div>
 
+  <!-- Automated Lead Response Monitor -->
+  <div id="lead-response-card" style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:18px;margin-bottom:20px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+      <div>
+        <div style="font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:0.8px;">📞 Lead Response Monitor · Auto</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:3px;">Live from HighLevel · manual response speed, waiting leads, unread conversations, and missed calls</div>
+      </div>
+      <button class="btn btn-ghost btn-sm" id="lead-response-refresh" type="button">↻ Refresh</button>
+    </div>
+    <div id="lead-response-status" style="font-size:12px;color:var(--muted);margin-bottom:12px;">Loading HighLevel inbox performance…</div>
+    <div id="lead-response-metrics" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:9px;margin-bottom:14px;"></div>
+    <div style="font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Needs a human response now</div>
+    <div id="lead-response-waiting" style="display:grid;gap:7px;"></div>
+    <div id="lead-response-note" style="font-size:10px;color:var(--muted);margin-top:10px;line-height:1.4;"></div>
+  </div>
+
   <!-- Automated Lead Source Attribution -->
   <div id="source-attribution-card" style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:18px;margin-bottom:20px;">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
@@ -3322,6 +3338,112 @@ function clearMonthlyPartial(ym) {
       btn.textContent='⚡ Auto Fill Week';
     }
   });
+})();
+</script>
+<script>
+(function () {
+  const card=document.getElementById('lead-response-card');
+  if (!card) return;
+  const refresh=document.getElementById('lead-response-refresh');
+  const status=document.getElementById('lead-response-status');
+  const metrics=document.getElementById('lead-response-metrics');
+  const waiting=document.getElementById('lead-response-waiting');
+  const note=document.getElementById('lead-response-note');
+
+  function tile(label,value,color,sub) {
+    const el=document.createElement('div');
+    el.style.cssText='background:var(--surface2);border-radius:10px;padding:11px;';
+    const l=document.createElement('div');
+    l.style.cssText='font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.45px;';
+    l.textContent=label;
+    const v=document.createElement('div');
+    v.style.cssText='font-size:18px;font-weight:800;margin-top:3px;'+(color ? 'color:'+color+';' : '');
+    v.textContent=value;
+    el.appendChild(l); el.appendChild(v);
+    if (sub) {
+      const s=document.createElement('div');
+      s.style.cssText='font-size:10px;color:var(--muted);margin-top:2px;';
+      s.textContent=sub;
+      el.appendChild(s);
+    }
+    return el;
+  }
+
+  function ageText(minutes) {
+    const m=Number(minutes || 0);
+    if (m < 1) return 'now';
+    if (m < 60) return Math.round(m)+'m';
+    if (m < 1440) return (m/60).toFixed(m >= 600 ? 0 : 1)+'h';
+    return (m/1440).toFixed(1)+'d';
+  }
+
+  function render(data) {
+    const s=data.summary || {};
+    metrics.innerHTML='';
+    metrics.appendChild(tile('Waiting now',String(Number(s.waiting_now || 0)),Number(s.waiting_now || 0)>0 ? 'var(--orange)' : 'var(--green)','latest message is inbound'));
+    metrics.appendChild(tile('15+ min',String(Number(s.waiting_15_plus || 0)),Number(s.waiting_15_plus || 0)>0 ? 'var(--orange)' : 'var(--green)','needs quick follow-up'));
+    metrics.appendChild(tile('60+ min',String(Number(s.waiting_60_plus || 0)),Number(s.waiting_60_plus || 0)>0 ? '#ef4444' : 'var(--green)','high priority'));
+    metrics.appendChild(tile('Avg first response',Number(s.avg_first_response_minutes || 0).toFixed(1)+'m','var(--blue)','manual replies only'));
+    metrics.appendChild(tile('Under 15 min',Number(s.under_15_minutes_pct || 0).toFixed(1)+'%',null,'of responded conversations'));
+    metrics.appendChild(tile('Missed calls',String(Number(s.missed_calls || 0)),Number(s.missed_calls || 0)>0 ? 'var(--orange)' : 'var(--green)','last '+Number(data.lookback_days || 7)+' days'));
+    metrics.appendChild(tile('Unread',String(Number(s.unread_conversations || 0)),Number(s.unread_conversations || 0)>0 ? 'var(--orange)' : 'var(--green)','conversations'));
+
+    waiting.innerHTML='';
+    const rows=Array.isArray(data.waiting) ? data.waiting : [];
+    if (!rows.length) {
+      waiting.innerHTML='<div style="font-size:12px;color:var(--green);padding:6px 0;">✅ No inbound conversations are waiting on a human reply.</div>';
+    } else {
+      rows.forEach(row => {
+        const el=document.createElement('div');
+        const mins=Number(row.wait_minutes || 0);
+        const urgent=mins>=60;
+        el.style.cssText='display:grid;grid-template-columns:minmax(145px,1fr) auto;gap:10px;align-items:center;background:var(--surface2);border:1px solid '+(urgent ? 'rgba(239,68,68,.35)' : 'var(--border)')+';border-radius:10px;padding:10px 11px;';
+        const body=document.createElement('div');
+        const name=document.createElement('div');
+        name.style.cssText='font-size:12px;font-weight:800;color:var(--text);';
+        name.textContent=(row.name || 'Unknown lead')+' · '+(row.channel || 'Message');
+        const preview=document.createElement('div');
+        preview.style.cssText='font-size:10px;color:var(--muted);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+        preview.textContent=row.last_message_preview || (Number(row.unread_count || 0)>0 ? Number(row.unread_count)+' unread' : 'Inbound message');
+        body.appendChild(name); body.appendChild(preview);
+        const age=document.createElement('div');
+        age.style.cssText='font-size:12px;font-weight:800;white-space:nowrap;color:'+(urgent ? '#ef4444' : 'var(--orange)')+';';
+        age.textContent=ageText(mins);
+        el.appendChild(body); el.appendChild(age); waiting.appendChild(el);
+      });
+    }
+    note.textContent=data.scope_note || "";
+  }
+
+  async function load() {
+    if (refresh) { refresh.disabled=true; refresh.textContent='Loading…'; }
+    status.textContent='Checking HighLevel conversations and response times…';
+    try {
+      const res=await fetch('/api/ghl-lead-response',{cache:'no-store'});
+      const data=await res.json();
+      if (!res.ok || !data.ok) {
+        if (res.status===503 && data && data.configured===false) {
+          metrics.innerHTML=''; waiting.innerHTML=''; note.textContent='';
+          status.textContent='HighLevel API connection needs setup: add GHL_API_TOKEN and GHL_LOCATION_ID in Railway Variables.';
+          return;
+        }
+        const detail=data && data.detail ? JSON.stringify(data.detail) : '';
+        throw new Error((data.error || 'HighLevel response monitor failed')+(detail ? ': '+detail : ''));
+      }
+      render(data);
+      status.textContent='Updated '+new Date().toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})+' · '+Number(data.conversations_analyzed || 0)+' inbound conversations analyzed';
+    } catch (err) {
+      metrics.innerHTML=''; waiting.innerHTML=''; note.textContent='';
+      status.textContent='Lead response monitor failed: '+((err && err.message) ? err.message : String(err));
+    } finally {
+      if (refresh) { refresh.disabled=false; refresh.textContent='↻ Refresh'; }
+    }
+  }
+
+  if (refresh) refresh.addEventListener('click',load);
+  if (document.readyState==='loading') document.addEventListener('DOMContentLoaded',() => setTimeout(load,350));
+  else setTimeout(load,350);
+  setInterval(load,5*60*1000);
 })();
 </script>
 <script>
