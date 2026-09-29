@@ -4086,7 +4086,15 @@ function clearMonthlyPartial(ym) {
         name.textContent=t.name || 'Technician';
         const mix=document.createElement('div');
         mix.style.cssText='font-size:10px;color:var(--muted);font-weight:700;';
-        mix.textContent=Number(t.solo_jobs || 0)+' solo · '+Number(t.team_jobs || 0)+' team';
+        if (t.commission_role==='owner') {
+          mix.textContent='Owner/helper · no commission';
+        } else {
+          const parts=[];
+          if (Number(t.owner_assisted_jobs || 0)>0) parts.push(Number(t.owner_assisted_jobs)+' owner-assisted');
+          if (Number(t.micah_calien_jobs || 0)>0) parts.push(Number(t.micah_calien_jobs)+' Micah + Calien');
+          if (!parts.length) parts.push(Number(t.solo_jobs || 0)+' solo · '+Number(t.team_jobs || 0)+' team');
+          mix.textContent=parts.join(' · ');
+        }
         head.appendChild(name); head.appendChild(mix);
 
         const grid=document.createElement('div');
@@ -4097,14 +4105,14 @@ function clearMonthlyPartial(ym) {
         grid.appendChild(metric('Rev / hour',money(t.revenue_per_hour),'var(--blue)'));
         grid.appendChild(metric('Avg ticket',money(t.avg_ticket),null));
         grid.appendChild(metric('Callbacks',String(Number(t.callbacks || 0)),Number(t.callbacks || 0)>0 ? 'var(--orange)' : 'var(--green)'));
-        grid.appendChild(metric('Est. commission',money(t.estimated_commission),'var(--orange)'));
+        grid.appendChild(metric(t.commission_role==='owner' ? 'Commission' : 'Est. commission',money(t.estimated_commission),t.commission_role==='owner' ? 'var(--muted)' : 'var(--orange)'));
 
         if (Number(t.untracked_time_jobs || 0) > 0 || Number(t.commission_unmodeled_jobs || 0) > 0) {
           const warning=document.createElement('div');
           warning.style.cssText='font-size:10px;color:var(--orange);margin-top:8px;line-height:1.4;';
           const parts=[];
           if (Number(t.untracked_time_jobs || 0)>0) parts.push(Number(t.untracked_time_jobs)+' job(s) missing usable time');
-          if (Number(t.commission_unmodeled_jobs || 0)>0) parts.push(Number(t.commission_unmodeled_jobs)+' job(s) with 3+ assigned techs excluded from commission estimate');
+          if (Number(t.commission_unmodeled_jobs || 0)>0) parts.push(Number(t.commission_unmodeled_jobs)+' job(s) with an unrecognized commission setup excluded from the estimate');
           warning.textContent='⚠️ '+parts.join(' · ');
           wrap.appendChild(head); wrap.appendChild(grid); wrap.appendChild(warning);
         } else {
