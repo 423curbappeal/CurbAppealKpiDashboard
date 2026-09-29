@@ -515,7 +515,7 @@ def lead_handoff_snapshot(lookback_days=7):
             "needs_attention":sum(1 for r in rows if r.get("needs_attention"))
         },
         "rows":rows[:40],
-        "scope_note":"Matches HighLevel leads to Housecall Pro by exact normalized phone or email only. Names are never fuzzy-matched. HCP becomes the source of truth after handoff."
+        "scope_note":"HighLevel contacts with a phone/email are treated as inbound inquiries; this can include calls/messages that are not yet qualified leads. Matches to Housecall Pro use exact normalized phone or email only. Names are never fuzzy-matched. HCP becomes the source of truth after handoff."
     }
 
 def hcp_get(path, params=None):
@@ -708,17 +708,20 @@ def hcp_operations_brief():
         scheduled_date=hcp_local_date(scheduled_start)
         if not scheduled_date or scheduled_date < today or scheduled_date > next7_end:
             continue
+        is_callback=hcp_is_callback(job)
         scheduled.append({
             "id":job.get("id"),
             "customer_name":hcp_job_customer_name(job),
             "scheduled_start":scheduled_start,
             "scheduled_date":scheduled_date.isoformat(),
             "status":status or "scheduled",
-            "value":round(hcp_money_to_dollars(job.get("total_amount")),2)
+            "is_callback":is_callback,
+            "value":0.0 if is_callback else round(hcp_money_to_dollars(job.get("total_amount")),2)
         })
 
     scheduled.sort(key=lambda j:str(j.get("scheduled_start") or ""))
     today_jobs=[j for j in scheduled if j["scheduled_date"]==today.isoformat()]
+    next7_jobs=[j for j in scheduled if not str(j.get("status") or "").startswith("complete")]
 
     invoices=[]
     page=1
@@ -762,8 +765,8 @@ def hcp_operations_brief():
             "items":today_jobs[:8]
         },
         "next7":{
-            "count":len(scheduled),
-            "revenue":round(sum(float(j.get("value") or 0) for j in scheduled),2)
+            "count":len(next7_jobs),
+            "revenue":round(sum(float(j.get("value") or 0) for j in next7_jobs),2)
         },
         "ar":{
             "outstanding_count":len(outstanding),
@@ -928,11 +931,20 @@ def needs_attention_snapshot():
 
 def hcp_estimate_status_text(estimate):
     values=[]
+    if not isinstance(estimate,dict):
+        return ""
     for key in ("approval_status","status","estimate_status","approval_state"):
-        value=estimate.get(key) if isinstance(estimate,dict) else None
+        value=estimate.get(key)
         if value:
             values.append(str(value))
-    return " | ".join(values)
+    for option in estimate.get("options") or []:
+        if not isinstance(option,dict):
+            continue
+        value=option.get("approval_status") or option.get("status") or option.get("approval_state")
+        if value:
+            values.append(str(value))
+    # Keep a compact unique list for diagnostics.
+    return " | ".join(dict.fromkeys(values))
 
 def hcp_is_declined_status(value):
     status=hcp_normalize_status(value)
@@ -1943,7 +1955,7 @@ def review_rating_number(value):
 def review_count_for_week(start, end):
     rows=review_store_load()
     seen=set()
-    count=0
+    valid=[]
     for row in rows:
         if not isinstance(row, dict):
             continue
@@ -1956,9 +1968,21 @@ def review_count_for_week(start, end):
         created_date=hcp_local_date(row.get("create_time"))
         if rating is None or not created_date:
             continue
-        if rating >= 4.999 and start <= created_date <= end:
-            count += 1
-    return count, len(rows)
+        valid.append((rating,created_date))
+
+    coverage_start=min((d for _,d in valid),default=None)
+    coverage_end=max((d for _,d in valid),default=None)
+    # Without a backfill marker, the earliest stored review is the earliest
+    # point from which this webhook-backed metric can be treated as covered.
+    available=bool(coverage_start and start >= coverage_start)
+    count=sum(1 for rating,d in valid if rating >= 4.999 and start <= d <= end) if available else 0
+    return {
+        "count":count,
+        "records_total":len(valid),
+        "available":available,
+        "coverage_start":coverage_start.isoformat() if coverage_start else None,
+        "coverage_end":coverage_end.isoformat() if coverage_end else None
+    }
 
 def qb_expense_store_load():
     try:
@@ -2460,7 +2484,7 @@ def cross_source_attribution_snapshot(start,end):
             "unknown_leads":int(unknown["leads"]),
             "unknown_estimates":int(unknown["estimates"])
         },
-        "scope_note":"Lead source comes from GoHighLevel original attribution. Housecall Pro supplies customer matching, estimates, approvals, sold revenue, completed jobs, and realized production revenue. Matching uses exact normalized phone/email only. Each estimate or non-callback completed job is attributed once to the most recent matching GHL lead created before it, within 30 days. Callback/rework jobs contribute $0 realized revenue."
+        "scope_note":"The cohort starts with GoHighLevel inbound inquiries that have phone/email; not every inquiry is a qualified lead. Marketing source comes from GoHighLevel original attribution. Housecall Pro supplies customer matching, estimates, approvals, sold revenue, completed jobs, and realized production revenue. Matching uses exact normalized phone/email only. Each estimate or non-callback completed job is attributed once to the most recent matching GHL inquiry created before it, within 30 days. Callback/rework jobs contribute $0 realized revenue."
     }
 
 def hcp_source_attribution_snapshot(start,end):
@@ -3054,11 +3078,13 @@ class Handler(SimpleHTTPRequestHandler):
                 repeat_metrics=hcp_repeat_customer_metrics(production_jobs, start)
                 # Include callback labor in tech hours so rework lowers revenue/hour instead of adding duplicate revenue.
                 tech_metrics=hcp_job_tech_metrics(completed_jobs)
-                review_count, review_records_total = review_count_for_week(start,end)
+                review_data=review_count_for_week(start,end)
                 review_metrics={
-                    "available":True,
-                    "five_star_reviews":review_count,
-                    "review_records_found":review_records_total,
+                    "available":bool(review_data.get("available")),
+                    "five_star_reviews":int(review_data.get("count") or 0),
+                    "review_records_found":int(review_data.get("records_total") or 0),
+                    "coverage_start":review_data.get("coverage_start"),
+                    "coverage_end":review_data.get("coverage_end"),
                     "json_payloads_found":0,
                     "widget_html_bytes":0
                 }
@@ -3082,6 +3108,8 @@ class Handler(SimpleHTTPRequestHandler):
                     "five_star_reviews":review_metrics["five_star_reviews"],
                     "reviews_available":review_metrics["available"],
                     "review_records_found":review_metrics["review_records_found"],
+                    "review_coverage_start":review_metrics["coverage_start"],
+                    "review_coverage_end":review_metrics["coverage_end"],
                     "reviews_json_payloads_found":review_metrics["json_payloads_found"],
                     "reviews_widget_html_bytes":review_metrics["widget_html_bytes"],
                     "tech_count":tech_metrics["tech_count"],
