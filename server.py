@@ -776,6 +776,41 @@ def hcp_operations_brief():
         }
     }
 
+def hcp_current_week_forecast():
+    today=datetime.now(BUSINESS_TZ).date()
+    week_start=today-timedelta(days=today.weekday())
+    week_end=week_start+timedelta(days=6)
+
+    completed=hcp_list_completed_jobs(week_start,today)
+    completed=[job for job in completed if not hcp_is_callback(job)]
+    completed_ids={str(job.get("id") or "") for job in completed if job.get("id")}
+    completed_revenue=sum(hcp_money_to_dollars(job.get("total_amount")) for job in completed)
+
+    scheduled=hcp_list_scheduled_jobs(today,week_end)
+    remaining=[]
+    for job in scheduled:
+        jid=str(job.get("id") or "")
+        if jid and jid in completed_ids:
+            continue
+        status=str(job.get("work_status") or "").strip().lower()
+        if status.startswith("complete") or "cancel" in status:
+            continue
+        if hcp_is_callback(job):
+            continue
+        remaining.append(job)
+
+    remaining_revenue=sum(hcp_money_to_dollars(job.get("total_amount")) for job in remaining)
+    forecast_revenue=completed_revenue+remaining_revenue
+    return {
+        "week_start":week_start.isoformat(),
+        "week_end":week_end.isoformat(),
+        "completed_revenue":round(completed_revenue,2),
+        "remaining_booked_revenue":round(remaining_revenue,2),
+        "forecast_revenue":round(forecast_revenue,2),
+        "completed_jobs":len(completed),
+        "remaining_jobs":len(remaining)
+    }
+
 def needs_attention_snapshot():
     ops=cached_runtime("hcp_operations_brief", 60, hcp_operations_brief)
     pipe=cached_runtime("hcp_estimate_pipeline", 90, hcp_estimate_pipeline_snapshot)
@@ -783,6 +818,7 @@ def needs_attention_snapshot():
     alerts=[]
     ar=ops.get("ar") or {}
     next7=ops.get("next7") or {}
+    week_forecast=cached_runtime("hcp_current_week_forecast",60,hcp_current_week_forecast)
     open_pipe=pipe.get("open_pipeline") or {}
     aging=open_pipe.get("aging") or {}
     recent=pipe.get("recent") or {}
@@ -828,26 +864,29 @@ def needs_attention_snapshot():
             "key":"warm_estimates"
         })
 
-    booked=float(next7.get("revenue") or 0)
+    booked=float((week_forecast or {}).get("forecast_revenue") or 0)
+    completed_wtd=float((week_forecast or {}).get("completed_revenue") or 0)
+    remaining=float((week_forecast or {}).get("remaining_booked_revenue") or 0)
     goal=max(0.0,float(WEEKLY_REVENUE_GOAL or 0))
     if goal > 0:
         pct=(booked/goal)*100.0
         gap=max(0.0,goal-booked)
+        base_detail=f"${completed_wtd:,.2f} completed + ${remaining:,.2f} remaining = ${booked:,.2f} forecast"
         if pct < 60:
             severity="critical"
             icon="📉"
-            title="Next 7 days are underbooked"
-            detail=f"${booked:,.2f} booked vs ${goal:,.0f} goal — ${gap:,.2f} gap."
+            title="Current week is under goal"
+            detail=base_detail+f" vs ${goal:,.0f} goal — ${gap:,.2f} gap."
         elif pct < 85:
             severity="warning"
             icon="📅"
-            title="Booking pace needs attention"
-            detail=f"${booked:,.2f} booked vs ${goal:,.0f} goal — ${gap:,.2f} gap."
+            title="Current-week pace needs attention"
+            detail=base_detail+f" vs ${goal:,.0f} goal — ${gap:,.2f} gap."
         else:
             severity="good"
             icon="✅"
-            title="Next 7 days are on pace"
-            detail=f"${booked:,.2f} booked against the ${goal:,.0f} weekly goal."
+            title="Current week is on pace"
+            detail=base_detail+f" against the ${goal:,.0f} goal."
         alerts.append({
             "severity":severity,"icon":icon,"title":title,"detail":detail,
             "metric":round(booked,2),"percent":round(pct,1),"key":"booking_pace"
@@ -858,14 +897,14 @@ def needs_attention_snapshot():
     if decided >= 5:
         if close_rate < 50:
             alerts.append({
-                "severity":"warning","icon":"🎯","title":"Estimate close rate is below 50%",
-                "detail":f"30-day close rate is {close_rate:.1f}% across {decided} decided estimates.",
+                "severity":"warning","icon":"🎯","title":"Decision close rate is below 50%",
+                "detail":f"30-day decided close rate is {close_rate:.1f}% across {decided} won/lost estimates; {int(recent.get('open_count') or 0)} are still open.",
                 "metric":round(close_rate,1),"key":"close_rate"
             })
         elif close_rate >= 65:
             alerts.append({
-                "severity":"good","icon":"✅","title":"Estimate close rate is strong",
-                "detail":f"30-day close rate is {close_rate:.1f}% across {decided} decided estimates.",
+                "severity":"good","icon":"✅","title":"Decision close rate is strong",
+                "detail":f"30-day decided close rate is {close_rate:.1f}% across {decided} won/lost estimates; {int(recent.get('open_count') or 0)} are still open.",
                 "metric":round(close_rate,1),"key":"close_rate"
             })
 
@@ -1652,25 +1691,43 @@ def hcp_technician_scorecards(start,end):
     }
 
 def hcp_job_tech_metrics(completed_jobs):
+    employees=hcp_employee_directory()
     unique_techs=set()
     total_tech_hours=0.0
+    tech_revenue=0.0
     actual_time_jobs=0
     scheduled_fallback_jobs=0
     untracked_jobs=0
 
+    def is_owner(tech_id):
+        info=employees.get(str(tech_id)) or {}
+        name=" ".join(str(info.get("name") or "").lower().split())
+        return (
+            name in ("ro sneed","roylee sneed")
+            or name.startswith("ro sneed ")
+            or name.startswith("roylee sneed ")
+        )
+
     for job in completed_jobs:
-        tech_ids=hcp_assigned_employee_ids(job)
+        all_ids=hcp_assigned_employee_ids(job)
+        tech_ids=[tid for tid in all_ids if not is_owner(tid)]
+
+        # Owner-only work is company production, not technician production.
+        if not tech_ids:
+            if not all_ids:
+                untracked_jobs += 1
+            continue
+
         for tech_id in tech_ids:
             unique_techs.add(tech_id)
 
-        if not tech_ids:
-            untracked_jobs += 1
-            continue
+        if not hcp_is_callback(job):
+            # Credit shared production once at the company/crew level.
+            tech_revenue += hcp_money_to_dollars(job.get("total_amount"))
 
         timestamps=job.get("work_timestamps") or {}
         started=hcp_parse_datetime(timestamps.get("started_at"))
         completed=hcp_parse_datetime(timestamps.get("completed_at"))
-
         duration_hours=None
         source=None
 
@@ -1680,8 +1737,6 @@ def hcp_job_tech_metrics(completed_jobs):
                 duration_hours=candidate
                 source="actual"
 
-        # If the crew did not use HCP Start/Finish, fall back to the job's
-        # scheduled window so tech productivity still auto-populates.
         if duration_hours is None:
             schedule=job.get("schedule") or {}
             scheduled_start=hcp_parse_datetime(schedule.get("scheduled_start"))
@@ -1696,6 +1751,7 @@ def hcp_job_tech_metrics(completed_jobs):
             untracked_jobs += 1
             continue
 
+        # Callback labor stays in hours so rework lowers productivity.
         total_tech_hours += duration_hours * len(tech_ids)
         if source == "actual":
             actual_time_jobs += 1
@@ -1704,11 +1760,12 @@ def hcp_job_tech_metrics(completed_jobs):
 
     tech_count=len(unique_techs)
     avg_hours_per_tech=(total_tech_hours / tech_count) if tech_count else 0.0
-
     return {
         "tech_count":tech_count,
+        "tech_revenue":round(tech_revenue,2),
         "total_tech_hours":round(total_tech_hours,2),
         "hours_per_tech":round(avg_hours_per_tech,2),
+        "tech_rev_per_hour":round((tech_revenue/total_tech_hours),2) if total_tech_hours else 0.0,
         "actual_time_jobs":actual_time_jobs,
         "scheduled_fallback_jobs":scheduled_fallback_jobs,
         "untracked_jobs":untracked_jobs
