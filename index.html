@@ -3168,6 +3168,18 @@ function clearMonthlyPartial(ym) {
     }
   }
 
+  function applyQb(data, skipFields) {
+    const skip=new Set(skipFields || []);
+    const mapped=Array.isArray(data.mapped_fields) ? data.mapped_fields : [];
+    let applied=0;
+    mapped.forEach(item => {
+      if (!item || !item.field_id || skip.has(item.field_id)) return;
+      setVal(item.field_id,item.amount,2);
+      applied += 1;
+    });
+    return applied;
+  }
+
   btn.addEventListener('click', async function () {
     const date=document.getElementById('entry-date');
     if (!date || !date.value) {
@@ -3223,7 +3235,15 @@ function clearMonthlyPartial(ym) {
 
       if (qb && qb.ok) {
         if (Number(qb.data.expense_records || 0) > 0) {
-          messages.push('ℹ️ QuickBooks: '+Number(qb.data.expense_records || 0)+' expense records received ($'+Number(qb.data.expense_total || 0).toFixed(2)+'). Category mapping is the next automation step.');
+          const skip=[];
+          if (meta && meta.ok) skip.push('ww-meta-spend');
+          const applied=applyQb(qb.data,skip);
+          const mapped=Number(qb.data.mapped_total || 0);
+          const unmapped=Number(qb.data.unmapped_total || 0);
+          let line='✅ QuickBooks: '+applied+' KPI expense field'+(applied===1?'':'s')+' auto-filled · $'+mapped.toFixed(2)+' mapped';
+          if (unmapped !== 0) line += ' · $'+unmapped.toFixed(2)+' still unmapped';
+          if (skip.includes('ww-meta-spend')) line += ' · Meta ad spend kept from Meta API';
+          messages.push(line);
         } else {
           messages.push('ℹ️ QuickBooks: no expense records received for this week yet');
         }
@@ -3752,13 +3772,54 @@ function clearMonthlyPartial(ym) {
           }).join('<br>');
       }
 
+      const mapping = document.createElement('div');
+      mapping.style.cssText = 'margin-top:10px;padding:10px;border-radius:8px;background:var(--surface);border:1px solid var(--border);';
+      const mapped = Array.isArray(data.mapped_fields) ? data.mapped_fields : [];
+      const unmapped = Array.isArray(data.unmapped) ? data.unmapped : [];
+      mapping.innerHTML =
+        '<strong>Automatic KPI mapping:</strong><br>' +
+        (mapped.length
+          ? mapped.map(function (m) {
+              return '✅ ' + String(m.label) + ': USD ' + Number(m.amount).toFixed(2) +
+                ' <span style="color:var(--muted);">(' + Number(m.records) + ' record' + (Number(m.records) === 1 ? '' : 's') + ')</span>';
+            }).join('<br>')
+          : '<span style="color:var(--muted);">No high-confidence categories mapped yet.</span>') +
+        (unmapped.length
+          ? '<div style="margin-top:8px;"><strong>Needs review:</strong><br>' +
+              unmapped.map(function (u) {
+                return '⚠️ ' + String(u.account_name) + ': USD ' + Number(u.amount).toFixed(2);
+              }).join('<br>') + '</div>'
+          : '');
+
       const note = document.createElement('div');
       note.style.cssText = 'margin-top:8px;color:var(--muted);font-size:11px;';
-      note.textContent = 'This first stage shows the exact QuickBooks account/category names. Once we validate them, the dashboard will map them into Labor, Direct Job Costs, Marketing, Vehicles, Software, and Overhead automatically.';
+      note.textContent = 'Only high-confidence QuickBooks matches are auto-applied. Anything ambiguous stays in Needs review instead of being guessed.';
+
+      const apply = document.createElement('button');
+      apply.type = 'button';
+      apply.className = 'btn btn-success btn-sm';
+      apply.style.marginTop = '10px';
+      apply.textContent = 'Apply Mapped Expenses';
+      apply.disabled = mapped.length === 0;
+      apply.addEventListener('click', function () {
+        let applied = 0;
+        mapped.forEach(function (m) {
+          if (!m || !m.field_id) return;
+          const el = document.getElementById(m.field_id);
+          if (!el) return;
+          el.value = Number(m.amount || 0).toFixed(2);
+          applied += 1;
+        });
+        if (typeof updateSummary === 'function') updateSummary();
+        if (typeof updateROAS === 'function') updateROAS();
+        panel.insertAdjacentHTML('beforeend','<div style="margin-top:8px;">✅ Applied ' + applied + ' mapped QuickBooks expense field' + (applied === 1 ? '' : 's') + '. Review unmapped items before saving.</div>');
+      });
 
       panel.appendChild(summary);
       panel.appendChild(groups);
+      panel.appendChild(mapping);
       panel.appendChild(note);
+      panel.appendChild(apply);
     } catch (err) {
       panel.textContent = 'QuickBooks preview failed: ' + (err && err.message ? err.message : String(err));
     } finally {
