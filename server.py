@@ -1,4 +1,4 @@
-import json, os, time, urllib.parse, urllib.request, urllib.error
+import base64, hmac, json, os, time, urllib.parse, urllib.request, urllib.error
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -24,6 +24,8 @@ GHL_API_BASE = "https://services.leadconnectorhq.com"
 GHL_API_VERSION = os.getenv("GHL_API_VERSION", "v3").strip() or "v3"
 GHL_HANDOFF_WARNING_MINUTES = int(os.getenv("GHL_HANDOFF_WARNING_MINUTES", "120") or 120)
 HCP_ESTIMATE_WARNING_HOURS = int(os.getenv("HCP_ESTIMATE_WARNING_HOURS", "24") or 24)
+DASHBOARD_USERNAME = os.getenv("DASHBOARD_USERNAME", "").strip()
+DASHBOARD_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "").strip()
 _RUNTIME_CACHE = {}
 
 def cached_runtime(key, ttl_seconds, loader):
@@ -2734,6 +2736,35 @@ def get_page_access_token(page_id):
     return page_token, data.get("name") or page_id
 
 class Handler(SimpleHTTPRequestHandler):
+    def dashboard_auth_enabled(self):
+        return bool(DASHBOARD_USERNAME and DASHBOARD_PASSWORD)
+
+    def dashboard_authorized(self):
+        if not self.dashboard_auth_enabled():
+            return True
+        header=str(self.headers.get("Authorization") or "")
+        if not header.startswith("Basic "):
+            return False
+        try:
+            raw=base64.b64decode(header[6:].strip()).decode("utf-8")
+        except Exception:
+            return False
+        supplied_user,sep,supplied_password=raw.partition(":")
+        if not sep:
+            return False
+        return hmac.compare_digest(supplied_user,DASHBOARD_USERNAME) and hmac.compare_digest(supplied_password,DASHBOARD_PASSWORD)
+
+    def require_dashboard_auth(self):
+        if self.dashboard_authorized():
+            return True
+        body=b"Authentication required"
+        self.send_response(401)
+        self.send_header("WWW-Authenticate", 'Basic realm="Curb Appeal KPI Dashboard"')
+        self.send_header("Content-Type","text/plain; charset=utf-8")
+        self.send_header("Content-Length",str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+        return False
     def end_headers(self):
         self.send_header("Cache-Control","no-store, no-cache, must-revalidate, max-age=0")
         self.send_header("Pragma","no-cache")
@@ -2855,13 +2886,16 @@ class Handler(SimpleHTTPRequestHandler):
             return self.send_json(400, {"ok":False,"error":str(e)})
 
     def do_GET(self):
+        if not self.require_dashboard_auth():
+            return
         parsed=urllib.parse.urlparse(self.path)
         if parsed.path == "/api/health":
             return self.send_json(200, {
                 "ok":True,
                 "meta_configured":bool(TOKEN and AD_ACCOUNT and PAGE_IDS),
                 "hcp_configured":bool(HCP_API_KEY),
-                "ghl_configured":bool(GHL_API_TOKEN and GHL_LOCATION_ID)
+                "ghl_configured":bool(GHL_API_TOKEN and GHL_LOCATION_ID),
+                "dashboard_auth_enabled":self.dashboard_auth_enabled()
             })
         if parsed.path == "/api/qb-preview":
             try:
