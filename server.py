@@ -961,7 +961,8 @@ def hcp_technician_scorecards(start,end):
                 "untracked_time_jobs":0,
                 "revenue_serviced":0.0,
                 "allocated_revenue":0.0,
-                "estimated_commission":0.0
+                "estimated_commission":0.0,
+                "commission_unmodeled_jobs":0
             }
         return stats[tech_id]
 
@@ -976,7 +977,7 @@ def hcp_technician_scorecards(start,end):
         duration,source=hcp_job_duration_hours(job)
         is_callback=hcp_job_has_tag(job,"Callback")
         allocated=(job_value/team_size) if team_size else 0.0
-        commission_rate=0.225 if team_size == 1 else 0.15
+        commission_rate=0.225 if team_size == 1 else (0.15 if team_size == 2 else None)
 
         for tech_id in tech_ids:
             row=tech_row(tech_id)
@@ -989,7 +990,10 @@ def hcp_technician_scorecards(start,end):
                 row["callbacks"] += 1
             row["revenue_serviced"] += job_value
             row["allocated_revenue"] += allocated
-            row["estimated_commission"] += job_value * commission_rate
+            if commission_rate is None:
+                row["commission_unmodeled_jobs"] += 1
+            else:
+                row["estimated_commission"] += job_value * commission_rate
             if duration is None:
                 row["untracked_time_jobs"] += 1
             else:
@@ -1025,7 +1029,7 @@ def hcp_technician_scorecards(start,end):
         "technicians":rows,
         "jobs_completed":len(jobs),
         "jobs_without_assignments":jobs_without_assignments,
-        "commission_note":"Estimated field commission only: 22.5% on solo jobs and 15% per assigned technician on multi-tech jobs. Upsell commission is not included because HCP does not reliably identify which technician created the upsell."
+        "commission_note":"Estimated field commission only: 22.5% on solo jobs and 15% per technician on two-tech jobs. Jobs with 3+ assigned technicians are not commission-modeled. Upsell commission is not included because HCP does not reliably identify which technician created the upsell."
     }
 
 def hcp_job_tech_metrics(completed_jobs):
