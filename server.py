@@ -381,29 +381,30 @@ def hcp_customer_index(max_pages=25):
             cid=str(customer.get("id") or "")
             if not cid: continue
             customers[cid]=customer
-            for email in extract_emails(customer): by_email.setdefault(email,cid)
-            for phone in extract_phones(customer): by_phone.setdefault(phone,cid)
+            for email in extract_emails(customer):
+                by_email.setdefault(email,set()).add(cid)
+            for phone in extract_phones(customer):
+                by_phone.setdefault(phone,set()).add(cid)
         total_pages=int(data.get("total_pages") or 1)
         if page>=total_pages: break
         page += 1
     return {"customers":customers,"by_email":by_email,"by_phone":by_phone}
 
 def hcp_match_customer(lead,index):
-    email_matches=[]
-    phone_matches=[]
+    email_matches=set()
+    phone_matches=set()
     for email in extract_emails(lead):
-        cid=index["by_email"].get(email)
-        if cid: email_matches.append(cid)
+        email_matches.update(index["by_email"].get(email) or set())
     for phone in extract_phones(lead):
-        cid=index["by_phone"].get(phone)
-        if cid: phone_matches.append(cid)
-    matches=list(dict.fromkeys(email_matches+phone_matches))
+        phone_matches.update(index["by_phone"].get(phone) or set())
+    matches=email_matches | phone_matches
     if not matches:
         return None,None
-    if len(set(email_matches) | set(phone_matches))>1:
+    if len(matches)>1:
         return None,"ambiguous"
-    cid=matches[0]
-    return index["customers"].get(cid),("email" if cid in email_matches else "phone")
+    cid=next(iter(matches))
+    method="email+phone" if cid in email_matches and cid in phone_matches else ("email" if cid in email_matches else "phone")
+    return index["customers"].get(cid),method
 
 def hcp_estimate_index(start,end):
     estimates=hcp_list_estimates_for_week(start,end)
@@ -2107,6 +2108,244 @@ def hcp_list_estimates_for_week(start,end):
                 detailed.append(future.result())
     return detailed
 
+def ghl_contacts_for_range(start,end,max_contacts=400):
+    contacts=[]
+    start_after=None
+    start_after_id=None
+    pages=0
+    while len(contacts)<max_contacts and pages<12:
+        params={"locationId":GHL_LOCATION_ID,"limit":100}
+        if start_after is not None: params["startAfter"]=start_after
+        if start_after_id: params["startAfterId"]=start_after_id
+        data=ghl_get_version("contacts/",params,version="2023-02-21")
+        batch=data.get("contacts") or data.get("data") or []
+        if not batch: break
+        pages += 1
+        saw_older=False
+        for contact in batch:
+            if not isinstance(contact,dict): continue
+            added=ghl_parse_datetime(contact.get("dateAdded") or contact.get("createdAt") or contact.get("date_added"))
+            if not added: continue
+            local_date=added.astimezone(BUSINESS_TZ).date()
+            if local_date < start:
+                saw_older=True
+                continue
+            if local_date > end:
+                continue
+            if not extract_phones(contact) and not extract_emails(contact):
+                continue
+            row=dict(contact)
+            row["_added_dt"]=added
+            contacts.append(row)
+        last=batch[-1] if batch else {}
+        last_added=ghl_parse_datetime(last.get("dateAdded") or last.get("createdAt") or last.get("date_added"))
+        start_after=int(last_added.timestamp()*1000) if last_added else None
+        start_after_id=last.get("id")
+        if saw_older or start_after is None or not start_after_id:
+            break
+    contacts.sort(key=lambda c:c.get("_added_dt") or datetime.min.replace(tzinfo=timezone.utc))
+    return contacts[:max_contacts]
+
+def ghl_contact_detail(contact_id):
+    if not contact_id:
+        return {}
+    key="ghl_contact_detail:"+str(contact_id)
+    def loader():
+        data=ghl_get_version("contacts/"+str(contact_id),{},version="2023-02-21")
+        detail=data.get("contact") if isinstance(data,dict) and isinstance(data.get("contact"),dict) else data
+        return detail if isinstance(detail,dict) else {}
+    try:
+        return cached_runtime(key,600,loader) or {}
+    except Exception:
+        return {}
+
+def ghl_enrich_contacts(contacts):
+    out=[]
+    if not contacts:
+        return out
+    def enrich(contact):
+        cid=contact.get("id")
+        detail=ghl_contact_detail(cid)
+        merged=dict(contact)
+        if detail: merged.update(detail)
+        if contact.get("_added_dt"): merged["_added_dt"]=contact.get("_added_dt")
+        return merged
+    with ThreadPoolExecutor(max_workers=min(6,len(contacts))) as pool:
+        futures=[pool.submit(enrich,c) for c in contacts]
+        for future in as_completed(futures):
+            try: out.append(future.result())
+            except Exception: pass
+    out.sort(key=lambda c:c.get("_added_dt") or datetime.min.replace(tzinfo=timezone.utc))
+    return out
+
+def ghl_attribution_info(contact):
+    if not isinstance(contact,dict):
+        return {"bucket":"unknown","source_label":"Unknown","campaign":"","ad":"","form":""}
+    original=contact.get("attributionSource") if isinstance(contact.get("attributionSource"),dict) else {}
+    latest=contact.get("lastAttributionSource") if isinstance(contact.get("lastAttributionSource"),dict) else {}
+    attrib=original or latest
+    raw_parts=[
+        contact.get("source"),
+        attrib.get("sessionSource"),
+        attrib.get("medium"),
+        attrib.get("source"),
+        attrib.get("adSource"),
+        attrib.get("utmSource"),
+        attrib.get("utmMedium")
+    ]
+    raw=" ".join(str(x) for x in raw_parts if x)
+    bucket=hcp_source_bucket(raw)
+    source_label=str(contact.get("source") or attrib.get("sessionSource") or attrib.get("medium") or "Unknown").strip()
+    campaign=str(attrib.get("campaign") or attrib.get("utmCampaign") or "").strip()
+    ad=str(attrib.get("utmContent") or attrib.get("adName") or attrib.get("adId") or "").strip()
+    form=str(attrib.get("formName") or attrib.get("formId") or "").strip()
+    return {"bucket":bucket,"source_label":source_label or "Unknown","campaign":campaign,"ad":ad,"form":form}
+
+def cross_source_attribution_snapshot(start,end):
+    if not GHL_API_TOKEN or not GHL_LOCATION_ID:
+        raise RuntimeError("HighLevel is not configured.")
+
+    raw_leads=ghl_contacts_for_range(start,end)
+    leads=ghl_enrich_contacts(raw_leads)
+    customer_index=cached_runtime("hcp_customer_index",300,hcp_customer_index)
+
+    today=datetime.now(BUSINESS_TZ).date()
+    conversion_end=min(today,end+timedelta(days=30))
+    estimates=hcp_list_estimates_for_week(start,conversion_end) if conversion_end>=start else []
+
+    buckets={name:{
+        "leads":0,"matched_leads":0,"estimates":0,"quoted_revenue":0.0,
+        "jobs_sold":0,"sold_revenue":0.0,"sources":set(),"campaigns":{}
+    } for name in ("meta","google","lsa","yardsign","doorhanger","referral","website","branding","unknown")}
+
+    matched_leads=[]
+    leads_by_customer={}
+    for lead in leads:
+        info=ghl_attribution_info(lead)
+        bucket=info["bucket"] if info["bucket"] in buckets else "unknown"
+        buckets[bucket]["leads"] += 1
+        buckets[bucket]["sources"].add(info["source_label"])
+        customer,match_method=hcp_match_customer(lead,customer_index)
+        if customer and match_method!="ambiguous":
+            buckets[bucket]["matched_leads"] += 1
+            cid=str(customer.get("id") or "")
+            if cid:
+                item={"lead":lead,"info":info,"created":lead.get("_added_dt")}
+                leads_by_customer.setdefault(cid,[]).append(item)
+                matched_leads.append(item)
+        campaign=info.get("campaign") or ""
+        if campaign:
+            c=buckets[bucket]["campaigns"].setdefault(campaign,{"leads":0,"estimates":0,"jobs_sold":0,"sold_revenue":0.0})
+            c["leads"] += 1
+
+    for items in leads_by_customer.values():
+        items.sort(key=lambda x:x.get("created") or datetime.min.replace(tzinfo=timezone.utc))
+
+    attributed_estimate_ids=set()
+    for estimate in estimates:
+        cid=str(hcp_customer_id_from_obj(estimate) or "")
+        if not cid or cid not in leads_by_customer:
+            continue
+        created=hcp_parse_datetime(estimate.get("created_at") or estimate.get("createdAt"))
+        if not created:
+            continue
+        eligible=[]
+        for item in leads_by_customer[cid]:
+            lead_created=item.get("created")
+            if lead_created and lead_created <= created and (created-lead_created) <= timedelta(days=30):
+                eligible.append(item)
+        if not eligible:
+            continue
+        chosen=max(eligible,key=lambda x:x.get("created") or datetime.min.replace(tzinfo=timezone.utc))
+        estimate_id=str(estimate.get("id") or "")
+        if estimate_id and estimate_id in attributed_estimate_ids:
+            continue
+        if estimate_id: attributed_estimate_ids.add(estimate_id)
+
+        info=chosen["info"]
+        bucket=info["bucket"] if info["bucket"] in buckets else "unknown"
+        quoted=float(hcp_estimate_pipeline_value(estimate) or 0)
+        sold=hcp_estimate_sold_value(estimate)
+        buckets[bucket]["estimates"] += 1
+        buckets[bucket]["quoted_revenue"] += quoted
+        if sold is not None:
+            buckets[bucket]["jobs_sold"] += 1
+            buckets[bucket]["sold_revenue"] += float(sold or 0)
+        campaign=info.get("campaign") or ""
+        if campaign:
+            c=buckets[bucket]["campaigns"].setdefault(campaign,{"leads":0,"estimates":0,"jobs_sold":0,"sold_revenue":0.0})
+            c["estimates"] += 1
+            if sold is not None:
+                c["jobs_sold"] += 1
+                c["sold_revenue"] += float(sold or 0)
+
+    rows=[]
+    campaign_rows=[]
+    for name,data in buckets.items():
+        rows.append({
+            "bucket":name,
+            "leads":int(data["leads"]),
+            "matched_leads":int(data["matched_leads"]),
+            "estimates":int(data["estimates"]),
+            "quoted_revenue":round(float(data["quoted_revenue"]),2),
+            "jobs_sold":int(data["jobs_sold"]),
+            "sold_revenue":round(float(data["sold_revenue"]),2),
+            "source_labels":sorted(data["sources"])[:12]
+        })
+        for campaign,vals in data["campaigns"].items():
+            campaign_rows.append({
+                "bucket":name,"campaign":campaign,
+                "leads":int(vals["leads"]),"estimates":int(vals["estimates"]),
+                "jobs_sold":int(vals["jobs_sold"]),"sold_revenue":round(float(vals["sold_revenue"]),2)
+            })
+    campaign_rows.sort(key=lambda r:(r["sold_revenue"],r["jobs_sold"],r["leads"]),reverse=True)
+
+    field_map={
+        "meta":{"leads":"ww-meta-leads","estimates":"ww-meta-estimates","jobs_sold":"ww-meta-jobs-sold","sold_revenue":"ww-meta-sold-revenue"},
+        "google":{"leads":"ww-google-leads","estimates":"ww-google-estimates","jobs_sold":"ww-google-jobs-sold","sold_revenue":"ww-google-sold-revenue"},
+        "lsa":{"leads":"ww-lsa-leads","estimates":"ww-lsa-estimates","jobs_sold":"ww-lsa-jobs-sold","sold_revenue":"ww-lsa-sold-revenue"},
+        "yardsign":{"leads":"ww-yardsign-leads","estimates":"ww-yardsign-estimates","jobs_sold":"ww-yardsign-jobs-sold","sold_revenue":"ww-yardsign-sold-revenue"},
+        "doorhanger":{"leads":"ww-doorhanger-leads","estimates":"ww-doorhanger-estimates","jobs_sold":"ww-doorhanger-jobs-sold","sold_revenue":"ww-doorhanger-sold-revenue"},
+        "website":{"leads":"ww-website-leads","estimates":"ww-website-estimates","jobs_sold":"ww-website-jobs-sold","sold_revenue":"ww-website-sold-revenue"},
+        "branding":{"leads":"ww-branding-leads","estimates":"ww-branding-estimates","jobs_sold":"ww-branding-jobs-sold","sold_revenue":"ww-branding-sold-revenue"}
+    }
+    auto_fields=[]
+    for row in rows:
+        mapping=field_map.get(row["bucket"])
+        has_evidence=bool(row.get("source_labels")) or any(float(row.get(k) or 0)!=0 for k in ("leads","estimates","jobs_sold","sold_revenue"))
+        if not mapping or not has_evidence: continue
+        for metric,field_id in mapping.items():
+            auto_fields.append({"field_id":field_id,"metric":metric,"bucket":row["bucket"],"value":row[metric]})
+
+    referral=next((r for r in rows if r["bucket"]=="referral"),None)
+    if referral and (referral["leads"] or referral["estimates"] or referral["jobs_sold"]):
+        referral_count=int(referral["jobs_sold"])
+        referral_revenue=float(referral["sold_revenue"])
+        auto_fields.extend([
+            {"field_id":"ww-referral-count","metric":"jobs_sold","bucket":"referral","value":referral_count},
+            {"field_id":"ww-referral-revenue","metric":"sold_revenue","bucket":"referral","value":round(referral_revenue,2)}
+        ])
+
+    unknown=next((r for r in rows if r["bucket"]=="unknown"),{"leads":0,"estimates":0,"sold_revenue":0})
+    return {
+        "ok":True,
+        "week_start":start.isoformat(),
+        "week_ending":end.isoformat(),
+        "conversion_window_end":conversion_end.isoformat(),
+        "rows":rows,
+        "campaigns":campaign_rows[:12],
+        "auto_fields":auto_fields,
+        "coverage":{
+            "ghl_leads_total":len(leads),
+            "hcp_matched_leads":sum(r["matched_leads"] for r in rows),
+            "estimates_attributed":sum(r["estimates"] for r in rows),
+            "sold_revenue_attributed":round(sum(r["sold_revenue"] for r in rows),2),
+            "unknown_leads":int(unknown["leads"]),
+            "unknown_estimates":int(unknown["estimates"])
+        },
+        "scope_note":"Lead source comes from GoHighLevel original attribution. Housecall Pro supplies customer matching, estimates, approvals, and sold revenue. Matching uses exact normalized phone/email only. Each HCP estimate is attributed once to the most recent matching GHL lead created before it, within 30 days."
+    }
+
 def hcp_source_attribution_snapshot(start,end):
     leads=hcp_list_leads_for_week(start,end)
     estimates=hcp_list_estimates_for_week(start,end)
@@ -2572,6 +2811,24 @@ class Handler(SimpleHTTPRequestHandler):
                 try: detail=json.loads(e.read().decode("utf-8"))
                 except Exception: detail={"message":str(e)}
                 return self.send_json(502,{"ok":False,"error":"Housecall Pro technician scorecard request failed","detail":detail})
+            except Exception as e:
+                return self.send_json(400,{"ok":False,"error":str(e)})
+        if parsed.path == "/api/cross-source-attribution":
+            try:
+                if not GHL_API_TOKEN or not GHL_LOCATION_ID:
+                    return self.send_json(503,{"ok":False,"error":"HighLevel is not configured."})
+                if not HCP_API_KEY:
+                    return self.send_json(503,{"ok":False,"error":"Housecall Pro is not configured."})
+                q=urllib.parse.parse_qs(parsed.query)
+                week_ending=(q.get("week_ending") or [""])[0]
+                end=datetime.strptime(week_ending,"%Y-%m-%d").date()
+                start=end-timedelta(days=6)
+                key="cross_source_attribution:"+start.isoformat()+":"+end.isoformat()
+                return self.send_json(200,cached_runtime(key,120,lambda: cross_source_attribution_snapshot(start,end)))
+            except urllib.error.HTTPError as e:
+                try: detail=json.loads(e.read().decode("utf-8"))
+                except Exception: detail={"message":str(e)}
+                return self.send_json(502,{"ok":False,"error":"Cross-system attribution request failed","detail":detail})
             except Exception as e:
                 return self.send_json(400,{"ok":False,"error":str(e)})
         if parsed.path == "/api/hcp-source-attribution":
