@@ -422,7 +422,7 @@ def lead_handoff_snapshot(lookback_days=7):
     cutoff=now-timedelta(days=max(1,int(lookback_days)))
     leads=ghl_recent_leads(lookback_days=lookback_days)
     customer_index=cached_runtime("hcp_customer_index",300,hcp_customer_index)
-    estimates=hcp_estimate_index(cutoff.date(),datetime.now(BUSINESS_TZ).date())
+    estimates=hcp_estimate_index(cutoff.astimezone(BUSINESS_TZ).date(),datetime.now(BUSINESS_TZ).date())
 
     rows=[]
     matched=0
@@ -573,8 +573,8 @@ def hcp_list_completed_jobs(start, end):
             if job.get("deleted_at"):
                 continue
             completed_at=((job.get("work_timestamps") or {}).get("completed_at"))
-            completed_dt=hcp_parse_datetime(completed_at)
-            if completed_dt and start <= completed_dt.date() <= end:
+            completed_date=hcp_local_date(completed_at)
+            if completed_date and start <= completed_date <= end:
                 matched.append(job)
 
         total_pages=int(data.get("total_pages") or 1)
@@ -599,10 +599,9 @@ def hcp_list_created_jobs(start, end):
 
         saw_older=False
         for job in batch:
-            created_dt=hcp_parse_datetime(job.get("created_at"))
-            if not created_dt:
+            created_date=hcp_local_date(job.get("created_at"))
+            if not created_date:
                 continue
-            created_date=created_dt.date()
             if created_date < start:
                 saw_older=True
                 continue
@@ -978,7 +977,7 @@ def hcp_estimate_pipeline_class(estimate):
     return "open", hcp_estimate_pipeline_value(estimate)
 
 def hcp_estimate_pipeline_snapshot(lookback_days=120, recent_days=30, max_pages=5):
-    today=datetime.now(timezone.utc).date()
+    today=datetime.now(BUSINESS_TZ).date()
     lookback_start=today-timedelta(days=max(1,int(lookback_days)))
     recent_start=today-timedelta(days=max(1,int(recent_days))-1)
 
@@ -993,8 +992,8 @@ def hcp_estimate_pipeline_snapshot(lookback_days=120, recent_days=30, max_pages=
             break
 
         for summary in batch:
-            created_dt=hcp_parse_datetime(summary.get("created_at"))
-            if created_dt and created_dt.date() >= lookback_start:
+            created_date=hcp_local_date(summary.get("created_at"))
+            if created_date and created_date >= lookback_start:
                 summaries.append(summary)
 
         total_pages=int(data.get("total_pages") or 1)
@@ -1006,10 +1005,9 @@ def hcp_estimate_pipeline_snapshot(lookback_days=120, recent_days=30, max_pages=
 
     rows=[]
     for estimate in summaries:
-        created_dt=hcp_parse_datetime(estimate.get("created_at"))
-        if not created_dt:
+        created_date=hcp_local_date(estimate.get("created_at"))
+        if not created_date:
             continue
-        created_date=created_dt.date()
         age=max(0,(today-created_date).days)
         bucket,value=hcp_estimate_pipeline_class(estimate)
         rows.append({
@@ -1136,10 +1134,9 @@ def hcp_list_won_estimates(start, end):
             break
 
         for summary in batch:
-            created_dt=hcp_parse_datetime(summary.get("created_at"))
-            if not created_dt:
+            created_date=hcp_local_date(summary.get("created_at"))
+            if not created_date:
                 continue
-            created_date=created_dt.date()
             if created_date < start or created_date > end:
                 continue
 
@@ -1336,9 +1333,10 @@ def hcp_is_callback(job):
 def hcp_callback_count(completed_jobs):
     return sum(1 for job in completed_jobs if hcp_is_callback(job))
 
-def hcp_repeat_customer_count(completed_jobs, week_start):
-    # A repeat customer is someone with at least one completed job before
-    # the selected week who also has a completed job during this week.
+def hcp_repeat_customer_metrics(completed_jobs, week_start):
+    # Compare customers to customers. The old metric divided unique repeat
+    # customers by number of jobs, which mixes units when one customer has
+    # multiple jobs in the same week.
     prior_customers=set()
     page=1
 
@@ -1356,12 +1354,10 @@ def hcp_repeat_customer_count(completed_jobs, week_start):
             status=str(job.get("work_status") or "").lower()
             if not status.startswith("complete") or job.get("deleted_at"):
                 continue
-
             completed_at=((job.get("work_timestamps") or {}).get("completed_at"))
-            completed_dt=hcp_parse_datetime(completed_at)
-            if not completed_dt or completed_dt.date() >= week_start:
+            completed_date=hcp_local_date(completed_at)
+            if not completed_date or completed_date >= week_start:
                 continue
-
             customer_id=hcp_customer_id_from_job(job)
             if customer_id:
                 prior_customers.add(str(customer_id))
@@ -1371,13 +1367,27 @@ def hcp_repeat_customer_count(completed_jobs, week_start):
             break
         page += 1
 
+    current_customers=set()
     repeat_customers=set()
     for job in completed_jobs:
         customer_id=hcp_customer_id_from_job(job)
-        if customer_id and str(customer_id) in prior_customers:
-            repeat_customers.add(str(customer_id))
+        if not customer_id:
+            continue
+        cid=str(customer_id)
+        current_customers.add(cid)
+        if cid in prior_customers:
+            repeat_customers.add(cid)
 
-    return len(repeat_customers)
+    served=len(current_customers)
+    repeat=len(repeat_customers)
+    return {
+        "repeat_customers":repeat,
+        "customers_served":served,
+        "repeat_customer_pct":round((repeat/served*100.0),1) if served else 0.0
+    }
+
+def hcp_repeat_customer_count(completed_jobs, week_start):
+    return hcp_repeat_customer_metrics(completed_jobs,week_start)["repeat_customers"]
 
 def hcp_assigned_employee_ids(job):
     ids=job.get("assigned_employee_ids") or []
@@ -1886,10 +1896,10 @@ def review_count_for_week(start, end):
         if review_id:
             seen.add(review_id)
         rating=review_rating_number(row.get("rating"))
-        created=hcp_parse_datetime(row.get("create_time"))
-        if rating is None or not created:
+        created_date=hcp_local_date(row.get("create_time"))
+        if rating is None or not created_date:
             continue
-        if rating >= 4.999 and start <= created.date() <= end:
+        if rating >= 4.999 and start <= created_date <= end:
             count += 1
     return count, len(rows)
 
@@ -2051,10 +2061,9 @@ def hcp_list_leads_for_week(start,end):
         for lead in batch:
             if not isinstance(lead,dict):
                 continue
-            created=hcp_parse_datetime(lead.get("created_at") or lead.get("createdAt"))
-            if not created:
+            d=hcp_local_date(lead.get("created_at") or lead.get("createdAt"))
+            if not d:
                 continue
-            d=created.date()
             if d < start:
                 saw_older=True
                 continue
@@ -2077,8 +2086,8 @@ def hcp_list_estimates_for_week(start,end):
         for estimate in batch:
             if not isinstance(estimate,dict):
                 continue
-            created=hcp_parse_datetime(estimate.get("created_at"))
-            if created and start <= created.date() <= end:
+            created_date=hcp_local_date(estimate.get("created_at"))
+            if created_date and start <= created_date <= end:
                 summaries.append(estimate)
         total_pages=int(data.get("total_pages") or 1)
         if page >= total_pages:
@@ -3053,8 +3062,8 @@ class Handler(SimpleHTTPRequestHandler):
             }).get("data",[])
             spend=sum(float(x.get("spend") or 0) for x in insights)
 
-            start_dt=datetime.combine(start, datetime.min.time(), tzinfo=timezone.utc)
-            end_dt=datetime.combine(end+timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc)
+            start_dt=datetime.combine(start, datetime.min.time(), tzinfo=BUSINESS_TZ).astimezone(timezone.utc)
+            end_dt=datetime.combine(end+timedelta(days=1), datetime.min.time(), tzinfo=BUSINESS_TZ).astimezone(timezone.utc)
             leads=0
             forms_checked=0
             page_breakdown=[]
