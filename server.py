@@ -1,4 +1,5 @@
-import json, os, urllib.parse, urllib.request, urllib.error
+import json, os, time, urllib.parse, urllib.request, urllib.error
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 
@@ -224,7 +225,7 @@ def hcp_estimate_pipeline_class(estimate):
 
     return "open", hcp_estimate_pipeline_value(estimate)
 
-def hcp_estimate_pipeline_snapshot(lookback_days=120, recent_days=30, max_details=200):
+def hcp_estimate_pipeline_snapshot(lookback_days=120, recent_days=30, max_details=24):
     today=datetime.now(timezone.utc).date()
     lookback_start=today-timedelta(days=max(1,int(lookback_days)))
     recent_start=today-timedelta(days=max(1,int(recent_days))-1)
@@ -247,29 +248,51 @@ def hcp_estimate_pipeline_snapshot(lookback_days=120, recent_days=30, max_detail
             break
         page += 1
 
-    # Newest first keeps the most actionable estimates if a very large account
-    # hits the defensive detail-call cap.
-    summaries.sort(
-        key=lambda x: str(x.get("created_at") or ""),
-        reverse=True
-    )
+    summaries.sort(key=lambda x: str(x.get("created_at") or ""), reverse=True)
+
+    # The list endpoint usually has enough data for pipeline status/value, but
+    # HCP can omit option approval details. Only hydrate the most useful records
+    # so the dashboard stays fast instead of making hundreds of API calls.
+    hydrate=[]
+    for summary in summaries:
+        created_dt=hcp_parse_datetime(summary.get("created_at"))
+        is_recent=bool(created_dt and created_dt.date() >= recent_start)
+        has_status=bool(hcp_estimate_status_text(summary))
+        has_options=bool(summary.get("options"))
+        has_value=hcp_estimate_pipeline_value(summary) > 0
+        if is_recent or not (has_status and has_value) or not has_options:
+            hydrate.append(summary)
+
+    hydrate=hydrate[:max_details]
+    hydrated={}
+
+    def fetch_detail(summary):
+        estimate_id=summary.get("id")
+        if not estimate_id:
+            return None, None
+        try:
+            detail=hcp_get("estimates/" + str(estimate_id))
+            detail_estimate=detail.get("estimate") if isinstance(detail,dict) and isinstance(detail.get("estimate"),dict) else detail
+            if isinstance(detail_estimate,dict):
+                merged=dict(summary)
+                merged.update(detail_estimate)
+                return str(estimate_id), merged
+        except Exception:
+            pass
+        return str(estimate_id), summary
+
+    if hydrate:
+        with ThreadPoolExecutor(max_workers=min(6,len(hydrate))) as pool:
+            futures=[pool.submit(fetch_detail,summary) for summary in hydrate]
+            for future in as_completed(futures):
+                estimate_id,estimate=future.result()
+                if estimate_id and isinstance(estimate,dict):
+                    hydrated[estimate_id]=estimate
 
     rows=[]
-    truncated=len(summaries) > max_details
-    for summary in summaries[:max_details]:
-        estimate=summary
+    for summary in summaries:
         estimate_id=summary.get("id")
-        if estimate_id:
-            try:
-                detail=hcp_get("estimates/" + str(estimate_id))
-                detail_estimate=detail.get("estimate") if isinstance(detail,dict) and isinstance(detail.get("estimate"),dict) else detail
-                if isinstance(detail_estimate,dict):
-                    merged=dict(summary)
-                    merged.update(detail_estimate)
-                    estimate=merged
-            except Exception:
-                estimate=summary
-
+        estimate=hydrated.get(str(estimate_id),summary)
         created_dt=hcp_parse_datetime(estimate.get("created_at") or summary.get("created_at"))
         if not created_dt:
             continue
@@ -291,7 +314,6 @@ def hcp_estimate_pipeline_snapshot(lookback_days=120, recent_days=30, max_detail
     recent_won=[r for r in recent if r["status"]=="won"]
     recent_lost=[r for r in recent if r["status"]=="lost"]
     recent_open=[r for r in recent if r["status"]=="open"]
-
     open_rows=[r for r in rows if r["status"]=="open"]
 
     def group_age(min_age,max_age=None):
@@ -315,8 +337,15 @@ def hcp_estimate_pipeline_snapshot(lookback_days=120, recent_days=30, max_detail
         "as_of":today.isoformat(),
         "lookback_days":lookback_days,
         "recent_days":recent_days,
-        "truncated":truncated,
-        "details_checked":len(rows),
+        "truncated":len(hydrate) < sum(
+            1 for summary in summaries
+            if (
+                (hcp_parse_datetime(summary.get("created_at")) and hcp_parse_datetime(summary.get("created_at")).date() >= recent_start)
+                or not (hcp_estimate_status_text(summary) and hcp_estimate_pipeline_value(summary) > 0)
+                or not summary.get("options")
+            )
+        ),
+        "details_checked":len(hydrated),
         "recent":{
             "estimates_created":len(recent),
             "quoted_value":round(sum(float(r.get("value") or 0) for r in recent),2),
