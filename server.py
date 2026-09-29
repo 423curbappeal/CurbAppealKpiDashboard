@@ -1407,13 +1407,14 @@ def hcp_source_attribution_snapshot(start,end):
     auto_fields=[]
     for row in rows:
         mapping=field_map.get(row["bucket"])
-        if not mapping:
+        has_evidence=bool(row.get("source_labels")) or any(float(row.get(k) or 0) != 0 for k in ("leads","estimates","jobs_sold","sold_revenue"))
+        if not mapping or not has_evidence:
             continue
         for metric,field_id in mapping.items():
             auto_fields.append({"field_id":field_id,"metric":metric,"bucket":row["bucket"],"value":row[metric]})
 
     referral=next((r for r in rows if r["bucket"]=="referral"),None)
-    if referral:
+    if referral and (referral.get("source_labels") or referral.get("leads") or referral.get("estimates") or referral.get("jobs_sold")):
         referral_count=0
         referral_revenue=0.0
         for estimate in estimates:
