@@ -1507,6 +1507,46 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.send_json(502, {"ok":False,"error":"Housecall Pro API request failed","detail":detail})
             except Exception as e:
                 return self.send_json(400, {"ok":False,"error":str(e)})
+        if parsed.path == "/api/hcp-source-debug":
+            try:
+                if not HCP_API_KEY:
+                    return self.send_json(503, {"ok":False,"error":"Housecall Pro is not configured."})
+                data=hcp_get("jobs", {"page":1,"page_size":12,"sort_by":"created_at","sort_direction":"desc"})
+                jobs=data.get("jobs") or data.get("data") or []
+                samples=[]
+                wanted=("source","lead","referr","origin","channel","tag")
+                for job in jobs[:8]:
+                    if not isinstance(job,dict):
+                        continue
+                    job_candidates={}
+                    for key,value in job.items():
+                        if any(w in str(key).lower() for w in wanted):
+                            job_candidates[key]=value
+                    customer_obj=job.get("customer") if isinstance(job.get("customer"),dict) else {}
+                    customer_candidates={}
+                    for key,value in customer_obj.items():
+                        if any(w in str(key).lower() for w in wanted):
+                            customer_candidates[key]=value
+                    customer_detail_candidates={}
+                    customer_id=hcp_customer_id_from_job(job)
+                    if customer_id:
+                        try:
+                            raw=hcp_get("customers/"+str(customer_id))
+                            detail=raw.get("customer") if isinstance(raw,dict) and isinstance(raw.get("customer"),dict) else raw
+                            if isinstance(detail,dict):
+                                for key,value in detail.items():
+                                    if any(w in str(key).lower() for w in wanted):
+                                        customer_detail_candidates[key]=value
+                        except Exception:
+                            pass
+                    samples.append({
+                        "job_source_fields":job_candidates,
+                        "embedded_customer_source_fields":customer_candidates,
+                        "customer_detail_source_fields":customer_detail_candidates
+                    })
+                return self.send_json(200,{"ok":True,"samples":samples})
+            except Exception as e:
+                return self.send_json(400,{"ok":False,"error":str(e)})
         if parsed.path == "/api/hcp-customer-debug":
             try:
                 q=urllib.parse.parse_qs(parsed.query)
