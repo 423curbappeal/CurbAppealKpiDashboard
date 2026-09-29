@@ -535,6 +535,23 @@
     </div>
   </div>
 
+  <!-- Automated Lead Source Attribution -->
+  <div id="source-attribution-card" style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:18px;margin-bottom:20px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+      <div>
+        <div style="font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:0.8px;">🎯 Lead Source Attribution · Auto</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:3px;">Uses Housecall Pro lead sources to attribute leads, estimates, jobs sold, and sold revenue by channel</div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn btn-ghost btn-sm" id="source-attribution-refresh" type="button">↻ Refresh</button>
+        <button class="btn btn-success btn-sm" id="source-attribution-apply" type="button" disabled>Apply Attribution</button>
+      </div>
+    </div>
+    <div id="source-attribution-status" style="font-size:12px;color:var(--muted);margin-bottom:10px;">Loading attribution for the selected week…</div>
+    <div id="source-attribution-coverage" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-bottom:12px;"></div>
+    <div id="source-attribution-table" style="overflow-x:auto;"></div>
+  </div>
+
   <!-- ── WASHWORKS ─────────────────────────────────────────── -->
   <div class="section-label">🚿 Curb Appeal Business</div>
 
@@ -3180,6 +3197,19 @@ function clearMonthlyPartial(ym) {
     return applied;
   }
 
+  function applyAttribution(data, skipFields) {
+    const skip=new Set(skipFields || []);
+    const fields=Array.isArray(data.auto_fields) ? data.auto_fields : [];
+    let applied=0;
+    fields.forEach(item => {
+      if (!item || !item.field_id || skip.has(item.field_id)) return;
+      const decimals=item.metric && String(item.metric).includes('revenue') ? 2 : undefined;
+      setVal(item.field_id,item.value,decimals);
+      applied += 1;
+    });
+    return applied;
+  }
+
   btn.addEventListener('click', async function () {
     const date=document.getElementById('entry-date');
     if (!date || !date.value) {
@@ -3197,7 +3227,8 @@ function clearMonthlyPartial(ym) {
     const requests=[
       ['Meta','/api/meta-preview?week_ending='+week],
       ['Housecall Pro','/api/hcp-preview?week_ending='+week],
-      ['QuickBooks','/api/qb-preview?week_ending='+week]
+      ['QuickBooks','/api/qb-preview?week_ending='+week],
+      ['Attribution','/api/hcp-source-attribution?week_ending='+week]
     ];
 
     try {
@@ -3215,6 +3246,7 @@ function clearMonthlyPartial(ym) {
       const meta=settled.find(x => x.name==='Meta');
       const hcp=settled.find(x => x.name==='Housecall Pro');
       const qb=settled.find(x => x.name==='QuickBooks');
+      const attribution=settled.find(x => x.name==='Attribution');
       const messages=[];
 
       if (meta && meta.ok) {
@@ -3251,7 +3283,22 @@ function clearMonthlyPartial(ym) {
         messages.push('⚠️ QuickBooks: '+(qb ? qb.error : 'not returned'));
       }
 
+      if (attribution && attribution.ok) {
+        const skip=[];
+        if (meta && meta.ok) skip.push('ww-meta-leads');
+        const applied=applyAttribution(attribution.data,skip);
+        const coverage=attribution.data.coverage || {};
+        let line='✅ Attribution: '+applied+' marketing KPI field'+(applied===1?'':'s')+' auto-filled';
+        line += ' · '+Number(coverage.estimates_attributed || 0)+' of '+Number(coverage.estimates_total || 0)+' estimates attributed';
+        if (skip.includes('ww-meta-leads')) line += ' · Meta lead count kept from Meta API';
+        messages.push(line);
+      } else {
+        messages.push('⚠️ Attribution: '+(attribution ? attribution.error : 'not returned'));
+      }
+
       if (typeof updateSummary === 'function') updateSummary();
+      if (typeof updateConversions === 'function') updateConversions();
+      if (typeof updateROAS === 'function') updateROAS();
       status.innerHTML=messages.map(m => '<div>'+m+'</div>').join('') + '<div style="margin-top:5px;color:var(--muted);">Review anything still manual, then Save This Week.</div>';
     } catch (err) {
       status.textContent='Auto Fill failed: '+((err && err.message) ? err.message : String(err));
@@ -3260,6 +3307,109 @@ function clearMonthlyPartial(ym) {
       btn.textContent='⚡ Auto Fill Week';
     }
   });
+})();
+</script>
+<script>
+(function () {
+  const card=document.getElementById('source-attribution-card');
+  if (!card) return;
+  const refresh=document.getElementById('source-attribution-refresh');
+  const apply=document.getElementById('source-attribution-apply');
+  const status=document.getElementById('source-attribution-status');
+  const coverageEl=document.getElementById('source-attribution-coverage');
+  const tableEl=document.getElementById('source-attribution-table');
+  let snapshot=null;
+  const labels={meta:'Meta',google:'Google Ads',lsa:'Google LSAs',yardsign:'Yard Signs',doorhanger:'Door Hangers',referral:'Referral',website:'Organic Website',branding:'Branding',unknown:'Unknown'};
+  const money=(n) => '$'+Number(n || 0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+
+  function selectedWeek() {
+    const date=document.getElementById('entry-date');
+    return date && date.value ? date.value : '';
+  }
+
+  function setField(id,value,metric) {
+    const el=document.getElementById(id);
+    if (!el) return false;
+    el.value=metric && String(metric).includes('revenue') ? Number(value || 0).toFixed(2) : Number(value || 0);
+    return true;
+  }
+
+  function render(data) {
+    snapshot=data;
+    if (apply) apply.disabled=!(Array.isArray(data.auto_fields) && data.auto_fields.length);
+    const c=data.coverage || {};
+    coverageEl.innerHTML='';
+    [
+      ['Leads attributed',Number(c.leads_attributed || 0)+' / '+Number(c.leads_total || 0)],
+      ['Estimates attributed',Number(c.estimates_attributed || 0)+' / '+Number(c.estimates_total || 0)],
+      ['Attributed sold revenue',money(c.sold_revenue_attributed)],
+      ['Unknown estimates',Number(c.unknown_estimates || 0)]
+    ].forEach(([label,value]) => {
+      const el=document.createElement('div');
+      el.style.cssText='background:var(--surface2);border-radius:10px;padding:10px;';
+      el.innerHTML='<div style="font-size:10px;color:var(--muted);font-weight:700;">'+label+'</div><div style="font-size:16px;font-weight:800;margin-top:3px;">'+value+'</div>';
+      coverageEl.appendChild(el);
+    });
+
+    const rows=(Array.isArray(data.rows) ? data.rows : []).filter(r => Number(r.leads || 0) || Number(r.estimates || 0) || Number(r.jobs_sold || 0) || Number(r.sold_revenue || 0) || (Array.isArray(r.source_labels) && r.source_labels.length));
+    if (!rows.length) {
+      tableEl.innerHTML='<div style="font-size:12px;color:var(--muted);padding:8px 0;">No source-attributed activity found for this week yet.</div>';
+      return;
+    }
+    let html='<table style="width:100%;border-collapse:collapse;font-size:12px;min-width:560px;"><thead><tr><th style="text-align:left;padding:7px;">Source</th><th style="text-align:right;padding:7px;">Leads</th><th style="text-align:right;padding:7px;">Estimates</th><th style="text-align:right;padding:7px;">Jobs Sold</th><th style="text-align:right;padding:7px;">Sold Revenue</th></tr></thead><tbody>';
+    rows.forEach(r => {
+      html += '<tr style="border-top:1px solid var(--border);"><td style="padding:8px 7px;font-weight:700;">'+(labels[r.bucket] || r.bucket)+'</td><td style="padding:8px 7px;text-align:right;">'+Number(r.leads || 0)+'</td><td style="padding:8px 7px;text-align:right;">'+Number(r.estimates || 0)+'</td><td style="padding:8px 7px;text-align:right;">'+Number(r.jobs_sold || 0)+'</td><td style="padding:8px 7px;text-align:right;font-weight:700;">'+money(r.sold_revenue)+'</td></tr>';
+    });
+    html += '</tbody></table>';
+    tableEl.innerHTML=html;
+  }
+
+  async function load() {
+    const week=selectedWeek();
+    if (!week) {
+      status.textContent='Select a week-ending date first.';
+      return;
+    }
+    if (refresh) { refresh.disabled=true; refresh.textContent='Loading…'; }
+    if (apply) apply.disabled=true;
+    status.textContent='Attributing Housecall Pro leads and estimates by source…';
+    try {
+      const res=await fetch('/api/hcp-source-attribution?week_ending='+encodeURIComponent(week),{cache:'no-store'});
+      const data=await res.json();
+      if (!res.ok || !data.ok) {
+        const detail=data && data.detail ? JSON.stringify(data.detail) : '';
+        throw new Error((data.error || 'Attribution request failed')+(detail ? ': '+detail : ''));
+      }
+      render(data);
+      status.textContent='Updated '+new Date().toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})+' · unknown/ambiguous sources are never guessed';
+    } catch (err) {
+      snapshot=null; coverageEl.innerHTML=''; tableEl.innerHTML='';
+      status.textContent='Attribution failed: '+((err && err.message) ? err.message : String(err));
+    } finally {
+      if (refresh) { refresh.disabled=false; refresh.textContent='↻ Refresh'; }
+    }
+  }
+
+  if (refresh) refresh.addEventListener('click',load);
+  if (apply) apply.addEventListener('click',function () {
+    if (!snapshot) return;
+    const metaDirect=document.getElementById('ww-meta-leads');
+    const keepMetaLead=metaDirect && String(metaDirect.value || '').trim() !== '';
+    let applied=0;
+    (snapshot.auto_fields || []).forEach(item => {
+      if (keepMetaLead && item.field_id==='ww-meta-leads') return;
+      if (setField(item.field_id,item.value,item.metric)) applied += 1;
+    });
+    if (typeof updateSummary==='function') updateSummary();
+    if (typeof updateConversions==='function') updateConversions();
+    if (typeof updateROAS==='function') updateROAS();
+    status.textContent='✅ Applied '+applied+' attributed KPI field'+(applied===1?'':'s')+(keepMetaLead ? ' · existing Meta lead count preserved' : '')+'.';
+  });
+
+  const date=document.getElementById('entry-date');
+  if (date) date.addEventListener('change',() => setTimeout(load,100));
+  if (document.readyState==='loading') document.addEventListener('DOMContentLoaded',() => setTimeout(load,500));
+  else setTimeout(load,500);
 })();
 </script>
 <script>
