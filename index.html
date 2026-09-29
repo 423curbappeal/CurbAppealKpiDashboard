@@ -1818,7 +1818,7 @@ function updateSummary() {
   const totalHours   = techCount * techHours;
   const techRevenueEl= document.getElementById('ww-tech-revenue');
   const techRevenue  = techRevenueEl && String(techRevenueEl.value || '').trim() !== '' ? (parseFloat(techRevenueEl.value)||0) : rev;
-  const revPerHour   = (totalHours>0) ? techRevenue/totalHours : null;
+  const revPerHour   = totalHours>0 ? techRevenue/totalHours : null;
 
   const scRev = document.getElementById('sc-revenue');
   scRev.textContent = rev>0 ? fmt(rev) : '—';
@@ -2138,11 +2138,14 @@ function saveEntry() {
     upsoldRevenue:          gv('ww-upsold-revenue'),
     commercialRevenue:      gv('ww-revenue-commercial'),
     residentialRevenue:     gv('ww-revenue-residential'),
+    unclassifiedRevenue:    gv('ww-revenue-unclassified'),
     callbacks:              gn('ww-callbacks'),
     fiveStarReviews:        gn('ww-five-star-reviews'),
     techCount:              gn('ww-tech-count'),
-    techHours:              gn('ww-tech-hours'),
+    techHours:              gv('ww-tech-hours'),
+    techRevenue:            gv('ww-tech-revenue'),
     repeatCustomers:        gn('ww-repeat-customers'),
+    customersServed:        gn('ww-customers-served'),
     soldRevenue:            gv('ww-sold-revenue'),
     jobsSold:               gn('ww-jobs-sold'),
     // Meta
@@ -2244,11 +2247,14 @@ function loadExistingEntry() {
   sf('ww-upsold-revenue',         ws.upsoldRevenue);
   sf('ww-revenue-commercial',     ws.commercialRevenue);
   sf('ww-revenue-residential',    ws.residentialRevenue);
+  sf('ww-revenue-unclassified',   ws.unclassifiedRevenue);
   sf('ww-callbacks',              ws.callbacks);
   sf('ww-five-star-reviews',      ws.fiveStarReviews);
   sf('ww-tech-count',             ws.techCount);
   sf('ww-tech-hours',             ws.techHours);
+  sf('ww-tech-revenue',           ws.techRevenue);
   sf('ww-repeat-customers',       ws.repeatCustomers);
+  sf('ww-customers-served',       ws.customersServed);
   sf('ww-sold-revenue',           ws.soldRevenue);
   sf('ww-jobs-sold',              ws.jobsSold);
   sf('ww-meta-leads',             ws.metaLeads);
@@ -2336,11 +2342,14 @@ function clearForm() {
   document.getElementById('ww-upsold-revenue').value='';
   document.getElementById('ww-revenue-commercial').value='';
   document.getElementById('ww-revenue-residential').value='';
+  document.getElementById('ww-revenue-unclassified').value='';
   document.getElementById('ww-callbacks').value='';
   document.getElementById('ww-five-star-reviews').value='';
   document.getElementById('ww-tech-count').value='';
   document.getElementById('ww-tech-hours').value='';
+  document.getElementById('ww-tech-revenue').value='';
   document.getElementById('ww-repeat-customers').value='';
+  document.getElementById('ww-customers-served').value='';
   document.getElementById('ww-notes').value='';
   Object.keys(WW_SECTIONS).forEach(sec => {
     WW_SECTIONS[sec].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
@@ -3312,7 +3321,7 @@ function clearMonthlyPartial(ym) {
       if (hcp && hcp.ok) {
         applyHcp(hcp.data);
         let line='✅ HCP: $'+Number(hcp.data.revenue || 0).toFixed(2)+' revenue · '+Number(hcp.data.jobs_completed || 0)+' completed · $'+Number(hcp.data.sold_revenue || 0).toFixed(2)+' sold';
-        if (Number(hcp.data.revenue_unclassified || 0) > 0) line += ' · 
+        if (Number(hcp.data.revenue_unclassified || 0) > 0) line += ' · $'+Number(hcp.data.revenue_unclassified || 0).toFixed(2)+' revenue unclassified';
         messages.push(line);
       } else {
         messages.push('⚠️ HCP: '+(hcp ? hcp.error : 'not returned'));
@@ -3874,11 +3883,11 @@ function clearMonthlyPartial(ym) {
         '<strong>' + data.week_start + ' → ' + data.week_ending + '</strong><br>' +
         'Completed revenue: <strong>USD ' + Number(data.revenue).toFixed(2) + '</strong>' +
         ' · Jobs completed: <strong>' + Number(data.jobs_completed) + '</strong><br>' +
-        (Number(data.revenue_unclassified) > 0
-          ? 'Residential / Commercial: <strong>manual</strong><br>'
-          : 'Residential: <strong>USD ' + Number(data.revenue_residential).toFixed(2) + '</strong>' +
-            ' · Commercial: <strong>USD ' + Number(data.revenue_commercial).toFixed(2) + '</strong><br>') +
+        'Residential: <strong>USD ' + Number(data.revenue_residential).toFixed(2) + '</strong>' +
+        ' · Commercial: <strong>USD ' + Number(data.revenue_commercial).toFixed(2) + '</strong>' +
+        ' · Unclassified: <strong>USD ' + Number(data.revenue_unclassified).toFixed(2) + '</strong><br>' +
         'Repeat customers: <strong>' + Number(data.repeat_customers) + '</strong>' +
+        ' / ' + Number(data.customers_served || 0) + ' customers served' +
         ' · Repeat customer %: <strong>' + Number(data.repeat_customer_pct).toFixed(1) + '%</strong>' +
         ' · Callbacks: <strong>' + Number(data.callbacks) + '</strong><br>' +
         (data.reviews_available
@@ -3887,8 +3896,8 @@ function clearMonthlyPartial(ym) {
         'Technicians: <strong>' + Number(data.tech_count) + '</strong>' +
         ' · Total tech hours: <strong>' + Number(data.total_tech_hours).toFixed(2) + '</strong>' +
         ' · Tech rev/hr: <strong>USD ' + Number(data.tech_rev_per_hour).toFixed(2) + '</strong><br>' +
-        'Sold revenue: <strong>USD ' + Number(data.sold_revenue).toFixed(2) + '</strong>' +
-        ' · Jobs sold: <strong>' + Number(data.jobs_sold) + '</strong>';
+        'Won estimate revenue (created-week cohort): <strong>USD ' + Number(data.sold_revenue).toFixed(2) + '</strong>' +
+        ' · Estimates won: <strong>' + Number(data.jobs_sold) + '</strong>';
 
       const note = document.createElement('div');
       note.style.cssText = 'margin-top:5px;color:var(--muted);font-size:11px;';
@@ -3916,1024 +3925,35 @@ function clearMonthlyPartial(ym) {
         const jobsSold = document.getElementById('ww-jobs-sold');
         const residentialRevenue = document.getElementById('ww-revenue-residential');
         const commercialRevenue = document.getElementById('ww-revenue-commercial');
+        const unclassifiedRevenue = document.getElementById('ww-revenue-unclassified');
         const repeatCustomers = document.getElementById('ww-repeat-customers');
+        const customersServed = document.getElementById('ww-customers-served');
         const callbacks = document.getElementById('ww-callbacks');
         const fiveStarReviews = document.getElementById('ww-five-star-reviews');
         const techCount = document.getElementById('ww-tech-count');
         const techHours = document.getElementById('ww-tech-hours');
+        const techRevenue = document.getElementById('ww-tech-revenue');
 
         if (revenue) revenue.value = Number(preview.revenue).toFixed(2);
         if (jobsCompleted) jobsCompleted.value = Number(preview.jobs_completed);
-        if (Number(preview.revenue_unclassified) === 0) {
-          if (residentialRevenue) residentialRevenue.value = Number(preview.revenue_residential).toFixed(2);
-          if (commercialRevenue) commercialRevenue.value = Number(preview.revenue_commercial).toFixed(2);
-        }
+        if (residentialRevenue) residentialRevenue.value = Number(preview.revenue_residential).toFixed(2);
+        if (commercialRevenue) commercialRevenue.value = Number(preview.revenue_commercial).toFixed(2);
+        if (unclassifiedRevenue) unclassifiedRevenue.value = Number(preview.revenue_unclassified).toFixed(2);
         if (repeatCustomers) repeatCustomers.value = Number(preview.repeat_customers);
+        if (customersServed) customersServed.value = Number(preview.customers_served || 0);
         if (callbacks) callbacks.value = Number(preview.callbacks);
         if (preview.reviews_available && fiveStarReviews) fiveStarReviews.value = Number(preview.five_star_reviews);
         if (techCount) techCount.value = Number(preview.tech_count);
         if (techHours) techHours.value = Number(preview.hours_per_tech).toFixed(2);
+        if (techRevenue) techRevenue.value = Number(preview.tech_revenue || 0).toFixed(2);
         if (soldRevenue) soldRevenue.value = Number(preview.sold_revenue).toFixed(2);
         if (jobsSold) jobsSold.value = Number(preview.jobs_sold);
 
         const splitText = Number(preview.revenue_unclassified) > 0
-          ? ' Residential/Commercial was left unchanged because HCP does not have a reliable customer type on these jobs.'
-          : ' Residential/Commercial was applied too.';
-        panel.insertAdjacentHTML('beforeend','<div style="margin-top:8px;">✅ Applied Revenue, Jobs Completed, Repeat Customers, Callbacks, Technician Count/Hours, Sold Revenue, and Jobs Sold.' + splitText + ' Review, then click Save This Week.</div>');
-      });
-
-      panel.appendChild(summary);
-      panel.appendChild(note);
-      panel.appendChild(apply);
-    } catch (err) {
-      panel.textContent = 'HCP preview failed: ' + (err && err.message ? err.message : String(err));
-    } finally {
-      btn.disabled = false;
-      btn.textContent = '🧰 Preview HCP';
-    }
-  });
-})();
-</script>
-<script>
-(function () {
-  const card = document.getElementById('hcp-estimate-pipeline-card');
-  if (!card) return;
-
-  const status = document.getElementById('hcp-pipeline-status');
-  const refresh = document.getElementById('hcp-pipeline-refresh');
-  const aging = document.getElementById('hcp-pipeline-aging');
-  const followups = document.getElementById('hcp-pipeline-followups');
-
-  const money = (n) => '$' + Number(n || 0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
-  const setText = (id,value) => {
-    const el=document.getElementById(id);
-    if (el) el.textContent=value;
-  };
-
-  async function loadPipeline() {
-    if (refresh) {
-      refresh.disabled=true;
-      refresh.textContent='Loading…';
-    }
-    if (status) status.textContent='Pulling live estimate pipeline from Housecall Pro…';
-
-    try {
-      const res=await fetch('/api/hcp-estimate-pipeline',{cache:'no-store'});
-      const data=await res.json();
-      if (!res.ok || !data.ok) {
-        const detail=data && data.detail ? JSON.stringify(data.detail) : '';
-        throw new Error((data.error || 'Housecall Pro request failed') + (detail ? ': ' + detail : ''));
-      }
-
-      const recent=data.recent || {};
-      const open=data.open_pipeline || {};
-
-      setText('hcp-pipe-open-value',money(open.value));
-      setText('hcp-pipe-open-count',Number(open.count || 0)+' open estimates · last '+Number(data.lookback_days || 120)+'d');
-      setText('hcp-pipe-quoted',money(recent.quoted_value));
-      setText('hcp-pipe-created',Number(recent.estimates_created || 0)+' estimates created');
-      setText('hcp-pipe-won-value',money(recent.won_value));
-      setText('hcp-pipe-won-count',Number(recent.won_count || 0)+' won');
-      setText('hcp-pipe-lost-value',money(recent.lost_value));
-      setText('hcp-pipe-lost-count',Number(recent.lost_count || 0)+' lost/declined');
-      setText('hcp-pipe-close-rate',Number(recent.close_rate || 0).toFixed(1)+'%');
-
-      const labels=[
-        ['0_3','0–3 days'],
-        ['4_7','4–7 days'],
-        ['8_14','8–14 days'],
-        ['15_30','15–30 days'],
-        ['31_plus','31+ days']
-      ];
-      aging.innerHTML='';
-      labels.forEach(([key,label]) => {
-        const item=(open.aging || {})[key] || {};
-        const el=document.createElement('div');
-        el.style.cssText='background:var(--surface2);border-radius:10px;padding:10px;min-width:95px;';
-        el.innerHTML='<div style="font-size:10px;color:var(--muted);font-weight:700;">'+label+'</div>' +
-          '<div style="font-size:16px;font-weight:800;margin-top:3px;">'+Number(item.count || 0)+'</div>' +
-          '<div style="font-size:11px;color:var(--muted);">'+money(item.value)+'</div>';
-        aging.appendChild(el);
-      });
-
-      followups.innerHTML='';
-      const rows=Array.isArray(data.followups) ? data.followups : [];
-      if (!rows.length) {
-        followups.innerHTML='<div style="font-size:12px;color:var(--green);">✅ No estimates are 4+ days old and still open.</div>';
-      } else {
-        rows.forEach(row => {
-          const el=document.createElement('div');
-          el.style.cssText='display:grid;grid-template-columns:minmax(150px,1fr) auto auto;gap:10px;align-items:center;background:var(--surface2);border-radius:9px;padding:9px 11px;';
-          const name=document.createElement('div');
-          name.innerHTML='<div style="font-size:12px;font-weight:700;"></div><div style="font-size:10px;color:var(--muted);"></div>';
-          name.children[0].textContent=row.customer_name || 'Unknown customer';
-          name.children[1].textContent='Created '+(row.created_at || '—');
-          const age=document.createElement('div');
-          age.style.cssText='font-size:11px;font-weight:700;color:var(--orange);white-space:nowrap;';
-          age.textContent=Number(row.age_days || 0)+' days';
-          const value=document.createElement('div');
-          value.style.cssText='font-size:12px;font-weight:800;text-align:right;white-space:nowrap;';
-          value.textContent=money(row.value);
-          el.appendChild(name);
-          el.appendChild(age);
-          el.appendChild(value);
-          followups.appendChild(el);
-        });
-      }
-
-      if (status) {
-        status.textContent='Updated '+new Date().toLocaleTimeString([], {hour:'numeric',minute:'2-digit'}) +
-          (data.truncated ? ' · ⚠️ Recent estimate detail cap reached; totals may be partial.' : '');
-      }
-    } catch (err) {
-      if (status) status.textContent='Estimate pipeline failed: '+(err && err.message ? err.message : String(err));
-      if (followups) followups.innerHTML='';
-      if (aging) aging.innerHTML='';
-    } finally {
-      if (refresh) {
-        refresh.disabled=false;
-        refresh.textContent='↻ Refresh';
-      }
-    }
-  }
-
-  window.refreshHcpEstimatePipeline=loadPipeline;
-  if (refresh) refresh.addEventListener('click',loadPipeline);
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded',() => setTimeout(loadPipeline,400));
-  } else {
-    setTimeout(loadPipeline,400);
-  }
-
-  setInterval(loadPipeline,15*60*1000);
-})();
-</script>
-<script>
-(function () {
-  const card=document.getElementById('tech-scorecards-card');
-  if (!card) return;
-  const refresh=document.getElementById('tech-scorecards-refresh');
-  const status=document.getElementById('tech-scorecards-status');
-  const summary=document.getElementById('tech-scorecards-summary');
-  const list=document.getElementById('tech-scorecards-list');
-  const note=document.getElementById('tech-scorecards-note');
-  const money=(n) => '$'+Number(n || 0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
-
-  function selectedWeek() {
-    const el=document.getElementById('entry-date');
-    return el && el.value ? el.value : '';
-  }
-
-  function metric(label,value,color,sub) {
-    const el=document.createElement('div');
-    el.style.cssText='background:var(--surface2);border-radius:10px;padding:11px;';
-    const l=document.createElement('div');
-    l.style.cssText='font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.45px;';
-    l.textContent=label;
-    const v=document.createElement('div');
-    v.style.cssText='font-size:17px;font-weight:800;margin-top:3px;'+(color ? 'color:'+color+';' : '');
-    v.textContent=value;
-    el.appendChild(l); el.appendChild(v);
-    if (sub) {
-      const s=document.createElement('div');
-      s.style.cssText='font-size:9px;color:var(--muted);margin-top:2px;line-height:1.3;';
-      s.textContent=sub;
-      el.appendChild(s);
-    }
-    return el;
-  }
-
-  function render(data) {
-    summary.innerHTML='';
-    const techs=Array.isArray(data.technicians) ? data.technicians : [];
-    const projected=techs.reduce((sum,t) => sum+Number(t.projected_commission || 0),0);
-    const earned=techs.reduce((sum,t) => sum+Number(t.earned_commission || 0),0);
-    summary.appendChild(metric('Commission techs',String(techs.length),'var(--blue)','Owner/helper excluded'));
-    summary.appendChild(metric('Scheduled jobs',String(Number(data.scheduled_jobs || 0)),null,'selected week'));
-    summary.appendChild(metric('Completed jobs',String(Number(data.completed_jobs || 0)),'var(--green)','actual completions'));
-    summary.appendChild(metric('Projected commission',money(projected),'var(--orange)','scheduled week'));
-    summary.appendChild(metric('Earned commission',money(earned),'var(--green)','completed work'));
-
-    list.innerHTML='';
-    if (!techs.length) {
-      list.innerHTML='<div style="font-size:12px;color:var(--muted);padding:8px 0;">No assigned commission technicians found for this week.</div>';
-    } else {
-      techs.forEach(t => {
-        const wrap=document.createElement('div');
-        wrap.style.cssText='border:1px solid var(--border);background:var(--surface2);border-radius:12px;padding:13px;';
-
-        const head=document.createElement('div');
-        head.style.cssText='display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px;';
-        const name=document.createElement('div');
-        name.style.cssText='font-size:14px;font-weight:800;color:var(--text);';
-        name.textContent=t.name || 'Technician';
-        const mix=document.createElement('div');
-        mix.style.cssText='font-size:10px;color:var(--muted);font-weight:700;';
-        const parts=[];
-        if (Number(t.micah_calien_jobs || 0)>0) parts.push(Number(t.micah_calien_jobs)+' shared Micah + Calien');
-        if (Number(t.solo_commission_jobs || 0)>0) parts.push(Number(t.solo_commission_jobs)+' 22.5% job'+(Number(t.solo_commission_jobs)===1?'':'s'));
-        mix.textContent=parts.length ? parts.join(' · ') : 'Commission setup varies';
-        head.appendChild(name); head.appendChild(mix);
-
-        const grid=document.createElement('div');
-        grid.style.cssText='display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:8px;';
-        grid.appendChild(metric('Booked week revenue',money(t.booked_revenue),'var(--blue)','FULL value of every assigned job'));
-        grid.appendChild(metric('Completed revenue',money(t.completed_revenue),'var(--green)','FULL value of completed assigned jobs'));
-        grid.appendChild(metric('Booked jobs',String(Number(t.booked_jobs || 0)),null));
-        grid.appendChild(metric('Completed',String(Number(t.completed_jobs || 0)),null));
-        grid.appendChild(metric('Tracked hours',Number(t.hours || 0).toFixed(2)+'h',null,'completed jobs'));
-        grid.appendChild(metric('Completed rev / hr',money(t.revenue_per_hour),'var(--blue)'));
-        grid.appendChild(metric('Avg completed ticket',money(t.avg_ticket),null));
-        grid.appendChild(metric('Callbacks',String(Number(t.callbacks || 0)),Number(t.callbacks || 0)>0 ? 'var(--orange)' : 'var(--green)'));
-        grid.appendChild(metric('Projected commission',money(t.projected_commission),'var(--orange)','scheduled week'));
-        grid.appendChild(metric('Earned commission',money(t.earned_commission),'var(--green)','completed work'));
-
-        wrap.appendChild(head); wrap.appendChild(grid);
-        if (Number(t.untracked_time_jobs || 0)>0 || Number(t.commission_unmodeled_jobs || 0)>0) {
-          const warning=document.createElement('div');
-          warning.style.cssText='font-size:10px;color:var(--orange);margin-top:8px;line-height:1.4;';
-          const warnings=[];
-          if (Number(t.untracked_time_jobs || 0)>0) warnings.push(Number(t.untracked_time_jobs)+' completed job(s) missing usable time');
-          if (Number(t.commission_unmodeled_jobs || 0)>0) warnings.push(Number(t.commission_unmodeled_jobs)+' scheduled job(s) with an unrecognized commission setup');
-          warning.textContent='⚠️ '+warnings.join(' · ');
-          wrap.appendChild(warning);
-        }
-        list.appendChild(wrap);
-      });
-    }
-    note.textContent=(data.revenue_note || '')+' '+(data.commission_note || '')+(Number(data.jobs_without_assignments || 0)>0 ? ' ⚠️ '+Number(data.jobs_without_assignments)+' completed job(s) had no assigned technician.' : '');
-  }
-
-  async function load() {
-    const week=selectedWeek();
-    if (!week) {
-      status.textContent='Select a week-ending date first.';
-      return;
-    }
-    if (refresh) { refresh.disabled=true; refresh.textContent='Loading…'; }
-    status.textContent='Pulling booked and completed technician performance from Housecall Pro…';
-    try {
-      const res=await fetch('/api/hcp-tech-scorecards?week_ending='+encodeURIComponent(week),{cache:'no-store'});
-      const data=await res.json();
-      if (!res.ok || !data.ok) {
-        const detail=data && data.detail ? JSON.stringify(data.detail) : '';
-        throw new Error((data.error || 'Technician scorecard request failed')+(detail ? ': '+detail : ''));
-      }
-      render(data);
-      status.textContent=data.week_start+' → '+data.week_ending+' · full job revenue credited to every assigned commission tech';
-    } catch (err) {
-      summary.innerHTML=''; list.innerHTML=''; note.textContent='';
-      status.textContent='Technician scorecards failed: '+((err && err.message) ? err.message : String(err));
-    } finally {
-      if (refresh) { refresh.disabled=false; refresh.textContent='↻ Refresh'; }
-    }
-  }
-
-  if (refresh) refresh.addEventListener('click',load);
-  const date=document.getElementById('entry-date');
-  if (date) date.addEventListener('change',() => setTimeout(load,100));
-  if (document.readyState==='loading') document.addEventListener('DOMContentLoaded',() => setTimeout(load,650));
-  else setTimeout(load,650);
-  setInterval(load,15*60*1000);
-})();
-</script>
-<script>
-(function () {
-  const btn = document.getElementById('qb-preview-btn');
-  if (!btn) return;
-
-  const panel = document.createElement('div');
-  panel.id = 'qb-preview-panel';
-  panel.style.cssText = 'display:none;margin-top:12px;padding:14px;border:1px solid var(--border);border-radius:10px;background:var(--surface2);font-size:13px;line-height:1.6;';
-  btn.parentElement.insertAdjacentElement('afterend', panel);
-
-  btn.addEventListener('click', async function () {
-    const date = document.getElementById('entry-date');
-    if (!date || !date.value) {
-      panel.style.display = 'block';
-      panel.textContent = 'Select a week-ending date first.';
-      return;
-    }
-
-    btn.disabled = true;
-    btn.textContent = 'Loading QB…';
-    panel.style.display = 'block';
-    panel.textContent = 'Pulling received QuickBooks expense records…';
-
-    try {
-      const res = await fetch('/api/qb-preview?week_ending=' + encodeURIComponent(date.value), {cache:'no-store'});
-      const data = await res.json();
-      if (!res.ok || !data.ok) {
-        throw new Error(data.error || 'QuickBooks preview failed');
-      }
-
-      panel.textContent = '';
-
-      const summary = document.createElement('div');
-      summary.innerHTML =
-        '<strong>' + data.week_start + ' → ' + data.week_ending + '</strong><br>' +
-        'Expense records received: <strong>' + Number(data.expense_records) + '</strong>' +
-        ' · Total received expenses: <strong>USD ' + Number(data.expense_total).toFixed(2) + '</strong>';
-
-      const groups = document.createElement('div');
-      groups.style.cssText = 'margin-top:10px;';
-      if (!data.groups || data.groups.length === 0) {
-        groups.textContent = 'No QuickBooks expense records have been received for this week yet.';
-      } else {
-        groups.innerHTML = '<strong>QuickBooks categories/accounts:</strong><br>' +
-          data.groups.map(function (g) {
-            return '• ' + String(g.account_name) + ': USD ' + Number(g.amount).toFixed(2);
-          }).join('<br>');
-      }
-
-      const mapping = document.createElement('div');
-      mapping.style.cssText = 'margin-top:10px;padding:10px;border-radius:8px;background:var(--surface);border:1px solid var(--border);';
-      const mapped = Array.isArray(data.mapped_fields) ? data.mapped_fields : [];
-      const unmapped = Array.isArray(data.unmapped) ? data.unmapped : [];
-      mapping.innerHTML =
-        '<strong>Automatic KPI mapping:</strong><br>' +
-        (mapped.length
-          ? mapped.map(function (m) {
-              return '✅ ' + String(m.label) + ': USD ' + Number(m.amount).toFixed(2) +
-                ' <span style="color:var(--muted);">(' + Number(m.records) + ' record' + (Number(m.records) === 1 ? '' : 's') + ')</span>';
-            }).join('<br>')
-          : '<span style="color:var(--muted);">No high-confidence categories mapped yet.</span>') +
-        (unmapped.length
-          ? '<div style="margin-top:8px;"><strong>Needs review:</strong><br>' +
-              unmapped.map(function (u) {
-                return '⚠️ ' + String(u.account_name) + ': USD ' + Number(u.amount).toFixed(2);
-              }).join('<br>') + '</div>'
-          : '');
-
-      const note = document.createElement('div');
-      note.style.cssText = 'margin-top:8px;color:var(--muted);font-size:11px;';
-      note.textContent = 'Only high-confidence QuickBooks matches are auto-applied. Anything ambiguous stays in Needs review instead of being guessed.';
-
-      const apply = document.createElement('button');
-      apply.type = 'button';
-      apply.className = 'btn btn-success btn-sm';
-      apply.style.marginTop = '10px';
-      apply.textContent = 'Apply Mapped Expenses';
-      apply.disabled = mapped.length === 0;
-      apply.addEventListener('click', function () {
-        let applied = 0;
-        mapped.forEach(function (m) {
-          if (!m || !m.field_id) return;
-          const el = document.getElementById(m.field_id);
-          if (!el) return;
-          el.value = Number(m.amount || 0).toFixed(2);
-          applied += 1;
-        });
-        if (typeof updateSummary === 'function') updateSummary();
-        if (typeof updateROAS === 'function') updateROAS();
-        panel.insertAdjacentHTML('beforeend','<div style="margin-top:8px;">✅ Applied ' + applied + ' mapped QuickBooks expense field' + (applied === 1 ? '' : 's') + '. Review unmapped items before saving.</div>');
-      });
-
-      panel.appendChild(summary);
-      panel.appendChild(groups);
-      panel.appendChild(mapping);
-      panel.appendChild(note);
-      panel.appendChild(apply);
-    } catch (err) {
-      panel.textContent = 'QuickBooks preview failed: ' + (err && err.message ? err.message : String(err));
-    } finally {
-      btn.disabled = false;
-      btn.textContent = '💰 Preview QB';
-    }
-  });
-})();
-</script>
-</body>
-</html>
-+Number(hcp.data.revenue_unclassified || 0).toFixed(2)+' revenue unclassified';
-        messages.push(line);
-      } else {
-        messages.push('⚠️ HCP: '+(hcp ? hcp.error : 'not returned'));
-      }
-
-      if (qb && qb.ok) {
-        if (Number(qb.data.expense_records || 0) > 0) {
-          const skip=[];
-          if (meta && meta.ok) skip.push('ww-meta-spend');
-          const applied=applyQb(qb.data,skip);
-          const mapped=Number(qb.data.mapped_total || 0);
-          const unmapped=Number(qb.data.unmapped_total || 0);
-          let line='✅ QuickBooks: '+applied+' KPI expense field'+(applied===1?'':'s')+' auto-filled · $'+mapped.toFixed(2)+' mapped';
-          if (unmapped !== 0) line += ' · $'+unmapped.toFixed(2)+' still unmapped';
-          if (skip.includes('ww-meta-spend')) line += ' · Meta ad spend kept from Meta API';
-          messages.push(line);
-        } else {
-          messages.push('ℹ️ QuickBooks: no expense records received for this week yet');
-        }
-      } else {
-        messages.push('⚠️ QuickBooks: '+(qb ? qb.error : 'not returned'));
-      }
-
-      if (attribution && attribution.ok) {
-        const applied=applyAttribution(attribution.data,[]);
-        const coverage=attribution.data.coverage || {};
-        let line='✅ GHL → HCP Attribution: '+applied+' marketing KPI field'+(applied===1?'':'s')+' auto-filled';
-        line += ' · '+Number(coverage.hcp_matched_leads || 0)+' of '+Number(coverage.ghl_leads_total || 0)+' GHL leads matched to HCP';
-        line += ' · '+Number(coverage.estimates_attributed || 0)+' estimates attributed';
-        if (meta && meta.ok) line += ' · Meta spend from Meta API, lead count from GHL';
-        messages.push(line);
-      } else {
-        messages.push('⚠️ Attribution: '+(attribution ? attribution.error : 'not returned'));
-      }
-
-      if (typeof updateSummary === 'function') updateSummary();
-      if (typeof updateConversions === 'function') updateConversions();
-      if (typeof updateROAS === 'function') updateROAS();
-      status.innerHTML=messages.map(m => '<div>'+m+'</div>').join('') + '<div style="margin-top:5px;color:var(--muted);">Review anything still manual, then Save This Week.</div>';
-    } catch (err) {
-      status.textContent='Auto Fill failed: '+((err && err.message) ? err.message : String(err));
-    } finally {
-      btn.disabled=false;
-      btn.textContent='⚡ Auto Fill Week';
-    }
-  });
-})();
-</script>
-<script>
-(function () {
-  const card=document.getElementById('lead-handoff-card');
-  if (!card) return;
-  const refresh=document.getElementById('lead-handoff-refresh');
-  const status=document.getElementById('lead-handoff-status');
-  const metrics=document.getElementById('lead-handoff-metrics');
-  const exceptions=document.getElementById('lead-handoff-exceptions');
-  const table=document.getElementById('lead-handoff-table');
-  const note=document.getElementById('lead-handoff-note');
-  const money=(n) => '$'+Number(n || 0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
-
-  function tile(label,value,color,sub) {
-    const el=document.createElement('div');
-    el.style.cssText='background:var(--surface2);border-radius:10px;padding:11px;';
-    const l=document.createElement('div');
-    l.style.cssText='font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.45px;';
-    l.textContent=label;
-    const v=document.createElement('div');
-    v.style.cssText='font-size:18px;font-weight:800;margin-top:3px;'+(color ? 'color:'+color+';' : '');
-    v.textContent=value;
-    el.appendChild(l); el.appendChild(v);
-    if (sub) {
-      const s=document.createElement('div');
-      s.style.cssText='font-size:10px;color:var(--muted);margin-top:2px;';
-      s.textContent=sub;
-      el.appendChild(s);
-    }
-    return el;
-  }
-
-  function ageText(minutes) {
-    const m=Number(minutes || 0);
-    if (m < 60) return Math.max(1,Math.round(m))+'m';
-    if (m < 1440) return (m/60).toFixed(m>=600 ? 0 : 1)+'h';
-    return (m/1440).toFixed(1)+'d';
-  }
-
-  function stageLabel(stage) {
-    return ({ghl_only:'GHL only',in_hcp:'In HCP',estimated:'Estimate sent',ambiguous:'Review match'})[stage] || stage || 'Unknown';
-  }
-
-  function stageColor(stage) {
-    if (stage==='estimated') return 'var(--green)';
-    if (stage==='in_hcp') return 'var(--blue)';
-    if (stage==='ambiguous') return '#ef4444';
-    return 'var(--orange)';
-  }
-
-  function render(data) {
-    const s=data.summary || {};
-    metrics.innerHTML='';
-    metrics.appendChild(tile('GHL leads',String(Number(s.ghl_leads || 0)),'var(--blue)','last '+Number(data.lookback_days || 7)+' days'));
-    metrics.appendChild(tile('Matched in HCP',String(Number(s.matched_hcp_customers || 0)),null,Number(s.handoff_rate || 0).toFixed(1)+'% handoff rate'));
-    metrics.appendChild(tile('Estimates found',String(Number(s.estimates_found || 0)),'var(--green)',Number(s.estimate_rate_after_match || 0).toFixed(1)+'% of HCP matches'));
-    metrics.appendChild(tile('Needs attention',String(Number(s.needs_attention || 0)),Number(s.needs_attention || 0)>0 ? '#ef4444' : 'var(--green)','handoff or estimate gaps'));
-
-    exceptions.innerHTML='';
-    const rows=Array.isArray(data.rows) ? data.rows : [];
-    const attention=rows.filter(r => r.needs_attention);
-    if (!attention.length) {
-      exceptions.innerHTML='<div style="font-size:12px;color:var(--green);padding:6px 0;">✅ No lead handoff exceptions right now.</div>';
-    } else {
-      attention.slice(0,12).forEach(row => {
-        const el=document.createElement('div');
-        el.style.cssText='display:grid;grid-template-columns:minmax(155px,1fr) auto;gap:10px;align-items:center;background:var(--surface2);border:1px solid rgba(239,68,68,.30);border-radius:10px;padding:10px 11px;';
-        const body=document.createElement('div');
-        const name=document.createElement('div');
-        name.style.cssText='font-size:12px;font-weight:800;color:var(--text);';
-        name.textContent=(row.name || 'Lead')+' · '+(row.source || 'Unknown source');
-        const why=document.createElement('div');
-        why.style.cssText='font-size:10px;color:var(--muted);margin-top:3px;line-height:1.35;';
-        why.textContent=row.attention_reason || 'Needs review';
-        body.appendChild(name); body.appendChild(why);
-        const age=document.createElement('div');
-        age.style.cssText='font-size:11px;font-weight:800;color:#ef4444;white-space:nowrap;';
-        age.textContent=ageText(row.age_minutes);
-        el.appendChild(body); el.appendChild(age); exceptions.appendChild(el);
-      });
-    }
-
-    const shown=rows.slice(0,25);
-    if (!shown.length) {
-      table.innerHTML='<div style="font-size:12px;color:var(--muted);padding:6px 0;">No recent HighLevel leads with phone/email were found.</div>';
-    } else {
-      let h='<table style="width:100%;border-collapse:collapse;font-size:12px;min-width:690px;"><thead><tr><th style="text-align:left;padding:7px;">Lead</th><th style="text-align:left;padding:7px;">Source</th><th style="text-align:left;padding:7px;">Stage</th><th style="text-align:right;padding:7px;">Age</th><th style="text-align:right;padding:7px;">Estimate</th></tr></thead><tbody>';
-      shown.forEach(row => {
-        h += '<tr style="border-top:1px solid var(--border);"><td style="padding:8px 7px;font-weight:700;">'+String(row.name || 'Lead')+'</td><td style="padding:8px 7px;">'+String(row.source || 'Unknown')+'</td><td style="padding:8px 7px;font-weight:700;color:'+stageColor(row.stage)+';">'+stageLabel(row.stage)+'</td><td style="padding:8px 7px;text-align:right;">'+ageText(row.age_minutes)+'</td><td style="padding:8px 7px;text-align:right;font-weight:700;">'+(row.estimate_id ? money(row.estimate_value) : '—')+'</td></tr>';
-      });
-      h += '</tbody></table>';
-      table.innerHTML=h;
-    }
-    note.textContent=(data.scope_note || "")+" Handoff warning: "+Number((data.thresholds || {}).hcp_handoff_minutes || 120)+" minutes. Estimate warning: "+Number((data.thresholds || {}).estimate_hours || 24)+" hours.";
-  }
-
-  async function load() {
-    if (refresh) { refresh.disabled=true; refresh.textContent='Loading…'; }
-    status.textContent='Matching recent HighLevel leads to Housecall Pro customers and estimates…';
-    try {
-      const res=await fetch('/api/lead-handoff',{cache:'no-store'});
-      const data=await res.json();
-      if (!res.ok || !data.ok) {
-        if (res.status===503 && data && data.configured===false) {
-          metrics.innerHTML=''; exceptions.innerHTML=''; table.innerHTML=''; note.textContent='';
-          status.textContent='HighLevel dashboard connection needs setup: add GHL_API_TOKEN and GHL_LOCATION_ID in Railway Variables.';
-          return;
-        }
-        const detail=data && data.detail ? JSON.stringify(data.detail) : '';
-        throw new Error((data.error || 'Lead handoff request failed')+(detail ? ': '+detail : ''));
-      }
-      render(data);
-      status.textContent='Updated '+new Date().toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})+' · exact phone/email matching only';
-    } catch (err) {
-      metrics.innerHTML=''; exceptions.innerHTML=''; table.innerHTML=''; note.textContent='';
-      status.textContent='Lead handoff monitor failed: '+((err && err.message) ? err.message : String(err));
-    } finally {
-      if (refresh) { refresh.disabled=false; refresh.textContent='↻ Refresh'; }
-    }
-  }
-
-  if (refresh) refresh.addEventListener('click',load);
-  if (document.readyState==='loading') document.addEventListener('DOMContentLoaded',() => setTimeout(load,350));
-  else setTimeout(load,350);
-  setInterval(load,5*60*1000);
-})();
-</script>
-<script>
-(function () {
-  const card=document.getElementById('source-attribution-card');
-  if (!card) return;
-  const refresh=document.getElementById('source-attribution-refresh');
-  const apply=document.getElementById('source-attribution-apply');
-  const status=document.getElementById('source-attribution-status');
-  const coverageEl=document.getElementById('source-attribution-coverage');
-  const tableEl=document.getElementById('source-attribution-table');
-  const campaignEl=document.getElementById('source-attribution-campaigns');
-  const noteEl=document.getElementById('source-attribution-note');
-  let snapshot=null;
-  const labels={meta:'Meta',google:'Google Ads',lsa:'Google LSAs',yardsign:'Yard Signs',doorhanger:'Door Hangers',referral:'Referral',website:'Organic Website',branding:'Branding',unknown:'Unknown'};
-  const money=(n) => '$'+Number(n || 0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
-  const esc=(s) => String(s == null ? '' : s).replace(/[&<>"']/g,ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
-
-  function selectedWeek() {
-    const date=document.getElementById('entry-date');
-    return date && date.value ? date.value : '';
-  }
-
-  function setField(id,value,metric) {
-    const el=document.getElementById(id);
-    if (!el) return false;
-    el.value=metric && String(metric).includes('revenue') ? Number(value || 0).toFixed(2) : Number(value || 0);
-    return true;
-  }
-
-  function render(data) {
-    snapshot=data;
-    if (apply) apply.disabled=!(Array.isArray(data.auto_fields) && data.auto_fields.length);
-    const c=data.coverage || {};
-    coverageEl.innerHTML='';
-    [
-      ['GHL leads',Number(c.ghl_leads_total || 0)],
-      ['Matched to HCP',Number(c.hcp_matched_leads || 0)+' / '+Number(c.ghl_leads_total || 0)],
-      ['Estimates attributed',Number(c.estimates_attributed || 0)],
-      ['Attributed sold revenue',money(c.sold_revenue_attributed)],
-      ['Completed jobs',Number(c.jobs_completed_attributed || 0)],
-      ['Realized revenue',money(c.completed_revenue_attributed)],
-      ['Unknown-source leads',Number(c.unknown_leads || 0)]
-    ].forEach(([label,value]) => {
-      const el=document.createElement('div');
-      el.style.cssText='background:var(--surface2);border-radius:10px;padding:10px;';
-      const l=document.createElement('div');
-      l.style.cssText='font-size:10px;color:var(--muted);font-weight:700;';
-      l.textContent=label;
-      const v=document.createElement('div');
-      v.style.cssText='font-size:16px;font-weight:800;margin-top:3px;';
-      v.textContent=String(value);
-      el.appendChild(l); el.appendChild(v); coverageEl.appendChild(el);
-    });
-
-    const rows=(Array.isArray(data.rows) ? data.rows : []).filter(r => Number(r.leads || 0) || Number(r.estimates || 0) || Number(r.jobs_sold || 0) || Number(r.sold_revenue || 0) || Number(r.jobs_completed || 0) || Number(r.completed_revenue || 0));
-    if (!rows.length) {
-      tableEl.innerHTML='<div style="font-size:12px;color:var(--muted);padding:8px 0;">No attributed lead activity found for this week yet.</div>';
-    } else {
-      let h='<table style="width:100%;border-collapse:collapse;font-size:12px;min-width:930px;"><thead><tr><th style="text-align:left;padding:7px;">Source</th><th style="text-align:right;padding:7px;">Leads</th><th style="text-align:right;padding:7px;">HCP Match</th><th style="text-align:right;padding:7px;">Estimates</th><th style="text-align:right;padding:7px;">Quoted</th><th style="text-align:right;padding:7px;">Jobs Sold</th><th style="text-align:right;padding:7px;">Sold Revenue</th><th style="text-align:right;padding:7px;">Completed</th><th style="text-align:right;padding:7px;">Realized Revenue</th></tr></thead><tbody>';
-      rows.forEach(r => {
-        h += '<tr style="border-top:1px solid var(--border);"><td style="padding:8px 7px;font-weight:700;">'+esc(labels[r.bucket] || r.bucket)+'</td><td style="padding:8px 7px;text-align:right;">'+Number(r.leads || 0)+'</td><td style="padding:8px 7px;text-align:right;">'+Number(r.matched_leads || 0)+'</td><td style="padding:8px 7px;text-align:right;">'+Number(r.estimates || 0)+'</td><td style="padding:8px 7px;text-align:right;">'+money(r.quoted_revenue)+'</td><td style="padding:8px 7px;text-align:right;">'+Number(r.jobs_sold || 0)+'</td><td style="padding:8px 7px;text-align:right;font-weight:800;">'+money(r.sold_revenue)+'</td><td style="padding:8px 7px;text-align:right;">'+Number(r.jobs_completed || 0)+'</td><td style="padding:8px 7px;text-align:right;font-weight:800;color:var(--green);">'+money(r.completed_revenue)+'</td></tr>';
-      });
-      h += '</tbody></table>';
-      tableEl.innerHTML=h;
-    }
-
-    const campaigns=(Array.isArray(data.campaigns) ? data.campaigns : []).filter(r => r.campaign);
-    if (!campaigns.length) {
-      campaignEl.innerHTML='';
-    } else {
-      let ch='<div style="font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:7px;">Top tracked campaigns</div><div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:11px;min-width:760px;"><thead><tr><th style="text-align:left;padding:6px;">Campaign</th><th style="text-align:left;padding:6px;">Source</th><th style="text-align:right;padding:6px;">Leads</th><th style="text-align:right;padding:6px;">Est.</th><th style="text-align:right;padding:6px;">Sold</th><th style="text-align:right;padding:6px;">Sold Rev.</th><th style="text-align:right;padding:6px;">Completed</th><th style="text-align:right;padding:6px;">Realized</th></tr></thead><tbody>';
-      campaigns.slice(0,8).forEach(r => {
-        ch += '<tr style="border-top:1px solid var(--border);"><td style="padding:7px 6px;font-weight:700;">'+esc(r.campaign)+'</td><td style="padding:7px 6px;">'+esc(labels[r.bucket] || r.bucket)+'</td><td style="padding:7px 6px;text-align:right;">'+Number(r.leads || 0)+'</td><td style="padding:7px 6px;text-align:right;">'+Number(r.estimates || 0)+'</td><td style="padding:7px 6px;text-align:right;">'+Number(r.jobs_sold || 0)+'</td><td style="padding:7px 6px;text-align:right;font-weight:700;">'+money(r.sold_revenue)+'</td><td style="padding:7px 6px;text-align:right;">'+Number(r.jobs_completed || 0)+'</td><td style="padding:7px 6px;text-align:right;font-weight:700;color:var(--green);">'+money(r.completed_revenue)+'</td></tr>';
-      });
-      ch += '</tbody></table></div>';
-      campaignEl.innerHTML=ch;
-    }
-    noteEl.textContent=(data.scope_note || "")+" Conversion window currently extends through "+String(data.conversion_window_end || data.week_ending || "")+".";
-  }
-
-  async function load() {
-    const week=selectedWeek();
-    if (!week) { status.textContent="Select a week-ending date first."; return; }
-    if (refresh) { refresh.disabled=true; refresh.textContent='Loading…'; }
-    if (apply) apply.disabled=true;
-    status.textContent='Connecting GHL lead source to HCP estimates, sold revenue, and completed production…';
-    try {
-      const res=await fetch('/api/cross-source-attribution?week_ending='+encodeURIComponent(week),{cache:'no-store'});
-      const data=await res.json();
-      if (!res.ok || !data.ok) {
-        const detail=data && data.detail ? JSON.stringify(data.detail) : '';
-        throw new Error((data.error || 'Attribution request failed')+(detail ? ': '+detail : ''));
-      }
-      render(data);
-      status.textContent='Updated '+new Date().toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})+' · GHL source → exact phone/email HCP match';
-    } catch (err) {
-      snapshot=null; coverageEl.innerHTML=''; tableEl.innerHTML=''; campaignEl.innerHTML=''; noteEl.textContent='';
-      status.textContent='Attribution failed: '+((err && err.message) ? err.message : String(err));
-    } finally {
-      if (refresh) { refresh.disabled=false; refresh.textContent='↻ Refresh'; }
-    }
-  }
-
-  if (refresh) refresh.addEventListener('click',load);
-  if (apply) apply.addEventListener('click',function () {
-    if (!snapshot) return;
-    let applied=0;
-    (snapshot.auto_fields || []).forEach(item => {
-      if (setField(item.field_id,item.value,item.metric)) applied += 1;
-    });
-    if (typeof updateSummary==='function') updateSummary();
-    if (typeof updateConversions==='function') updateConversions();
-    if (typeof updateROAS==='function') updateROAS();
-    status.textContent='✅ Applied '+applied+' GHL → HCP attribution field'+(applied===1?'':'s')+'. Meta spend remains sourced directly from Meta.';
-  });
-
-  const date=document.getElementById('entry-date');
-  if (date) date.addEventListener('change',() => setTimeout(load,100));
-  if (document.readyState==='loading') document.addEventListener('DOMContentLoaded',() => setTimeout(load,500));
-  else setTimeout(load,500);
-})();
-</script>
-<script>
-(function () {
-  const card=document.getElementById('needs-attention-card');
-  if (!card) return;
-  const refresh=document.getElementById('needs-attention-refresh');
-  const status=document.getElementById('needs-attention-status');
-  const list=document.getElementById('needs-attention-list');
-  const badge=document.getElementById('na-badge');
-
-  const palette={
-    critical:{border:'rgba(239,68,68,0.45)',bg:'rgba(239,68,68,0.08)',label:'Critical',labelBg:'rgba(239,68,68,0.16)',labelColor:'#ef4444'},
-    warning:{border:'rgba(245,158,11,0.45)',bg:'rgba(245,158,11,0.08)',label:'Watch',labelBg:'rgba(245,158,11,0.16)',labelColor:'#f59e0b'},
-    good:{border:'rgba(34,197,94,0.35)',bg:'rgba(34,197,94,0.07)',label:'Good',labelBg:'rgba(34,197,94,0.14)',labelColor:'#22c55e'},
-    info:{border:'var(--border)',bg:'var(--surface2)',label:'Info',labelBg:'var(--surface3)',labelColor:'var(--muted)'}
-  };
-
-  async function loadNeedsAttention() {
-    if (refresh) { refresh.disabled=true; refresh.textContent='Loading…'; }
-    if (status) status.textContent='Checking live Housecall Pro data…';
-    try {
-      const res=await fetch('/api/needs-attention',{cache:'no-store'});
-      const data=await res.json();
-      if (!res.ok || !data.ok) {
-        const detail=data && data.detail ? JSON.stringify(data.detail) : '';
-        throw new Error((data.error || 'Needs Attention request failed') + (detail ? ': ' + detail : ''));
-      }
-
-      const summary=data.summary || {};
-      const count=Number(summary.attention_count || 0);
-      if (badge) {
-        badge.textContent=count ? count+' item'+(count===1?'':'s')+' need attention' : 'All clear';
-        badge.style.background=count ? 'rgba(239,68,68,0.14)' : 'rgba(34,197,94,0.14)';
-        badge.style.color=count ? '#ef4444' : '#22c55e';
-      }
-      if (status) status.textContent='Updated '+new Date().toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})+' · weekly booking goal $'+Number(data.weekly_revenue_goal || 0).toLocaleString();
-
-      list.innerHTML='';
-      const alerts=Array.isArray(data.alerts) ? data.alerts : [];
-      alerts.forEach(alert => {
-        const sev=palette[alert.severity] || palette.info;
-        const row=document.createElement('div');
-        row.style.cssText='display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;border:1px solid '+sev.border+';background:'+sev.bg+';border-radius:10px;padding:10px 12px;';
-        const icon=document.createElement('div');
-        icon.style.cssText='font-size:18px;line-height:1;';
-        icon.textContent=alert.icon || '•';
-        const body=document.createElement('div');
-        const title=document.createElement('div');
-        title.style.cssText='font-size:12px;font-weight:800;color:var(--text);';
-        title.textContent=alert.title || '';
-        const detail=document.createElement('div');
-        detail.style.cssText='font-size:11px;color:var(--muted);margin-top:2px;line-height:1.35;';
-        detail.textContent=alert.detail || '';
-        body.appendChild(title); body.appendChild(detail);
-        const pill=document.createElement('span');
-        pill.style.cssText='font-size:10px;font-weight:800;padding:3px 7px;border-radius:999px;white-space:nowrap;background:'+sev.labelBg+';color:'+sev.labelColor+';';
-        pill.textContent=sev.label;
-        row.appendChild(icon); row.appendChild(body); row.appendChild(pill); list.appendChild(row);
-      });
-
-      if (!alerts.length) {
-        list.innerHTML='<div style="font-size:12px;color:var(--green);padding:8px 0;">✅ No attention items right now.</div>';
-      }
-    } catch (err) {
-      if (status) status.textContent='Needs Attention failed: '+(err && err.message ? err.message : String(err));
-      if (badge) { badge.textContent='Unavailable'; badge.style.background='var(--surface2)'; badge.style.color='var(--muted)'; }
-      if (list) list.innerHTML='';
-    } finally {
-      if (refresh) { refresh.disabled=false; refresh.textContent='↻ Refresh'; }
-    }
-  }
-
-  window.refreshNeedsAttention=loadNeedsAttention;
-  if (refresh) refresh.addEventListener('click',loadNeedsAttention);
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded',() => setTimeout(loadNeedsAttention,150));
-  else setTimeout(loadNeedsAttention,150);
-  setInterval(loadNeedsAttention,10*60*1000);
-})();
-</script>
-<script>
-(function () {
-  const card=document.getElementById('owner-brief-card');
-  if (!card) return;
-  const refresh=document.getElementById('owner-brief-refresh');
-  const status=document.getElementById('owner-brief-status');
-  const todayList=document.getElementById('ob-today-list');
-  const overdueList=document.getElementById('ob-overdue-list');
-  const money=(n) => '$' + Number(n || 0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
-  const setText=(id,value) => { const el=document.getElementById(id); if (el) el.textContent=value; };
-
-  function shortTime(value) {
-    if (!value) return '';
-    const d=new Date(value);
-    if (Number.isNaN(d.getTime())) return '';
-    return d.toLocaleTimeString([], {hour:'numeric',minute:'2-digit'});
-  }
-
-  async function loadOwnerBrief() {
-    if (refresh) { refresh.disabled=true; refresh.textContent='Loading…'; }
-    if (status) status.textContent='Pulling schedule and receivables from Housecall Pro…';
-    try {
-      const res=await fetch('/api/hcp-operations-brief',{cache:'no-store'});
-      const data=await res.json();
-      if (!res.ok || !data.ok) {
-        const detail=data && data.detail ? JSON.stringify(data.detail) : '';
-        throw new Error((data.error || 'Owner brief request failed') + (detail ? ': ' + detail : ''));
-      }
-      const today=data.today_jobs || {};
-      const next7=data.next7 || {};
-      const ar=data.ar || {};
-      setText('ob-today-revenue',money(today.revenue));
-      setText('ob-today-jobs',Number(today.count || 0)+' scheduled job'+(Number(today.count || 0)===1?'':'s'));
-      setText('ob-next7-revenue',money(next7.revenue));
-      setText('ob-next7-jobs',Number(next7.count || 0)+' scheduled jobs');
-      setText('ob-ar-total',money(ar.outstanding_amount));
-      setText('ob-ar-count',Number(ar.outstanding_count || 0)+' unpaid invoices');
-      setText('ob-ar-overdue',money(ar.overdue_amount));
-      setText('ob-ar-overdue-count',Number(ar.overdue_count || 0)+' overdue');
-      setText('ob-ar-next7',money(ar.due_next7_amount));
-      setText('ob-ar-next7-count',Number(ar.due_next7_count || 0)+' due soon');
-
-      todayList.innerHTML='';
-      const jobs=Array.isArray(today.items) ? today.items : [];
-      if (!jobs.length) {
-        todayList.innerHTML='<div style="color:var(--muted);">No scheduled jobs today.</div>';
-      } else {
-        jobs.forEach(job => {
-          const row=document.createElement('div');
-          row.style.cssText='display:flex;justify-content:space-between;gap:10px;border-bottom:1px solid var(--border);padding:5px 0;';
-          const left=document.createElement('span');
-          left.textContent=(shortTime(job.scheduled_start) ? shortTime(job.scheduled_start)+' · ' : '')+(job.customer_name || 'Job');
-          const right=document.createElement('strong');
-          right.textContent=money(job.value);
-          row.appendChild(left); row.appendChild(right); todayList.appendChild(row);
-        });
-      }
-
-      overdueList.innerHTML='';
-      const overdue=Array.isArray(ar.largest_overdue) ? ar.largest_overdue : [];
-      if (!overdue.length) {
-        overdueList.innerHTML='<div style="color:var(--green);">✅ No overdue invoices.</div>';
-      } else {
-        overdue.forEach(inv => {
-          const row=document.createElement('div');
-          row.style.cssText='display:flex;justify-content:space-between;gap:10px;border-bottom:1px solid var(--border);padding:5px 0;';
-          const left=document.createElement('span');
-          left.textContent=(inv.customer_name || 'Invoice')+(inv.due_date ? ' · due '+inv.due_date : '');
-          const right=document.createElement('strong');
-          right.textContent=money(inv.due_amount);
-          row.appendChild(left); row.appendChild(right); overdueList.appendChild(row);
-        });
-      }
-      if (status) status.textContent='Updated '+new Date().toLocaleTimeString([], {hour:'numeric',minute:'2-digit'});
-    } catch (err) {
-      if (status) status.textContent='Owner brief failed: '+(err && err.message ? err.message : String(err));
-      if (todayList) todayList.innerHTML='';
-      if (overdueList) overdueList.innerHTML='';
-    } finally {
-      if (refresh) { refresh.disabled=false; refresh.textContent='↻ Refresh'; }
-    }
-  }
-
-  window.refreshOwnerBrief=loadOwnerBrief;
-  if (refresh) refresh.addEventListener('click',loadOwnerBrief);
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded',() => setTimeout(loadOwnerBrief,250));
-  else setTimeout(loadOwnerBrief,250);
-  setInterval(loadOwnerBrief,10*60*1000);
-})();
-</script>
-<script>
-(function () {
-  const btn = document.getElementById('meta-preview-btn');
-  if (!btn) return;
-
-  let preview = null;
-  const panel = document.createElement('div');
-  panel.id = 'meta-preview-panel';
-  panel.style.cssText = 'display:none;margin-top:12px;padding:14px;border:1px solid var(--border);border-radius:10px;background:var(--surface2);font-size:13px;line-height:1.6;';
-  btn.parentElement.insertAdjacentElement('afterend', panel);
-
-  btn.addEventListener('click', async function () {
-    const date = document.getElementById('entry-date');
-    if (!date || !date.value) {
-      panel.style.display = 'block';
-      panel.textContent = 'Select a week-ending date first.';
-      return;
-    }
-    btn.disabled = true;
-    btn.textContent = 'Loading Meta…';
-    panel.style.display = 'block';
-    panel.textContent = 'Pulling Meta spend and Instant Form leads…';
-    try {
-      const res = await fetch('/api/meta-preview?week_ending=' + encodeURIComponent(date.value), {cache:'no-store'});
-      const data = await res.json();
-      if (!res.ok || !data.ok) {
-        const metaMessage = data && data.detail && data.detail.error && data.detail.error.message ? data.detail.error.message : '';
-        const metaCode = data && data.detail && data.detail.error && data.detail.error.code ? ' [Meta code ' + data.detail.error.code + ']' : '';
-        throw new Error((data.error || 'Meta request failed') + (metaMessage ? ': ' + metaMessage : '') + metaCode);
-      }
-      preview = data;
-      panel.textContent = '';
-      const summary = document.createElement('div');
-      summary.innerHTML = '<strong>' + data.week_start + ' → ' + data.week_ending + '</strong><br>Meta spend: <strong>$' + Number(data.meta_spend).toFixed(2) + '</strong> · Instant Form leads: <strong>' + Number(data.instant_form_leads) + '</strong>';
-      const apply = document.createElement('button');
-      apply.type = 'button';
-      apply.className = 'btn btn-success btn-sm';
-      apply.style.marginTop = '10px';
-      apply.textContent = 'Apply to Form';
-      apply.addEventListener('click', function () {
-        const spend = document.getElementById('ww-meta-spend');
-        const leads = document.getElementById('ww-meta-leads');
-        if (spend) spend.value = Number(preview.meta_spend).toFixed(2);
-        if (leads) leads.value = Number(preview.instant_form_leads);
-        panel.insertAdjacentHTML('beforeend','<div style="margin-top:8px;">✅ Applied. Review the numbers, then click Save This Week.</div>');
-      });
-      panel.appendChild(summary);
-      panel.appendChild(apply);
-    } catch (err) {
-      panel.textContent = 'Meta preview failed: ' + (err && err.message ? err.message : String(err));
-    } finally {
-      btn.disabled = false;
-      btn.textContent = '📘 Preview Meta';
-    }
-  });
-})();
-</script>
-<script>
-(function () {
-  const btn = document.getElementById('hcp-preview-btn');
-  if (!btn) return;
-
-  let preview = null;
-  const panel = document.createElement('div');
-  panel.id = 'hcp-preview-panel';
-  panel.style.cssText = 'display:none;margin-top:12px;padding:14px;border:1px solid var(--border);border-radius:10px;background:var(--surface2);font-size:13px;line-height:1.6;';
-  btn.parentElement.insertAdjacentElement('afterend', panel);
-
-  btn.addEventListener('click', async function () {
-    const date = document.getElementById('entry-date');
-    if (!date || !date.value) {
-      panel.style.display = 'block';
-      panel.textContent = 'Select a week-ending date first.';
-      return;
-    }
-
-    btn.disabled = true;
-    btn.textContent = 'Loading HCP…';
-    panel.style.display = 'block';
-    panel.textContent = 'Pulling weekly KPIs from Housecall Pro…';
-
-    try {
-      const res = await fetch('/api/hcp-preview?week_ending=' + encodeURIComponent(date.value), {cache:'no-store'});
-      const data = await res.json();
-
-      if (!res.ok || !data.ok) {
-        const detail = data && data.detail ? JSON.stringify(data.detail) : '';
-        throw new Error((data.error || 'Housecall Pro request failed') + (detail ? ': ' + detail : ''));
-      }
-
-      preview = data;
-      panel.textContent = '';
-
-      const summary = document.createElement('div');
-      summary.innerHTML =
-        '<strong>' + data.week_start + ' → ' + data.week_ending + '</strong><br>' +
-        'Completed revenue: <strong>USD ' + Number(data.revenue).toFixed(2) + '</strong>' +
-        ' · Jobs completed: <strong>' + Number(data.jobs_completed) + '</strong><br>' +
-        (Number(data.revenue_unclassified) > 0
-          ? 'Residential / Commercial: <strong>manual</strong><br>'
-          : 'Residential: <strong>USD ' + Number(data.revenue_residential).toFixed(2) + '</strong>' +
-            ' · Commercial: <strong>USD ' + Number(data.revenue_commercial).toFixed(2) + '</strong><br>') +
-        'Repeat customers: <strong>' + Number(data.repeat_customers) + '</strong>' +
-        ' · Repeat customer %: <strong>' + Number(data.repeat_customer_pct).toFixed(1) + '%</strong>' +
-        ' · Callbacks: <strong>' + Number(data.callbacks) + '</strong><br>' +
-        (data.reviews_available
-          ? '5-star reviews: <strong>' + Number(data.five_star_reviews) + '</strong><br>'
-          : '5-star reviews: <strong>manual for now</strong><br>') +
-        'Technicians: <strong>' + Number(data.tech_count) + '</strong>' +
-        ' · Total tech hours: <strong>' + Number(data.total_tech_hours).toFixed(2) + '</strong>' +
-        ' · Tech rev/hr: <strong>USD ' + Number(data.tech_rev_per_hour).toFixed(2) + '</strong><br>' +
-        'Sold revenue: <strong>USD ' + Number(data.sold_revenue).toFixed(2) + '</strong>' +
-        ' · Jobs sold: <strong>' + Number(data.jobs_sold) + '</strong>';
-
-      const note = document.createElement('div');
-      note.style.cssText = 'margin-top:5px;color:var(--muted);font-size:11px;';
-      note.textContent = (data.scope_note || '') +
-        (!data.reviews_available
-          ? ' Review widget data was not readable enough to auto-count 5-star reviews yet.'
-          : '') +
-        (Number(data.tech_time_scheduled_fallback_jobs) > 0
-          ? ' ' + Number(data.tech_time_scheduled_fallback_jobs) + ' completed job(s) used scheduled duration because HCP Start/Finish time was missing.'
-          : '') +
-        (Number(data.tech_time_untracked_jobs) > 0
-          ? ' ⚠️ ' + Number(data.tech_time_untracked_jobs) + ' completed job(s) still had no usable actual or scheduled duration, so tech-hour metrics are partial.'
-          : '');
-
-      const apply = document.createElement('button');
-      apply.type = 'button';
-      apply.className = 'btn btn-success btn-sm';
-      apply.style.marginTop = '10px';
-      apply.textContent = 'Apply to Form';
-
-      apply.addEventListener('click', function () {
-        const revenue = document.getElementById('ww-revenue');
-        const jobsCompleted = document.getElementById('ww-jobs-completed');
-        const soldRevenue = document.getElementById('ww-sold-revenue');
-        const jobsSold = document.getElementById('ww-jobs-sold');
-        const residentialRevenue = document.getElementById('ww-revenue-residential');
-        const commercialRevenue = document.getElementById('ww-revenue-commercial');
-        const repeatCustomers = document.getElementById('ww-repeat-customers');
-        const callbacks = document.getElementById('ww-callbacks');
-        const fiveStarReviews = document.getElementById('ww-five-star-reviews');
-        const techCount = document.getElementById('ww-tech-count');
-        const techHours = document.getElementById('ww-tech-hours');
-
-        if (revenue) revenue.value = Number(preview.revenue).toFixed(2);
-        if (jobsCompleted) jobsCompleted.value = Number(preview.jobs_completed);
-        if (Number(preview.revenue_unclassified) === 0) {
-          if (residentialRevenue) residentialRevenue.value = Number(preview.revenue_residential).toFixed(2);
-          if (commercialRevenue) commercialRevenue.value = Number(preview.revenue_commercial).toFixed(2);
-        }
-        if (repeatCustomers) repeatCustomers.value = Number(preview.repeat_customers);
-        if (callbacks) callbacks.value = Number(preview.callbacks);
-        if (preview.reviews_available && fiveStarReviews) fiveStarReviews.value = Number(preview.five_star_reviews);
-        if (techCount) techCount.value = Number(preview.tech_count);
-        if (techHours) techHours.value = Number(preview.hours_per_tech).toFixed(2);
-        if (soldRevenue) soldRevenue.value = Number(preview.sold_revenue).toFixed(2);
-        if (jobsSold) jobsSold.value = Number(preview.jobs_sold);
-
-        const splitText = Number(preview.revenue_unclassified) > 0
-          ? ' Residential/Commercial was left unchanged because HCP does not have a reliable customer type on these jobs.'
-          : ' Residential/Commercial was applied too.';
-        panel.insertAdjacentHTML('beforeend','<div style="margin-top:8px;">✅ Applied Revenue, Jobs Completed, Repeat Customers, Callbacks, Technician Count/Hours, Sold Revenue, and Jobs Sold.' + splitText + ' Review, then click Save This Week.</div>');
+          ? ' $'+Number(preview.revenue_unclassified).toFixed(2)+' remains unclassified and is shown separately.'
+          : ' All completed revenue is classified.';
+        panel.insertAdjacentHTML('beforeend','<div style="margin-top:8px;">✅ Applied completed production, customer retention, callbacks, technician productivity, and estimate-cohort sales.' + splitText + ' Review, then click Save This Week.</div>');
+        updateSummary();
       });
 
       panel.appendChild(summary);
