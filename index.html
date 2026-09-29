@@ -557,7 +557,7 @@
     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
       <div>
         <div style="font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:0.8px;">🎯 Cross-System Marketing Attribution · Auto</div>
-        <div style="font-size:11px;color:var(--muted);margin-top:3px;">GoHighLevel supplies the original lead source; Housecall Pro supplies estimates, approvals, and sold revenue</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:3px;">GoHighLevel supplies the original lead source; Housecall Pro supplies estimates, sold revenue, completed jobs, and realized revenue</div>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         <button class="btn btn-ghost btn-sm" id="source-attribution-refresh" type="button">↻ Refresh</button>
@@ -3504,6 +3504,8 @@ function clearMonthlyPartial(ym) {
       ['Matched to HCP',Number(c.hcp_matched_leads || 0)+' / '+Number(c.ghl_leads_total || 0)],
       ['Estimates attributed',Number(c.estimates_attributed || 0)],
       ['Attributed sold revenue',money(c.sold_revenue_attributed)],
+      ['Completed jobs',Number(c.jobs_completed_attributed || 0)],
+      ['Realized revenue',money(c.completed_revenue_attributed)],
       ['Unknown-source leads',Number(c.unknown_leads || 0)]
     ].forEach(([label,value]) => {
       const el=document.createElement('div');
@@ -3517,13 +3519,13 @@ function clearMonthlyPartial(ym) {
       el.appendChild(l); el.appendChild(v); coverageEl.appendChild(el);
     });
 
-    const rows=(Array.isArray(data.rows) ? data.rows : []).filter(r => Number(r.leads || 0) || Number(r.estimates || 0) || Number(r.jobs_sold || 0) || Number(r.sold_revenue || 0));
+    const rows=(Array.isArray(data.rows) ? data.rows : []).filter(r => Number(r.leads || 0) || Number(r.estimates || 0) || Number(r.jobs_sold || 0) || Number(r.sold_revenue || 0) || Number(r.jobs_completed || 0) || Number(r.completed_revenue || 0));
     if (!rows.length) {
       tableEl.innerHTML='<div style="font-size:12px;color:var(--muted);padding:8px 0;">No attributed lead activity found for this week yet.</div>';
     } else {
-      let h='<table style="width:100%;border-collapse:collapse;font-size:12px;min-width:760px;"><thead><tr><th style="text-align:left;padding:7px;">Source</th><th style="text-align:right;padding:7px;">Leads</th><th style="text-align:right;padding:7px;">HCP Match</th><th style="text-align:right;padding:7px;">Estimates</th><th style="text-align:right;padding:7px;">Quoted</th><th style="text-align:right;padding:7px;">Jobs Sold</th><th style="text-align:right;padding:7px;">Sold Revenue</th></tr></thead><tbody>';
+      let h='<table style="width:100%;border-collapse:collapse;font-size:12px;min-width:930px;"><thead><tr><th style="text-align:left;padding:7px;">Source</th><th style="text-align:right;padding:7px;">Leads</th><th style="text-align:right;padding:7px;">HCP Match</th><th style="text-align:right;padding:7px;">Estimates</th><th style="text-align:right;padding:7px;">Quoted</th><th style="text-align:right;padding:7px;">Jobs Sold</th><th style="text-align:right;padding:7px;">Sold Revenue</th><th style="text-align:right;padding:7px;">Completed</th><th style="text-align:right;padding:7px;">Realized Revenue</th></tr></thead><tbody>';
       rows.forEach(r => {
-        h += '<tr style="border-top:1px solid var(--border);"><td style="padding:8px 7px;font-weight:700;">'+esc(labels[r.bucket] || r.bucket)+'</td><td style="padding:8px 7px;text-align:right;">'+Number(r.leads || 0)+'</td><td style="padding:8px 7px;text-align:right;">'+Number(r.matched_leads || 0)+'</td><td style="padding:8px 7px;text-align:right;">'+Number(r.estimates || 0)+'</td><td style="padding:8px 7px;text-align:right;">'+money(r.quoted_revenue)+'</td><td style="padding:8px 7px;text-align:right;">'+Number(r.jobs_sold || 0)+'</td><td style="padding:8px 7px;text-align:right;font-weight:800;">'+money(r.sold_revenue)+'</td></tr>';
+        h += '<tr style="border-top:1px solid var(--border);"><td style="padding:8px 7px;font-weight:700;">'+esc(labels[r.bucket] || r.bucket)+'</td><td style="padding:8px 7px;text-align:right;">'+Number(r.leads || 0)+'</td><td style="padding:8px 7px;text-align:right;">'+Number(r.matched_leads || 0)+'</td><td style="padding:8px 7px;text-align:right;">'+Number(r.estimates || 0)+'</td><td style="padding:8px 7px;text-align:right;">'+money(r.quoted_revenue)+'</td><td style="padding:8px 7px;text-align:right;">'+Number(r.jobs_sold || 0)+'</td><td style="padding:8px 7px;text-align:right;font-weight:800;">'+money(r.sold_revenue)+'</td><td style="padding:8px 7px;text-align:right;">'+Number(r.jobs_completed || 0)+'</td><td style="padding:8px 7px;text-align:right;font-weight:800;color:var(--green);">'+money(r.completed_revenue)+'</td></tr>';
       });
       h += '</tbody></table>';
       tableEl.innerHTML=h;
@@ -3533,9 +3535,9 @@ function clearMonthlyPartial(ym) {
     if (!campaigns.length) {
       campaignEl.innerHTML='';
     } else {
-      let ch='<div style="font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:7px;">Top tracked campaigns</div><div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:11px;min-width:610px;"><thead><tr><th style="text-align:left;padding:6px;">Campaign</th><th style="text-align:left;padding:6px;">Source</th><th style="text-align:right;padding:6px;">Leads</th><th style="text-align:right;padding:6px;">Est.</th><th style="text-align:right;padding:6px;">Sold</th><th style="text-align:right;padding:6px;">Revenue</th></tr></thead><tbody>';
+      let ch='<div style="font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:7px;">Top tracked campaigns</div><div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:11px;min-width:760px;"><thead><tr><th style="text-align:left;padding:6px;">Campaign</th><th style="text-align:left;padding:6px;">Source</th><th style="text-align:right;padding:6px;">Leads</th><th style="text-align:right;padding:6px;">Est.</th><th style="text-align:right;padding:6px;">Sold</th><th style="text-align:right;padding:6px;">Sold Rev.</th><th style="text-align:right;padding:6px;">Completed</th><th style="text-align:right;padding:6px;">Realized</th></tr></thead><tbody>';
       campaigns.slice(0,8).forEach(r => {
-        ch += '<tr style="border-top:1px solid var(--border);"><td style="padding:7px 6px;font-weight:700;">'+esc(r.campaign)+'</td><td style="padding:7px 6px;">'+esc(labels[r.bucket] || r.bucket)+'</td><td style="padding:7px 6px;text-align:right;">'+Number(r.leads || 0)+'</td><td style="padding:7px 6px;text-align:right;">'+Number(r.estimates || 0)+'</td><td style="padding:7px 6px;text-align:right;">'+Number(r.jobs_sold || 0)+'</td><td style="padding:7px 6px;text-align:right;font-weight:700;">'+money(r.sold_revenue)+'</td></tr>';
+        ch += '<tr style="border-top:1px solid var(--border);"><td style="padding:7px 6px;font-weight:700;">'+esc(r.campaign)+'</td><td style="padding:7px 6px;">'+esc(labels[r.bucket] || r.bucket)+'</td><td style="padding:7px 6px;text-align:right;">'+Number(r.leads || 0)+'</td><td style="padding:7px 6px;text-align:right;">'+Number(r.estimates || 0)+'</td><td style="padding:7px 6px;text-align:right;">'+Number(r.jobs_sold || 0)+'</td><td style="padding:7px 6px;text-align:right;font-weight:700;">'+money(r.sold_revenue)+'</td><td style="padding:7px 6px;text-align:right;">'+Number(r.jobs_completed || 0)+'</td><td style="padding:7px 6px;text-align:right;font-weight:700;color:var(--green);">'+money(r.completed_revenue)+'</td></tr>';
       });
       ch += '</tbody></table></div>';
       campaignEl.innerHTML=ch;
@@ -3548,7 +3550,7 @@ function clearMonthlyPartial(ym) {
     if (!week) { status.textContent="Select a week-ending date first."; return; }
     if (refresh) { refresh.disabled=true; refresh.textContent='Loading…'; }
     if (apply) apply.disabled=true;
-    status.textContent='Connecting GHL lead source to HCP estimates and sold revenue…';
+    status.textContent='Connecting GHL lead source to HCP estimates, sold revenue, and completed production…';
     try {
       const res=await fetch('/api/cross-source-attribution?week_ending='+encodeURIComponent(week),{cache:'no-store'});
       const data=await res.json();

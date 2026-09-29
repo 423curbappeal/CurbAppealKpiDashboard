@@ -2212,10 +2212,13 @@ def cross_source_attribution_snapshot(start,end):
     today=datetime.now(BUSINESS_TZ).date()
     conversion_end=min(today,end+timedelta(days=30))
     estimates=hcp_list_estimates_for_week(start,conversion_end) if conversion_end>=start else []
+    completed_jobs=hcp_list_completed_jobs(start,conversion_end) if conversion_end>=start else []
+    completed_jobs=[job for job in completed_jobs if not hcp_is_callback(job)]
 
     buckets={name:{
         "leads":0,"matched_leads":0,"estimates":0,"quoted_revenue":0.0,
-        "jobs_sold":0,"sold_revenue":0.0,"sources":set(),"campaigns":{}
+        "jobs_sold":0,"sold_revenue":0.0,"jobs_completed":0,"completed_revenue":0.0,
+        "sources":set(),"campaigns":{}
     } for name in ("meta","google","lsa","yardsign","doorhanger","referral","website","branding","unknown")}
 
     matched_leads=[]
@@ -2235,7 +2238,7 @@ def cross_source_attribution_snapshot(start,end):
                 matched_leads.append(item)
         campaign=info.get("campaign") or ""
         if campaign:
-            c=buckets[bucket]["campaigns"].setdefault(campaign,{"leads":0,"estimates":0,"jobs_sold":0,"sold_revenue":0.0})
+            c=buckets[bucket]["campaigns"].setdefault(campaign,{"leads":0,"estimates":0,"jobs_sold":0,"sold_revenue":0.0,"jobs_completed":0,"completed_revenue":0.0})
             c["leads"] += 1
 
     for items in leads_by_customer.values():
@@ -2273,11 +2276,54 @@ def cross_source_attribution_snapshot(start,end):
             buckets[bucket]["sold_revenue"] += float(sold or 0)
         campaign=info.get("campaign") or ""
         if campaign:
-            c=buckets[bucket]["campaigns"].setdefault(campaign,{"leads":0,"estimates":0,"jobs_sold":0,"sold_revenue":0.0})
+            c=buckets[bucket]["campaigns"].setdefault(campaign,{"leads":0,"estimates":0,"jobs_sold":0,"sold_revenue":0.0,"jobs_completed":0,"completed_revenue":0.0})
             c["estimates"] += 1
             if sold is not None:
                 c["jobs_sold"] += 1
                 c["sold_revenue"] += float(sold or 0)
+
+    # Attribute realized production to the same lead cohort. A completed job is
+    # credited only when its HCP customer exactly matches a GHL lead and the
+    # job was created/completed after that lead within the 30-day window.
+    attributed_job_ids=set()
+    for job in completed_jobs:
+        cid=str(hcp_customer_id_from_job(job) or "")
+        if not cid or cid not in leads_by_customer:
+            continue
+
+        completed_at=((job.get("work_timestamps") or {}).get("completed_at"))
+        completed_dt=hcp_parse_datetime(completed_at)
+        if not completed_dt:
+            continue
+        job_created=hcp_parse_datetime(job.get("created_at") or job.get("createdAt"))
+        decision_dt=job_created or completed_dt
+
+        eligible=[]
+        for item in leads_by_customer[cid]:
+            lead_created=item.get("created")
+            if lead_created and lead_created <= decision_dt and (decision_dt-lead_created) <= timedelta(days=30):
+                eligible.append(item)
+        if not eligible:
+            continue
+
+        chosen=max(eligible,key=lambda x:x.get("created") or datetime.min.replace(tzinfo=timezone.utc))
+        job_id=str(job.get("id") or "")
+        if job_id and job_id in attributed_job_ids:
+            continue
+        if job_id:
+            attributed_job_ids.add(job_id)
+
+        info=chosen["info"]
+        bucket=info["bucket"] if info["bucket"] in buckets else "unknown"
+        value=float(hcp_money_to_dollars(job.get("total_amount")) or 0)
+        buckets[bucket]["jobs_completed"] += 1
+        buckets[bucket]["completed_revenue"] += value
+
+        campaign=info.get("campaign") or ""
+        if campaign:
+            c=buckets[bucket]["campaigns"].setdefault(campaign,{"leads":0,"estimates":0,"jobs_sold":0,"sold_revenue":0.0,"jobs_completed":0,"completed_revenue":0.0})
+            c["jobs_completed"] += 1
+            c["completed_revenue"] += value
 
     rows=[]
     campaign_rows=[]
@@ -2290,15 +2336,18 @@ def cross_source_attribution_snapshot(start,end):
             "quoted_revenue":round(float(data["quoted_revenue"]),2),
             "jobs_sold":int(data["jobs_sold"]),
             "sold_revenue":round(float(data["sold_revenue"]),2),
+            "jobs_completed":int(data["jobs_completed"]),
+            "completed_revenue":round(float(data["completed_revenue"]),2),
             "source_labels":sorted(data["sources"])[:12]
         })
         for campaign,vals in data["campaigns"].items():
             campaign_rows.append({
                 "bucket":name,"campaign":campaign,
                 "leads":int(vals["leads"]),"estimates":int(vals["estimates"]),
-                "jobs_sold":int(vals["jobs_sold"]),"sold_revenue":round(float(vals["sold_revenue"]),2)
+                "jobs_sold":int(vals["jobs_sold"]),"sold_revenue":round(float(vals["sold_revenue"]),2),
+                "jobs_completed":int(vals["jobs_completed"]),"completed_revenue":round(float(vals["completed_revenue"]),2)
             })
-    campaign_rows.sort(key=lambda r:(r["sold_revenue"],r["jobs_sold"],r["leads"]),reverse=True)
+    campaign_rows.sort(key=lambda r:(r["completed_revenue"],r["sold_revenue"],r["jobs_sold"],r["leads"]),reverse=True)
 
     field_map={
         "meta":{"leads":"ww-meta-leads","estimates":"ww-meta-estimates","jobs_sold":"ww-meta-jobs-sold","sold_revenue":"ww-meta-sold-revenue"},
@@ -2312,7 +2361,7 @@ def cross_source_attribution_snapshot(start,end):
     auto_fields=[]
     for row in rows:
         mapping=field_map.get(row["bucket"])
-        has_evidence=bool(row.get("source_labels")) or any(float(row.get(k) or 0)!=0 for k in ("leads","estimates","jobs_sold","sold_revenue"))
+        has_evidence=bool(row.get("source_labels")) or any(float(row.get(k) or 0)!=0 for k in ("leads","estimates","jobs_sold","sold_revenue","jobs_completed","completed_revenue"))
         if not mapping or not has_evidence: continue
         for metric,field_id in mapping.items():
             auto_fields.append({"field_id":field_id,"metric":metric,"bucket":row["bucket"],"value":row[metric]})
@@ -2340,10 +2389,12 @@ def cross_source_attribution_snapshot(start,end):
             "hcp_matched_leads":sum(r["matched_leads"] for r in rows),
             "estimates_attributed":sum(r["estimates"] for r in rows),
             "sold_revenue_attributed":round(sum(r["sold_revenue"] for r in rows),2),
+            "jobs_completed_attributed":sum(r["jobs_completed"] for r in rows),
+            "completed_revenue_attributed":round(sum(r["completed_revenue"] for r in rows),2),
             "unknown_leads":int(unknown["leads"]),
             "unknown_estimates":int(unknown["estimates"])
         },
-        "scope_note":"Lead source comes from GoHighLevel original attribution. Housecall Pro supplies customer matching, estimates, approvals, and sold revenue. Matching uses exact normalized phone/email only. Each HCP estimate is attributed once to the most recent matching GHL lead created before it, within 30 days."
+        "scope_note":"Lead source comes from GoHighLevel original attribution. Housecall Pro supplies customer matching, estimates, approvals, sold revenue, completed jobs, and realized production revenue. Matching uses exact normalized phone/email only. Each estimate or non-callback completed job is attributed once to the most recent matching GHL lead created before it, within 30 days. Callback/rework jobs contribute $0 realized revenue."
     }
 
 def hcp_source_attribution_snapshot(start,end):
