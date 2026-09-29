@@ -2350,20 +2350,22 @@ function clearForm() {
   document.getElementById('ww-tech-revenue').value='';
   document.getElementById('ww-repeat-customers').value='';
   document.getElementById('ww-customers-served').value='';
+  document.getElementById('ww-sold-revenue').value='';
+  document.getElementById('ww-jobs-sold').value='';
   document.getElementById('ww-notes').value='';
   Object.keys(WW_SECTIONS).forEach(sec => {
     WW_SECTIONS[sec].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
     customRows[sec]=[];
     renderCustomRows(sec);
   });
-  ['ww-meta-leads','ww-meta-estimates','ww-meta-jobs-sold','ww-meta-quarterly-count','ww-meta-quarterly-value','ww-meta-biannual-count','ww-meta-biannual-value',
-   'ww-google-leads','ww-google-estimates','ww-google-jobs-sold','ww-google-quarterly-count','ww-google-quarterly-value','ww-google-biannual-count','ww-google-biannual-value',
-   'ww-lsa-leads','ww-lsa-estimates','ww-lsa-jobs-sold','ww-lsa-quarterly-count','ww-lsa-quarterly-value','ww-lsa-biannual-count','ww-lsa-biannual-value',
-   'ww-yardsign-leads','ww-yardsign-estimates','ww-yardsign-jobs-sold','ww-yardsign-quarterly-count','ww-yardsign-quarterly-value','ww-yardsign-biannual-count','ww-yardsign-biannual-value',
-   'ww-doorhanger-leads','ww-doorhanger-estimates','ww-doorhanger-jobs-sold','ww-doorhanger-quarterly-count','ww-doorhanger-quarterly-value','ww-doorhanger-biannual-count','ww-doorhanger-biannual-value',
+  ['ww-meta-leads','ww-meta-estimates','ww-meta-jobs-sold','ww-meta-sold-revenue','ww-meta-quarterly-count','ww-meta-quarterly-value','ww-meta-biannual-count','ww-meta-biannual-value',
+   'ww-google-clicks','ww-google-leads','ww-google-estimates','ww-google-jobs-sold','ww-google-sold-revenue','ww-google-quarterly-count','ww-google-quarterly-value','ww-google-biannual-count','ww-google-biannual-value',
+   'ww-lsa-leads','ww-lsa-estimates','ww-lsa-jobs-sold','ww-lsa-sold-revenue','ww-lsa-quarterly-count','ww-lsa-quarterly-value','ww-lsa-biannual-count','ww-lsa-biannual-value',
+   'ww-yardsign-count','ww-yardsign-leads','ww-yardsign-estimates','ww-yardsign-jobs-sold','ww-yardsign-sold-revenue','ww-yardsign-quarterly-count','ww-yardsign-quarterly-value','ww-yardsign-biannual-count','ww-yardsign-biannual-value',
+   'ww-doorhanger-count','ww-doorhanger-leads','ww-doorhanger-estimates','ww-doorhanger-jobs-sold','ww-doorhanger-sold-revenue','ww-doorhanger-quarterly-count','ww-doorhanger-quarterly-value','ww-doorhanger-biannual-count','ww-doorhanger-biannual-value',
    'ww-website-leads','ww-website-estimates','ww-website-jobs-sold','ww-website-sold-revenue','ww-website-quarterly-count','ww-website-quarterly-value','ww-website-biannual-count','ww-website-biannual-value',
    'ww-branding-leads','ww-branding-estimates','ww-branding-jobs-sold','ww-branding-sold-revenue','ww-branding-quarterly-count','ww-branding-quarterly-value','ww-branding-biannual-count','ww-branding-biannual-value',
-   'ww-referral-count','ww-referral-revenue','ww-referral-giftcards',
+   'ww-referral-count','ww-referral-revenue','ww-referral-giftcards','ww-referral-giftcard-cost',
   ].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
   PLATFORMS.forEach(p => platformCache[p]={});
   renderPlatformForm(currentPlatform);
@@ -2433,7 +2435,7 @@ function renderDashboard() {
       <div class="stat-card"><div class="lbl">Total Expenses</div><div class="val red">${fmt(totalExp)}</div>${prev?deltaHTML(totalExp,prevExp):''}</div>
       <div class="stat-card"><div class="lbl">Labor Costs</div><div class="val">${fmt(secTotalEntry('labor',latest))}</div></div>
       <div class="stat-card"><div class="lbl">Marketing</div><div class="val orange">${fmt(secTotalEntry('marketing',latest))}</div><div class="sub">📘 Meta ${fmt(parseFloat(ww['ww-meta-spend'])||0)} · ${ww.metaLeads||0} leads · ${ww.metaJobsSold||0} sold · ${fmt(ww.metaSoldRevenue||0)}</div><div class="sub">🔍 Google ${fmt(parseFloat(ww['ww-google-spend'])||0)} · ${ww.googleClicks||0} clicks · ${ww.googleLeads||0} leads · ${ww.googleJobsSold||0} sold · ${fmt(ww.googleSoldRevenue||0)}</div></div>
-      <div class="stat-card"><div class="lbl">Total Sold</div><div class="val green">${fmt(ww.soldRevenue||0)}</div><div class="sub">${ww.jobsSold||0} jobs sold this week</div></div>
+      <div class="stat-card"><div class="lbl">Won Estimate Revenue</div><div class="val green">${fmt(ww.soldRevenue||0)}</div><div class="sub">${ww.jobsSold||0} won estimate(s) from this week's created-estimate cohort</div></div>
       <div class="stat-card"><div class="lbl">Direct Job Costs</div><div class="val blue">${fmt(secTotalEntry('direct',latest))}</div><div class="sub">Gas: ${fmt(parseFloat(ww['ww-gas'])||0)} · Chem: ${fmt(parseFloat(ww['ww-chemicals'])||0)}</div></div>
     </div>
 
@@ -3349,7 +3351,7 @@ function clearMonthlyPartial(ym) {
         const applied=applyAttribution(attribution.data,[]);
         const coverage=attribution.data.coverage || {};
         let line='✅ GHL → HCP Attribution: '+applied+' marketing KPI field'+(applied===1?'':'s')+' auto-filled';
-        line += ' · '+Number(coverage.hcp_matched_leads || 0)+' of '+Number(coverage.ghl_leads_total || 0)+' GHL leads matched to HCP';
+        line += ' · '+Number(coverage.hcp_matched_leads || 0)+' of '+Number(coverage.ghl_leads_total || 0)+' GHL inquiries matched to HCP';
         line += ' · '+Number(coverage.estimates_attributed || 0)+' estimates attributed';
         if (meta && meta.ok) line += ' · Meta spend from Meta API, lead count from GHL';
         messages.push(line);
@@ -3422,7 +3424,7 @@ function clearMonthlyPartial(ym) {
   function render(data) {
     const s=data.summary || {};
     metrics.innerHTML='';
-    metrics.appendChild(tile('GHL leads',String(Number(s.ghl_leads || 0)),'var(--blue)','last '+Number(data.lookback_days || 7)+' days'));
+    metrics.appendChild(tile('GHL inquiries',String(Number(s.ghl_leads || 0)),'var(--blue)','contacts with phone/email · last '+Number(data.lookback_days || 7)+' days'));
     metrics.appendChild(tile('Matched in HCP',String(Number(s.matched_hcp_customers || 0)),null,Number(s.handoff_rate || 0).toFixed(1)+'% handoff rate'));
     metrics.appendChild(tile('Estimates found',String(Number(s.estimates_found || 0)),'var(--green)',Number(s.estimate_rate_after_match || 0).toFixed(1)+'% of HCP matches'));
     metrics.appendChild(tile('Needs attention',String(Number(s.needs_attention || 0)),Number(s.needs_attention || 0)>0 ? '#ef4444' : 'var(--green)','handoff or estimate gaps'));
@@ -3530,7 +3532,7 @@ function clearMonthlyPartial(ym) {
     const c=data.coverage || {};
     coverageEl.innerHTML='';
     [
-      ['GHL leads',Number(c.ghl_leads_total || 0)],
+      ['GHL inquiries',Number(c.ghl_leads_total || 0)],
       ['Matched to HCP',Number(c.hcp_matched_leads || 0)+' / '+Number(c.ghl_leads_total || 0)],
       ['Estimates attributed',Number(c.estimates_attributed || 0)],
       ['Attributed sold revenue',money(c.sold_revenue_attributed)],
@@ -3903,8 +3905,8 @@ function clearMonthlyPartial(ym) {
       note.style.cssText = 'margin-top:5px;color:var(--muted);font-size:11px;';
       note.textContent = (data.scope_note || '') +
         (!data.reviews_available
-          ? ' Review widget data was not readable enough to auto-count 5-star reviews yet.'
-          : '') +
+          ? ' 5-star review count is unavailable for this selected week because the stored review feed does not cover the full period.'
+          : (data.review_coverage_start ? ' Review feed coverage starts '+data.review_coverage_start+'.' : '')) +
         (Number(data.tech_time_scheduled_fallback_jobs) > 0
           ? ' ' + Number(data.tech_time_scheduled_fallback_jobs) + ' completed job(s) used scheduled duration because HCP Start/Finish time was missing.'
           : '') +
