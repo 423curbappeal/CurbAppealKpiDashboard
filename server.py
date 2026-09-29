@@ -1178,12 +1178,70 @@ def qb_parse_date(value):
             pass
     return None
 
+def qb_normalize_text(value):
+    return " ".join(str(value or "").lower().replace("&"," and ").replace("/"," ").replace("-"," ").split())
+
+def qb_classify_expense(row):
+    if not isinstance(row,dict):
+        return None
+    account=qb_normalize_text(row.get("account_name"))
+    vendor=qb_normalize_text(row.get("vendor_name"))
+    memo=qb_normalize_text(row.get("memo"))
+    text=" | ".join(x for x in (account,vendor,memo) if x)
+
+    # Specific rules first. Only high-confidence matches are auto-applied.
+    rules=[
+        ("ww-workers-comp","Workers Comp",("workers comp","workers compensation")),
+        ("ww-payroll-tax","Payroll Tax",("payroll tax","employer tax","fica","medicare tax","social security tax")),
+        ("ww-subcontractors","Subcontractors",("subcontractor","sub contractor","contract labor","contractor labor")),
+        ("ww-gas","Gas / Fuel",("gasoline","diesel","motor fuel","vehicle fuel","fuel expense")),
+        ("ww-chemicals","Chemicals",("cleaning chemical","pressure wash chemical","soft wash chemical","sodium hypochlorite","bleach chemical")),
+        ("ww-meta-spend","Meta Ad Spend",("facebook ads","facebook advertising","meta ads","meta advertising","instagram ads","instagram advertising")),
+        ("ww-lsa-spend","Google LSA Spend",("local service ads","google lsa","lsa advertising","lsa ads")),
+        ("ww-google-spend","Google Ad Spend",("google ads","google advertising","adwords")),
+        ("ww-yardsign-spend","Yard Sign Spend",("yard sign","yard signs")),
+        ("ww-doorhanger-spend","Door Hanger Spend",("door hanger","door hangers")),
+        ("ww-mktg-agency","Marketing Agency",("marketing agency","advertising agency")),
+        ("ww-printed","Printed Materials",("printing","printed materials","print materials","business cards","flyers","brochures")),
+        ("ww-veh-insurance","Auto / Equipment Insurance",("auto insurance","vehicle insurance","commercial auto insurance","equipment insurance")),
+        ("ww-veh-maintenance","Maintenance & Repair",("vehicle repair","auto repair","truck repair","vehicle maintenance","auto maintenance","truck maintenance","equipment repair","equipment maintenance")),
+        ("ww-sw-crm","CRM / Scheduling",("housecall pro","go high level","gohighlevel","lead connector","crm software","scheduling software")),
+        ("ww-sw-payroll","Payroll Software",("payroll software","payroll subscription")),
+        ("ww-sw-bookkeeping","Bookkeeping Software",("bookkeeping software","accounting software")),
+        ("ww-sw-website","Website",("website hosting","web hosting","domain registration","domain renewal","website software")),
+        ("ww-oh-culligan","Culligan Water",("culligan",)),
+        ("ww-oh-utilities","Utilities",("electric utility","electric bill","water utility","water bill","utility bill","utilities")),
+        ("ww-oh-liability","Liability Insurance",("general liability","liability insurance")),
+        ("ww-oh-warehouse","Warehouse",("warehouse rent","shop rent","warehouse lease","shop lease")),
+        ("ww-oh-admin","Admin / Bookkeeping",("bookkeeping service","bookkeeper","admin service","administrative service")),
+        ("ww-baddebt","Bad Debt",("bad debt","uncollectible","write off","writeoff")),
+    ]
+    for field_id,label,needles in rules:
+        if any(n in text for n in needles):
+            return {"field_id":field_id,"label":label,"confidence":"high","reason":"matched specific account/vendor text"}
+
+    # Account-only rules where a generic vendor/memo match would be too risky.
+    if account in ("payroll","payroll expense","wages","wages and salaries","employee wages","labor payroll"):
+        return {"field_id":"ww-payroll","label":"Labor Payroll","confidence":"high","reason":"matched payroll account"}
+    if account in ("job supplies","materials and supplies","job materials","supplies job","cost of goods sold supplies"):
+        return {"field_id":"ww-supplies","label":"Job Supplies","confidence":"high","reason":"matched job-supplies account"}
+    if account in ("vehicle payments","vehicle loan","truck loan","equipment loan","equipment payments"):
+        return {"field_id":"ww-veh-payments","label":"Vehicle / Equipment Payments","confidence":"high","reason":"matched loan/payment account"}
+    if account in ("office staff","office payroll","office wages"):
+        return {"field_id":"ww-oh-office-staff","label":"Office Staff","confidence":"high","reason":"matched office-staff account"}
+    if account in ("operations manager","operations manager payroll","operations payroll"):
+        return {"field_id":"ww-oh-ops-manager","label":"Operations Manager","confidence":"high","reason":"matched operations-manager account"}
+
+    return None
+
 def qb_expense_preview(start,end):
     rows=qb_expense_store_load()
     grouped={}
     total=0.0
     count=0
     seen=set()
+    mapped_by_field={}
+    unmapped_by_account={}
 
     for row in rows:
         if not isinstance(row,dict):
@@ -1208,14 +1266,56 @@ def qb_expense_preview(start,end):
         total += amount
         count += 1
 
+        classification=qb_classify_expense(row)
+        if classification and classification.get("confidence")=="high":
+            field_id=classification["field_id"]
+            bucket=mapped_by_field.setdefault(field_id,{
+                "field_id":field_id,
+                "label":classification["label"],
+                "amount":0.0,
+                "records":0,
+                "sources":set()
+            })
+            bucket["amount"] += amount
+            bucket["records"] += 1
+            bucket["sources"].add(account)
+        else:
+            bucket=unmapped_by_account.setdefault(account,{"account_name":account,"amount":0.0,"records":0})
+            bucket["amount"] += amount
+            bucket["records"] += 1
+
     groups=[
         {"account_name":name,"amount":round(amount,2)}
         for name,amount in sorted(grouped.items(), key=lambda kv: abs(kv[1]), reverse=True)
     ]
+    mapped_fields=[]
+    for item in mapped_by_field.values():
+        mapped_fields.append({
+            "field_id":item["field_id"],
+            "label":item["label"],
+            "amount":round(item["amount"],2),
+            "records":item["records"],
+            "sources":sorted(item["sources"])
+        })
+    mapped_fields.sort(key=lambda x:abs(x["amount"]),reverse=True)
+
+    unmapped=[
+        {"account_name":item["account_name"],"amount":round(item["amount"],2),"records":item["records"]}
+        for item in unmapped_by_account.values()
+    ]
+    unmapped.sort(key=lambda x:abs(x["amount"]),reverse=True)
+    mapped_total=round(sum(float(x["amount"]) for x in mapped_fields),2)
+
     return {
         "expense_total":round(total,2),
         "expense_records":count,
-        "groups":groups
+        "groups":groups,
+        "mapped_fields":mapped_fields,
+        "mapped_total":mapped_total,
+        "mapped_records":sum(int(x["records"]) for x in mapped_fields),
+        "unmapped":unmapped,
+        "unmapped_total":round(total-mapped_total,2),
+        "unmapped_records":sum(int(x["records"]) for x in unmapped)
     }
 
 def get_page_access_token(page_id):
