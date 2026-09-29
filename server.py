@@ -187,11 +187,12 @@ def hcp_estimate_customer_name(estimate):
         if full:
             return full
 
-    for key in ("customer_name","name"):
-        value=str(estimate.get(key) or "").strip()
-        if value:
-            return value
+    value=str(estimate.get("customer_name") or "").strip()
+    if value:
+        return value
 
+    # Do not use estimate["name"] here; on HCP list responses that can be the
+    # company/estimate label rather than the customer's name.
     estimate_id=str(estimate.get("id") or "").strip()
     return ("Estimate "+estimate_id[-8:]) if estimate_id else "Unknown customer"
 
