@@ -960,7 +960,7 @@
       <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);padding:14px 0 4px;">🎁 Referral Program</div>
       <div class="field-row">
         <div class="field-label"><div class="field-label-main">Referrals Booked ($300+)</div><div class="field-label-hint">Neighbor referrals that booked over $300</div></div>
-        <div class="dollar-wrap" style="width:150px"><span class="sym" style="left:10px">#</span><input type="number" id="ww-referral-count" placeholder="0" min="0" style="padding-left:22px"></div>
+        <div class="dollar-wrap" style="width:150px"><span class="sym" style="left:10px">#</span><input type="number" id="ww-referral-count" placeholder="0" min="0" style="padding-left:22px" oninput="updateReferralCost()"></div>
       </div>
       <div class="field-row">
         <div class="field-label"><div class="field-label-main">Referral Revenue</div><div class="field-label-hint">Revenue booked from referred jobs</div></div>
@@ -971,7 +971,7 @@
         <div class="dollar-wrap" style="width:150px"><span class="sym" style="left:10px">#</span><input type="number" id="ww-referral-giftcards" placeholder="0" min="0" style="padding-left:22px" oninput="updateReferralCost()"></div>
       </div>
       <div class="field-row">
-        <div class="field-label"><div class="field-label-main">Gift Card Cost</div><div class="field-label-hint">Auto-calculated @ $50 per card</div></div>
+        <div class="field-label"><div class="field-label-main">Referral Program Cost</div><div class="field-label-hint">$50 referrer gift card + $50 new-customer discount per booked referral</div></div>
         <div class="dollar-wrap"><span class="sym">$</span><input type="number" id="ww-referral-giftcard-cost" placeholder="0.00" readonly style="opacity:0.75"></div>
       </div>
       <div style="font-size:11px;color:var(--muted);margin:6px 0 8px;padding:6px 10px;background:var(--surface2);border-radius:8px;display:flex;justify-content:space-between;align-items:center;">
@@ -1952,7 +1952,8 @@ function updateROAS() {
 
 function updateReferralCost() {
   const cards = parseInt(document.getElementById('ww-referral-giftcards').value) || 0;
-  const cost = cards * 50;
+  const booked = parseInt(document.getElementById('ww-referral-count').value) || 0;
+  const cost = (cards * 50) + (booked * 50);
   const costEl = document.getElementById('ww-referral-giftcard-cost');
   costEl.value = cost > 0 ? cost.toFixed(2) : '';
   updateSummary();
@@ -3359,6 +3360,7 @@ function clearMonthlyPartial(ym) {
         messages.push('⚠️ Attribution: '+(attribution ? attribution.error : 'not returned'));
       }
 
+      if (typeof updateReferralCost === 'function') updateReferralCost();
       if (typeof updateSummary === 'function') updateSummary();
       if (typeof updateConversions === 'function') updateConversions();
       if (typeof updateROAS === 'function') updateROAS();
@@ -3607,6 +3609,7 @@ function clearMonthlyPartial(ym) {
     (snapshot.auto_fields || []).forEach(item => {
       if (setField(item.field_id,item.value,item.metric)) applied += 1;
     });
+    if (typeof updateReferralCost==='function') updateReferralCost();
     if (typeof updateSummary==='function') updateSummary();
     if (typeof updateConversions==='function') updateConversions();
     if (typeof updateROAS==='function') updateROAS();
