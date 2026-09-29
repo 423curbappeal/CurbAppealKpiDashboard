@@ -2898,7 +2898,8 @@ function renderMonthly() {
         ${mpRow('Total Revenue','revenue',true)}
         ${mpRow('Jobs Completed','jobsCompleted',false)}
         ${mpRow('Upsold Revenue','upsoldRevenue',true)}
-        ${mpRow('Jobs Sold (pipeline)','jobsSold',false)}
+        ${mpRow('Won Estimate Revenue','soldRevenue',true)}
+        ${mpRow('Estimates Won','jobsSold',false)}
         ${mpRow('5-Star Reviews','fiveStarReviews',false)}
         ${mpRow('Callbacks','callbacks',false)}
       </div>
@@ -3211,7 +3212,7 @@ function saveMonthlyPartial(ym) {
   const partials = getMonthlyPartials();
   const data = {};
   // Revenue / jobs
-  ['revenue','jobsCompleted','upsoldRevenue','jobsSold','fiveStarReviews','callbacks'].forEach(k => data[k] = gv(k));
+  ['revenue','jobsCompleted','upsoldRevenue','soldRevenue','jobsSold','fiveStarReviews','callbacks'].forEach(k => data[k] = gv(k));
   // Expense section fields
   ['ww-payroll','ww-workers-comp','ww-payroll-tax','ww-subcontractors',
    'ww-gas','ww-chemicals','ww-supplies',
