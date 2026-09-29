@@ -1301,8 +1301,39 @@ def hcp_job_has_tag(job, target):
             return True
     return False
 
+def hcp_is_callback(job):
+    if not isinstance(job,dict):
+        return False
+    if hcp_job_has_tag(job,"Callback"):
+        return True
+
+    truthy={"1","true","yes","y","callback"}
+    for key in ("callback","is_callback","isCallback","callback_required","callbackRequired"):
+        value=job.get(key)
+        if isinstance(value,bool) and value:
+            return True
+        if str(value or "").strip().lower() in truthy:
+            return True
+
+    fields=job.get("custom_fields") or job.get("customFields") or []
+    if isinstance(fields,dict):
+        fields=list(fields.values())
+    if isinstance(fields,list):
+        for field in fields:
+            if not isinstance(field,dict):
+                continue
+            label=str(field.get("name") or field.get("label") or field.get("field_name") or "").strip().lower()
+            if "callback" not in label:
+                continue
+            value=field.get("value")
+            if isinstance(value,bool) and value:
+                return True
+            if str(value or "").strip().lower() in truthy:
+                return True
+    return False
+
 def hcp_callback_count(completed_jobs):
-    return sum(1 for job in completed_jobs if hcp_job_has_tag(job, "Callback"))
+    return sum(1 for job in completed_jobs if hcp_is_callback(job))
 
 def hcp_repeat_customer_count(completed_jobs, week_start):
     # A repeat customer is someone with at least one completed job before
@@ -1507,13 +1538,19 @@ def hcp_technician_scorecards(start,end):
 
     # Booked week: credit the FULL job value to every assigned non-owner tech.
     # Team revenue is intentionally not divided and is not meant to be summed across techs.
-    scheduled_by_id={}
+    technician_scheduled_jobs=0
     for job in scheduled_jobs:
-        jid=str(job.get("id") or "")
-        if jid: scheduled_by_id[jid]=job
         tech_ids=hcp_assigned_employee_ids(job)
+        eligible_ids=[tid for tid in tech_ids if tech_kind(tid)!="owner"]
+        if not eligible_ids:
+            continue
+        if hcp_is_callback(job):
+            # Callback/rework appointments are tracked separately and never create revenue or commission.
+            continue
+
+        technician_scheduled_jobs += 1
         job_value=hcp_money_to_dollars(job.get("total_amount"))
-        for tech_id in tech_ids:
+        for tech_id in eligible_ids:
             row=row_for(tech_id)
             if row is None:
                 continue
@@ -1529,27 +1566,42 @@ def hcp_technician_scorecards(start,end):
                 elif tech_kind(tech_id) in ("micah","calien"):
                     row["micah_calien_jobs"] += 1
 
-    # Completed week: actual serviced revenue/earned commission from jobs completed this week.
+    # Completed week: callbacks keep their callback count and labor time, but never add
+    # production jobs, technician revenue, or earned commission.
     jobs_without_assignments=0
+    technician_completed_jobs=0
     for job in completed_jobs:
         tech_ids=hcp_assigned_employee_ids(job)
         if not tech_ids:
             jobs_without_assignments += 1
             continue
+
+        eligible_ids=[tid for tid in tech_ids if tech_kind(tid)!="owner"]
+        if not eligible_ids:
+            # Owner-only production disappears from the technician section by design.
+            continue
+
         job_value=hcp_money_to_dollars(job.get("total_amount"))
         duration,source=hcp_job_duration_hours(job)
-        is_callback=hcp_job_has_tag(job,"Callback")
-        for tech_id in tech_ids:
+        is_callback=hcp_is_callback(job)
+        if not is_callback:
+            technician_completed_jobs += 1
+
+        for tech_id in eligible_ids:
             row=row_for(tech_id)
             if row is None:
                 continue
-            row["completed_jobs"] += 1
-            row["completed_revenue"] += job_value
+
             if is_callback:
                 row["callbacks"] += 1
-            rate=commission_rate_for(tech_id,tech_ids)
-            if rate is not None:
-                row["earned_commission"] += job_value * rate
+            else:
+                row["completed_jobs"] += 1
+                row["completed_revenue"] += job_value
+                rate=commission_rate_for(tech_id,tech_ids)
+                if rate is not None:
+                    row["earned_commission"] += job_value * rate
+
+            # Callback time stays in hours so revenue/hour reflects the cost of rework.
             if duration is None:
                 row["untracked_time_jobs"] += 1
             else:
@@ -1581,10 +1633,10 @@ def hcp_technician_scorecards(start,end):
         "week_start":start.isoformat(),
         "week_ending":end.isoformat(),
         "technicians":rows,
-        "scheduled_jobs":len(scheduled_jobs),
-        "completed_jobs":len(completed_jobs),
+        "scheduled_jobs":technician_scheduled_jobs,
+        "completed_jobs":technician_completed_jobs,
         "jobs_without_assignments":jobs_without_assignments,
-        "revenue_note":"Each technician receives the full value of every job they are assigned to. Revenue is not split between teammates, and owner/helper assignments are excluded from technician scorecards. Because team members can share the same job, technician revenue totals should not be summed together.",
+        "revenue_note":"Each technician receives the full value of every non-callback job they are assigned to. Revenue is not split between teammates. Callback/rework appointments add $0 revenue and $0 commission, but their labor time still counts. Owner-only jobs are excluded from technician scorecards. Because team members can share the same job, technician revenue totals should not be summed together.",
         "commission_note":"Projected commission uses all non-cancelled jobs scheduled in the selected week; earned commission uses jobs actually completed in the selected week. Micah: 22.5% when he is the only commission tech, 13.5% when paired with Calien. Calien: 22.5% when he is the only commission tech, 9% when paired with Micah. Ro is excluded and receives 0%."
     }
 
@@ -2621,10 +2673,12 @@ class Handler(SimpleHTTPRequestHandler):
                 start=end-timedelta(days=6)
 
                 completed_jobs=hcp_list_completed_jobs(start, end)
-                revenue=sum(hcp_money_to_dollars(job.get("total_amount")) for job in completed_jobs)
-                revenue_split=hcp_split_completed_revenue(completed_jobs)
-                repeat_customers=hcp_repeat_customer_count(completed_jobs, start)
                 callbacks=hcp_callback_count(completed_jobs)
+                production_jobs=[job for job in completed_jobs if not hcp_is_callback(job)]
+                revenue=sum(hcp_money_to_dollars(job.get("total_amount")) for job in production_jobs)
+                revenue_split=hcp_split_completed_revenue(production_jobs)
+                repeat_customers=hcp_repeat_customer_count(production_jobs, start)
+                # Include callback labor in tech hours so rework lowers revenue/hour instead of adding duplicate revenue.
                 tech_metrics=hcp_job_tech_metrics(completed_jobs)
                 review_count, review_records_total = review_count_for_week(start,end)
                 review_metrics={
@@ -2643,12 +2697,12 @@ class Handler(SimpleHTTPRequestHandler):
                     "week_start":start.isoformat(),
                     "week_ending":end.isoformat(),
                     "revenue":round(revenue,2),
-                    "jobs_completed":len(completed_jobs),
+                    "jobs_completed":len(production_jobs),
                     "revenue_residential":round(revenue_split["residential"],2),
                     "revenue_commercial":round(revenue_split["commercial"],2),
                     "revenue_unclassified":round(revenue_split["unknown"],2),
                     "repeat_customers":repeat_customers,
-                    "repeat_customer_pct":round((repeat_customers / len(completed_jobs) * 100.0),1) if completed_jobs else 0.0,
+                    "repeat_customer_pct":round((repeat_customers / len(production_jobs) * 100.0),1) if production_jobs else 0.0,
                     "callbacks":callbacks,
                     "five_star_reviews":review_metrics["five_star_reviews"],
                     "reviews_available":review_metrics["available"],
@@ -2664,7 +2718,7 @@ class Handler(SimpleHTTPRequestHandler):
                     "tech_time_untracked_jobs":tech_metrics["untracked_jobs"],
                     "sold_revenue":round(sold_revenue,2),
                     "jobs_sold":len(won_estimates),
-                    "scope_note":"Revenue/jobs completed use the actual HCP completion timestamp. Residential vs commercial uses the Job Type selected on each HCP job, with customer Homeowner/Business type as a fallback. Repeat customers are customers completed this week who had at least one completed HCP job before the week began. Callbacks count completed jobs tagged Callback in HCP. Tech hours use actual HCP Start/Finish timestamps when available and fall back to the job's scheduled start/end window when technicians did not use time tracking. Sold revenue/jobs sold use approved Housecall Pro estimates created within the selected week."
+                    "scope_note":"Revenue/jobs completed use the actual HCP completion timestamp and exclude callback/rework appointments so prior revenue is not counted twice. Residential vs commercial and repeat-customer metrics use non-callback production jobs. Callbacks are counted separately. Tech hours still include callback labor so revenue/hour reflects rework cost. Sold revenue/jobs sold use approved Housecall Pro estimates created within the selected week."
                 })
             except urllib.error.HTTPError as e:
                 try: detail=json.loads(e.read().decode("utf-8"))
