@@ -485,8 +485,10 @@
     <span style="font-size:12px;color:var(--muted);">· ending Sunday:</span>
     <input type="date" id="entry-date" oninput="updateWeekLabel()" title="Select the Sunday this week ends on">
     <div class="week-bar-spacer"></div>
+    <button class="btn btn-success btn-sm" id="auto-fill-week-btn" type="button">⚡ Auto Fill Week</button>
     <button class="btn btn-ghost btn-sm" onclick="loadExistingEntry()">Load Existing</button>
   </div>
+  <div id="auto-fill-week-status" style="display:none;margin:-6px 0 14px;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;font-size:12px;line-height:1.5;"></div>
 
   <!-- Automated Needs Attention -->
   <div id="needs-attention-card" style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:18px;margin-bottom:16px;">
@@ -3132,6 +3134,113 @@ function clearMonthlyPartial(ym) {
   saveMonthlyPartials(partials);
   renderMonthly();
 }
+</script>
+<script>
+(function () {
+  const btn=document.getElementById('auto-fill-week-btn');
+  const status=document.getElementById('auto-fill-week-status');
+  if (!btn || !status) return;
+
+  const setVal=(id,value,decimals) => {
+    const el=document.getElementById(id);
+    if (!el || value === null || value === undefined || Number.isNaN(Number(value))) return;
+    el.value=decimals === undefined ? Number(value) : Number(value).toFixed(decimals);
+  };
+
+  function applyMeta(data) {
+    setVal('ww-meta-spend',data.meta_spend,2);
+    setVal('ww-meta-leads',data.instant_form_leads);
+  }
+
+  function applyHcp(data) {
+    setVal('ww-revenue',data.revenue,2);
+    setVal('ww-jobs-completed',data.jobs_completed);
+    setVal('ww-repeat-customers',data.repeat_customers);
+    setVal('ww-callbacks',data.callbacks);
+    setVal('ww-tech-count',data.tech_count);
+    setVal('ww-tech-hours',data.hours_per_tech,2);
+    setVal('ww-sold-revenue',data.sold_revenue,2);
+    setVal('ww-jobs-sold',data.jobs_sold);
+    if (data.reviews_available) setVal('ww-five-star-reviews',data.five_star_reviews);
+    if (Number(data.revenue_unclassified || 0) === 0) {
+      setVal('ww-revenue-residential',data.revenue_residential,2);
+      setVal('ww-revenue-commercial',data.revenue_commercial,2);
+    }
+  }
+
+  btn.addEventListener('click', async function () {
+    const date=document.getElementById('entry-date');
+    if (!date || !date.value) {
+      status.style.display='block';
+      status.textContent='Select a week-ending date first.';
+      return;
+    }
+
+    btn.disabled=true;
+    btn.textContent='Syncing…';
+    status.style.display='block';
+    status.textContent='⚡ Pulling Meta, Housecall Pro, and QuickBooks at the same time…';
+
+    const week=encodeURIComponent(date.value);
+    const requests=[
+      ['Meta','/api/meta-preview?week_ending='+week],
+      ['Housecall Pro','/api/hcp-preview?week_ending='+week],
+      ['QuickBooks','/api/qb-preview?week_ending='+week]
+    ];
+
+    try {
+      const settled=await Promise.all(requests.map(async ([name,url]) => {
+        try {
+          const res=await fetch(url,{cache:'no-store'});
+          const data=await res.json();
+          if (!res.ok || !data.ok) throw new Error(data.error || (name+' request failed'));
+          return {name,ok:true,data};
+        } catch (err) {
+          return {name,ok:false,error:(err && err.message) ? err.message : String(err)};
+        }
+      }));
+
+      const meta=settled.find(x => x.name==='Meta');
+      const hcp=settled.find(x => x.name==='Housecall Pro');
+      const qb=settled.find(x => x.name==='QuickBooks');
+      const messages=[];
+
+      if (meta && meta.ok) {
+        applyMeta(meta.data);
+        messages.push('✅ Meta: $'+Number(meta.data.meta_spend || 0).toFixed(2)+' spend · '+Number(meta.data.instant_form_leads || 0)+' leads applied');
+      } else {
+        messages.push('⚠️ Meta: '+(meta ? meta.error : 'not returned'));
+      }
+
+      if (hcp && hcp.ok) {
+        applyHcp(hcp.data);
+        let line='✅ HCP: $'+Number(hcp.data.revenue || 0).toFixed(2)+' revenue · '+Number(hcp.data.jobs_completed || 0)+' completed · $'+Number(hcp.data.sold_revenue || 0).toFixed(2)+' sold';
+        if (Number(hcp.data.revenue_unclassified || 0) > 0) line += ' · residential/commercial left unchanged';
+        messages.push(line);
+      } else {
+        messages.push('⚠️ HCP: '+(hcp ? hcp.error : 'not returned'));
+      }
+
+      if (qb && qb.ok) {
+        if (Number(qb.data.expense_records || 0) > 0) {
+          messages.push('ℹ️ QuickBooks: '+Number(qb.data.expense_records || 0)+' expense records received ($'+Number(qb.data.expense_total || 0).toFixed(2)+'). Category mapping is the next automation step.');
+        } else {
+          messages.push('ℹ️ QuickBooks: no expense records received for this week yet');
+        }
+      } else {
+        messages.push('⚠️ QuickBooks: '+(qb ? qb.error : 'not returned'));
+      }
+
+      if (typeof updateSummary === 'function') updateSummary();
+      status.innerHTML=messages.map(m => '<div>'+m+'</div>').join('') + '<div style="margin-top:5px;color:var(--muted);">Review anything still manual, then Save This Week.</div>';
+    } catch (err) {
+      status.textContent='Auto Fill failed: '+((err && err.message) ? err.message : String(err));
+    } finally {
+      btn.disabled=false;
+      btn.textContent='⚡ Auto Fill Week';
+    }
+  });
+})();
 </script>
 <script>
 (function () {
