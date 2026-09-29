@@ -2831,7 +2831,13 @@ function renderMonthly() {
   const revPerTechHour = techMetricComplete && totalTechManHours > 0 ? totalTechRevenue / totalTechManHours : 0;
 
   // Ghudzy aggregates
-  const gSum = (p, key) => entries.reduce((s,e) => s + (parseInt(e.content?.[p]?.[key])||0), 0);
+  const incomingGKey = (p,key) => {
+    if (!incomingPartial) return 0;
+    const map={'blueprint-leads':'leads','blueprint-calls':'calls','blueprint-scheduled':'scheduled','blueprint-showed':'showed','blueprint-closed':'closed','blueprint-volume':'volume'};
+    const suffix=map[key];
+    return suffix ? (parseFloat(incomingPartial['g_'+p+'_'+suffix])||0) : 0;
+  };
+  const gSum = (p, key) => entries.reduce((s,e) => s + (parseInt(e.content?.[p]?.[key])||0), 0) - incomingGKey(p,key);
   const platSums = {};
   PLATFORMS.forEach(p => {
     platSums[p] = {
@@ -2841,18 +2847,18 @@ function renderMonthly() {
       scheduled: gSum(p,'blueprint-scheduled'),
       showed:    gSum(p,'blueprint-showed'),
       closed:    gSum(p,'blueprint-closed'),
-      volume:    entries.reduce((s,e)=>s+(parseFloat(e.content?.[p]?.['blueprint-volume'])||0),0),
+      volume:    entries.reduce((s,e)=>s+(parseFloat(e.content?.[p]?.['blueprint-volume'])||0),0) - incomingGKey(p,'blueprint-volume'),
       videos:    gSum(p,'videos'),
     };
   });
-  const totGLeads    = PLATFORMS.reduce((s,p)=>s+platSums[p].leads,0);
-  const totGCalls    = PLATFORMS.reduce((s,p)=>s+platSums[p].calls,0);
-  const totGSched    = PLATFORMS.reduce((s,p)=>s+platSums[p].scheduled,0);
-  const totGShowed   = PLATFORMS.reduce((s,p)=>s+platSums[p].showed,0);
-  const totGClosed   = PLATFORMS.reduce((s,p)=>s+platSums[p].closed,0);
-  const totGVolume   = PLATFORMS.reduce((s,p)=>s+platSums[p].volume,0);
-  const totGVideos   = PLATFORMS.reduce((s,p)=>s+platSums[p].videos,0);
-  const totGGained   = PLATFORMS.reduce((s,p)=>s+platSums[p].gained,0);
+  let totGLeads    = PLATFORMS.reduce((s,p)=>s+platSums[p].leads,0);
+  let totGCalls    = PLATFORMS.reduce((s,p)=>s+platSums[p].calls,0);
+  let totGSched    = PLATFORMS.reduce((s,p)=>s+platSums[p].scheduled,0);
+  let totGShowed   = PLATFORMS.reduce((s,p)=>s+platSums[p].showed,0);
+  let totGClosed   = PLATFORMS.reduce((s,p)=>s+platSums[p].closed,0);
+  let totGVolume   = PLATFORMS.reduce((s,p)=>s+platSums[p].volume,0);
+  let totGVideos   = PLATFORMS.reduce((s,p)=>s+platSums[p].videos,0);
+  let totGGained   = PLATFORMS.reduce((s,p)=>s+platSums[p].gained,0);
 
   // Add Ghudzy partial
   if (partialData) {
@@ -2865,6 +2871,13 @@ function renderMonthly() {
       platSums[p].volume    += parseFloat(partialData['g_'+p+'_volume'])  ||0;
     });
   }
+  // Recompute rollups after applying the outgoing partial-month split.
+  totGLeads  = PLATFORMS.reduce((s,p)=>s+platSums[p].leads,0);
+  totGCalls  = PLATFORMS.reduce((s,p)=>s+platSums[p].calls,0);
+  totGSched  = PLATFORMS.reduce((s,p)=>s+platSums[p].scheduled,0);
+  totGShowed = PLATFORMS.reduce((s,p)=>s+platSums[p].showed,0);
+  totGClosed = PLATFORMS.reduce((s,p)=>s+platSums[p].closed,0);
+  totGVolume = PLATFORMS.reduce((s,p)=>s+platSums[p].volume,0);
 
   const PICONS = {instagram:'📸',tiktok:'🎵',facebook:'👤',snapchat:'👻',youtube:'▶️'};
 
@@ -3173,8 +3186,8 @@ function renderMonthly() {
   </div>`;
 
   // Ghudzy summary
-  const totGSched2 = PLATFORMS.reduce((s,p)=>s+platSums[p].scheduled,0);
-  const totGShowed2 = PLATFORMS.reduce((s,p)=>s+platSums[p].showed,0);
+  const totGSched2 = totGSched;
+  const totGShowed2 = totGShowed;
   html += `<div class="card">
     <div class="card-title">📱 Social — ${monthName}</div>
     ${secHd('📊 Totals Across All Platforms')}
