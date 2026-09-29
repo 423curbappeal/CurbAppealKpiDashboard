@@ -2301,8 +2301,13 @@ def cross_source_attribution_snapshot(start,end):
 
     today=datetime.now(BUSINESS_TZ).date()
     conversion_end=min(today,end+timedelta(days=30))
+    realization_end=today
     estimates=hcp_list_estimates_for_week(start,conversion_end) if conversion_end>=start else []
-    completed_jobs=hcp_list_completed_jobs(start,conversion_end) if conversion_end>=start else []
+    # A lead can convert/book within 30 days but the service may be completed
+    # later. Search production through today, then require the job creation
+    # (or completion when creation is unavailable) to fall inside the 30-day
+    # lead conversion window before attributing realized revenue.
+    completed_jobs=hcp_list_completed_jobs(start,realization_end) if realization_end>=start else []
     completed_jobs=[job for job in completed_jobs if not hcp_is_callback(job)]
 
     buckets={name:{
@@ -2471,6 +2476,7 @@ def cross_source_attribution_snapshot(start,end):
         "week_start":start.isoformat(),
         "week_ending":end.isoformat(),
         "conversion_window_end":conversion_end.isoformat(),
+        "realization_through":realization_end.isoformat(),
         "rows":rows,
         "campaigns":campaign_rows[:12],
         "auto_fields":auto_fields,
@@ -2484,7 +2490,7 @@ def cross_source_attribution_snapshot(start,end):
             "unknown_leads":int(unknown["leads"]),
             "unknown_estimates":int(unknown["estimates"])
         },
-        "scope_note":"The cohort starts with GoHighLevel inbound inquiries that have phone/email; not every inquiry is a qualified lead. Marketing source comes from GoHighLevel original attribution. Housecall Pro supplies customer matching, estimates, approvals, sold revenue, completed jobs, and realized production revenue. Matching uses exact normalized phone/email only. Each estimate or non-callback completed job is attributed once to the most recent matching GHL inquiry created before it, within 30 days. Callback/rework jobs contribute $0 realized revenue."
+        "scope_note":"The cohort starts with GoHighLevel inbound inquiries that have phone/email; not every inquiry is a qualified lead. Marketing source comes from GoHighLevel original attribution. Housecall Pro supplies customer matching, estimates, approvals, sold revenue, completed jobs, and realized production revenue. Matching uses exact normalized phone/email only. Estimates/jobs must originate within 30 days of the matching GHL inquiry, but a qualifying job can realize completed revenue after that 30-day conversion window. Callback/rework jobs contribute $0 realized revenue."
     }
 
 def hcp_source_attribution_snapshot(start,end):
