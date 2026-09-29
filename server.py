@@ -1178,6 +1178,281 @@ def qb_parse_date(value):
             pass
     return None
 
+def hcp_source_text(value):
+    if value is None:
+        return ""
+    if isinstance(value,str):
+        return value.strip()
+    if isinstance(value,(int,float,bool)):
+        return str(value)
+    if isinstance(value,dict):
+        for key in ("name","label","value","source","lead_source","title"):
+            if value.get(key):
+                return hcp_source_text(value.get(key))
+        return " ".join(hcp_source_text(v) for v in value.values() if v)
+    if isinstance(value,list):
+        return " ".join(hcp_source_text(v) for v in value if v)
+    return str(value).strip()
+
+def hcp_source_from_object(obj):
+    if not isinstance(obj,dict):
+        return ""
+    direct_keys=(
+        "lead_source","leadSource","source","source_name","sourceName",
+        "marketing_source","marketingSource","referral_source","referralSource",
+        "acquisition_source","acquisitionSource","origin","channel"
+    )
+    for key in direct_keys:
+        value=obj.get(key)
+        text=hcp_source_text(value)
+        if text:
+            return text
+    for key in ("tags","tag_list","tagList"):
+        text=hcp_source_text(obj.get(key))
+        if text:
+            return text
+    return ""
+
+def hcp_source_bucket(value):
+    text=" ".join(str(value or "").lower().replace("_"," ").replace("-"," ").split())
+    if not text:
+        return "unknown"
+    if any(x in text for x in ("local service ad","local services ad","google lsa","google local service"," lsa ")):
+        return "lsa"
+    if any(x in text for x in ("facebook","instagram","meta ads","meta lead","fb ads","fb lead")):
+        return "meta"
+    if any(x in text for x in ("google ads","google adwords","adwords","google ppc","paid google","google paid")):
+        return "google"
+    if any(x in text for x in ("yard sign","yard signs")):
+        return "yardsign"
+    if any(x in text for x in ("door hanger","door hangers")):
+        return "doorhanger"
+    if any(x in text for x in ("referral","referred","word of mouth","word-of-mouth","customer referral")):
+        return "referral"
+    if any(x in text for x in ("website","organic search","seo","web organic","google organic")):
+        return "website"
+    if any(x in text for x in ("truck wrap","vehicle wrap","magazine","television"," tv ","channel 9","news","radio","billboard","branding")):
+        return "branding"
+    return "unknown"
+
+def hcp_customer_id_from_obj(obj):
+    if not isinstance(obj,dict):
+        return None
+    customer=obj.get("customer")
+    if isinstance(customer,dict) and customer.get("id"):
+        return customer.get("id")
+    return obj.get("customer_id") or obj.get("customerId")
+
+def hcp_customer_source_detail(customer_id):
+    if not customer_id:
+        return ""
+    key="hcp_customer_source:"+str(customer_id)
+    def loader():
+        raw=hcp_get("customers/"+str(customer_id))
+        detail=raw.get("customer") if isinstance(raw,dict) and isinstance(raw.get("customer"),dict) else raw
+        return hcp_source_from_object(detail) if isinstance(detail,dict) else ""
+    try:
+        return cached_runtime(key,600,loader) or ""
+    except Exception:
+        return ""
+
+def hcp_resolve_sources(objects):
+    ids=[]
+    for obj in objects:
+        if not isinstance(obj,dict):
+            continue
+        if hcp_source_from_object(obj):
+            continue
+        customer=obj.get("customer") if isinstance(obj.get("customer"),dict) else None
+        if customer and hcp_source_from_object(customer):
+            continue
+        cid=hcp_customer_id_from_obj(obj)
+        if cid and str(cid) not in ids:
+            ids.append(str(cid))
+    resolved={}
+    if ids:
+        with ThreadPoolExecutor(max_workers=min(6,len(ids))) as pool:
+            futures={pool.submit(hcp_customer_source_detail,cid):cid for cid in ids}
+            for future in as_completed(futures):
+                cid=futures[future]
+                try: resolved[cid]=future.result() or ""
+                except Exception: resolved[cid]=""
+    return resolved
+
+def hcp_object_source(obj,resolved=None):
+    if not isinstance(obj,dict):
+        return ""
+    text=hcp_source_from_object(obj)
+    if text:
+        return text
+    customer=obj.get("customer") if isinstance(obj.get("customer"),dict) else None
+    text=hcp_source_from_object(customer)
+    if text:
+        return text
+    cid=hcp_customer_id_from_obj(obj)
+    return (resolved or {}).get(str(cid),"") if cid else ""
+
+def hcp_list_leads_for_week(start,end):
+    matched=[]
+    page=1
+    while page <= 10:
+        data=hcp_get("leads", {"page":page,"page_size":100})
+        batch=data.get("leads") or data.get("data") or []
+        if not batch:
+            break
+        saw_older=False
+        for lead in batch:
+            if not isinstance(lead,dict):
+                continue
+            created=hcp_parse_datetime(lead.get("created_at") or lead.get("createdAt"))
+            if not created:
+                continue
+            d=created.date()
+            if d < start:
+                saw_older=True
+                continue
+            if d <= end:
+                matched.append(lead)
+        total_pages=int(data.get("total_pages") or data.get("totalPages") or 1)
+        if page >= total_pages or saw_older:
+            break
+        page += 1
+    return matched
+
+def hcp_list_estimates_for_week(start,end):
+    summaries=[]
+    page=1
+    while True:
+        data=hcp_get("estimates", {"page":page,"page_size":100})
+        batch=data.get("estimates") or data.get("data") or []
+        if not batch:
+            break
+        for estimate in batch:
+            if not isinstance(estimate,dict):
+                continue
+            created=hcp_parse_datetime(estimate.get("created_at"))
+            if created and start <= created.date() <= end:
+                summaries.append(estimate)
+        total_pages=int(data.get("total_pages") or 1)
+        if page >= total_pages:
+            break
+        page += 1
+
+    detailed=[]
+    def hydrate(summary):
+        estimate_id=summary.get("id")
+        if not estimate_id:
+            return summary
+        try:
+            raw=hcp_get("estimates/"+str(estimate_id))
+            detail=raw.get("estimate") if isinstance(raw,dict) and isinstance(raw.get("estimate"),dict) else raw
+            if isinstance(detail,dict):
+                merged=dict(summary)
+                merged.update(detail)
+                return merged
+        except Exception:
+            pass
+        return summary
+
+    if summaries:
+        with ThreadPoolExecutor(max_workers=min(6,len(summaries))) as pool:
+            futures=[pool.submit(hydrate,e) for e in summaries]
+            for future in as_completed(futures):
+                detailed.append(future.result())
+    return detailed
+
+def hcp_source_attribution_snapshot(start,end):
+    leads=hcp_list_leads_for_week(start,end)
+    estimates=hcp_list_estimates_for_week(start,end)
+    resolved=hcp_resolve_sources(leads+estimates)
+
+    buckets={name:{"leads":0,"estimates":0,"jobs_sold":0,"sold_revenue":0.0,"sources":set()} for name in ("meta","google","lsa","yardsign","doorhanger","referral","website","branding","unknown")}
+
+    for lead in leads:
+        raw=hcp_object_source(lead,resolved)
+        bucket=hcp_source_bucket(raw)
+        buckets[bucket]["leads"] += 1
+        if raw: buckets[bucket]["sources"].add(raw)
+
+    for estimate in estimates:
+        raw=hcp_object_source(estimate,resolved)
+        bucket=hcp_source_bucket(raw)
+        buckets[bucket]["estimates"] += 1
+        if raw: buckets[bucket]["sources"].add(raw)
+        sold=hcp_estimate_sold_value(estimate)
+        if sold is not None:
+            buckets[bucket]["jobs_sold"] += 1
+            buckets[bucket]["sold_revenue"] += float(sold or 0)
+
+    rows=[]
+    for name,data in buckets.items():
+        rows.append({
+            "bucket":name,
+            "leads":int(data["leads"]),
+            "estimates":int(data["estimates"]),
+            "jobs_sold":int(data["jobs_sold"]),
+            "sold_revenue":round(float(data["sold_revenue"]),2),
+            "source_labels":sorted(data["sources"])[:12]
+        })
+
+    field_map={
+        "meta":{"leads":"ww-meta-leads","estimates":"ww-meta-estimates","jobs_sold":"ww-meta-jobs-sold","sold_revenue":"ww-meta-sold-revenue"},
+        "google":{"leads":"ww-google-leads","estimates":"ww-google-estimates","jobs_sold":"ww-google-jobs-sold","sold_revenue":"ww-google-sold-revenue"},
+        "lsa":{"leads":"ww-lsa-leads","estimates":"ww-lsa-estimates","jobs_sold":"ww-lsa-jobs-sold","sold_revenue":"ww-lsa-sold-revenue"},
+        "yardsign":{"leads":"ww-yardsign-leads","estimates":"ww-yardsign-estimates","jobs_sold":"ww-yardsign-jobs-sold","sold_revenue":"ww-yardsign-sold-revenue"},
+        "doorhanger":{"leads":"ww-doorhanger-leads","estimates":"ww-doorhanger-estimates","jobs_sold":"ww-doorhanger-jobs-sold","sold_revenue":"ww-doorhanger-sold-revenue"},
+        "website":{"leads":"ww-website-leads","estimates":"ww-website-estimates","jobs_sold":"ww-website-jobs-sold","sold_revenue":"ww-website-sold-revenue"},
+        "branding":{"leads":"ww-branding-leads","estimates":"ww-branding-estimates","jobs_sold":"ww-branding-jobs-sold","sold_revenue":"ww-branding-sold-revenue"}
+    }
+    auto_fields=[]
+    for row in rows:
+        mapping=field_map.get(row["bucket"])
+        if not mapping:
+            continue
+        for metric,field_id in mapping.items():
+            auto_fields.append({"field_id":field_id,"metric":metric,"bucket":row["bucket"],"value":row[metric]})
+
+    referral=next((r for r in rows if r["bucket"]=="referral"),None)
+    if referral:
+        referral_count=0
+        referral_revenue=0.0
+        for estimate in estimates:
+            raw=hcp_object_source(estimate,resolved)
+            if hcp_source_bucket(raw)!="referral":
+                continue
+            sold=hcp_estimate_sold_value(estimate)
+            if sold is not None and float(sold or 0) >= 300:
+                referral_count += 1
+                referral_revenue += float(sold or 0)
+        auto_fields.extend([
+            {"field_id":"ww-referral-count","metric":"jobs_sold_300_plus","bucket":"referral","value":referral_count},
+            {"field_id":"ww-referral-revenue","metric":"sold_revenue_300_plus","bucket":"referral","value":round(referral_revenue,2)}
+        ])
+
+    attributed_leads=sum(r["leads"] for r in rows if r["bucket"]!="unknown")
+    attributed_estimates=sum(r["estimates"] for r in rows if r["bucket"]!="unknown")
+    attributed_sold=sum(r["sold_revenue"] for r in rows if r["bucket"]!="unknown")
+    unknown=next((r for r in rows if r["bucket"]=="unknown"),{"leads":0,"estimates":0,"jobs_sold":0,"sold_revenue":0})
+
+    return {
+        "ok":True,
+        "week_start":start.isoformat(),
+        "week_ending":end.isoformat(),
+        "rows":rows,
+        "auto_fields":auto_fields,
+        "coverage":{
+            "leads_total":len(leads),
+            "leads_attributed":attributed_leads,
+            "estimates_total":len(estimates),
+            "estimates_attributed":attributed_estimates,
+            "sold_revenue_attributed":round(attributed_sold,2),
+            "unknown_leads":unknown["leads"],
+            "unknown_estimates":unknown["estimates"],
+            "unknown_sold_revenue":unknown["sold_revenue"]
+        },
+        "scope_note":"Uses Housecall Pro native lead source/customer lead source values. Unknown or ambiguous source names are not guessed."
+    }
+
 def qb_normalize_text(value):
     return " ".join(str(value or "").lower().replace("&"," and ").replace("/"," ").replace("-"," ").split())
 
@@ -1507,44 +1782,20 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.send_json(502, {"ok":False,"error":"Housecall Pro API request failed","detail":detail})
             except Exception as e:
                 return self.send_json(400, {"ok":False,"error":str(e)})
-        if parsed.path == "/api/hcp-source-debug":
+        if parsed.path == "/api/hcp-source-attribution":
             try:
                 if not HCP_API_KEY:
                     return self.send_json(503, {"ok":False,"error":"Housecall Pro is not configured."})
-                data=hcp_get("jobs", {"page":1,"page_size":12,"sort_by":"created_at","sort_direction":"desc"})
-                jobs=data.get("jobs") or data.get("data") or []
-                samples=[]
-                wanted=("source","lead","referr","origin","channel","tag")
-                for job in jobs[:8]:
-                    if not isinstance(job,dict):
-                        continue
-                    job_candidates={}
-                    for key,value in job.items():
-                        if any(w in str(key).lower() for w in wanted):
-                            job_candidates[key]=value
-                    customer_obj=job.get("customer") if isinstance(job.get("customer"),dict) else {}
-                    customer_candidates={}
-                    for key,value in customer_obj.items():
-                        if any(w in str(key).lower() for w in wanted):
-                            customer_candidates[key]=value
-                    customer_detail_candidates={}
-                    customer_id=hcp_customer_id_from_job(job)
-                    if customer_id:
-                        try:
-                            raw=hcp_get("customers/"+str(customer_id))
-                            detail=raw.get("customer") if isinstance(raw,dict) and isinstance(raw.get("customer"),dict) else raw
-                            if isinstance(detail,dict):
-                                for key,value in detail.items():
-                                    if any(w in str(key).lower() for w in wanted):
-                                        customer_detail_candidates[key]=value
-                        except Exception:
-                            pass
-                    samples.append({
-                        "job_source_fields":job_candidates,
-                        "embedded_customer_source_fields":customer_candidates,
-                        "customer_detail_source_fields":customer_detail_candidates
-                    })
-                return self.send_json(200,{"ok":True,"samples":samples})
+                q=urllib.parse.parse_qs(parsed.query)
+                week_ending=(q.get("week_ending") or [""])[0]
+                end=datetime.strptime(week_ending,"%Y-%m-%d").date()
+                start=end-timedelta(days=6)
+                key="hcp_source_attribution:"+start.isoformat()+":"+end.isoformat()
+                return self.send_json(200,cached_runtime(key,120,lambda: hcp_source_attribution_snapshot(start,end)))
+            except urllib.error.HTTPError as e:
+                try: detail=json.loads(e.read().decode("utf-8"))
+                except Exception: detail={"message":str(e)}
+                return self.send_json(502,{"ok":False,"error":"Housecall Pro attribution request failed","detail":detail})
             except Exception as e:
                 return self.send_json(400,{"ok":False,"error":str(e)})
         if parsed.path == "/api/hcp-customer-debug":
