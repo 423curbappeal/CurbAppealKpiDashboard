@@ -1411,17 +1411,35 @@ def hcp_technician_scorecards(start,end):
     employees=hcp_employee_directory()
     stats={}
 
+    def normalized_name(tech_id):
+        info=employees.get(str(tech_id)) or {}
+        return " ".join(str(info.get("name") or "").lower().split())
+
+    def tech_kind(tech_id):
+        name=normalized_name(tech_id)
+        if name in ("ro sneed","roylee sneed") or name.startswith("ro sneed ") or name.startswith("roylee sneed "):
+            return "owner"
+        if name.startswith("micah " ) or name=="micah":
+            return "micah"
+        if name.startswith("calien ") or name=="calien" or name.startswith("callian ") or name=="callian":
+            return "calien"
+        return "other"
+
     def tech_row(tech_id):
         tech_id=str(tech_id)
         if tech_id not in stats:
             info=employees.get(tech_id) or {}
+            kind=tech_kind(tech_id)
             stats[tech_id]={
                 "employee_id":tech_id,
                 "name":info.get("name") or ("Employee "+tech_id[-6:]),
                 "role":info.get("role") or "",
+                "commission_role":kind,
                 "jobs_completed":0,
                 "solo_jobs":0,
                 "team_jobs":0,
+                "owner_assisted_jobs":0,
+                "micah_calien_jobs":0,
                 "callbacks":0,
                 "hours":0.0,
                 "actual_time_jobs":0,
@@ -1440,28 +1458,51 @@ def hcp_technician_scorecards(start,end):
         if not tech_ids:
             jobs_without_assignments += 1
             continue
-        team_size=len(tech_ids)
+
+        kinds={str(tid):tech_kind(tid) for tid in tech_ids}
+        commission_techs=[tid for tid in tech_ids if kinds.get(str(tid)) in ("micah","calien")]
+        has_micah=any(kinds.get(str(tid))=="micah" for tid in tech_ids)
+        has_calien=any(kinds.get(str(tid))=="calien" for tid in tech_ids)
+        has_owner=any(kinds.get(str(tid))=="owner" for tid in tech_ids)
+        unknown_commission_techs=[tid for tid in tech_ids if kinds.get(str(tid))=="other"]
+
         job_value=hcp_money_to_dollars(job.get("total_amount"))
         duration,source=hcp_job_duration_hours(job)
         is_callback=hcp_job_has_tag(job,"Callback")
-        allocated=(job_value/team_size) if team_size else 0.0
-        commission_rate=0.225 if team_size == 1 else (0.15 if team_size == 2 else None)
+        allocated=(job_value/len(tech_ids)) if tech_ids else 0.0
 
         for tech_id in tech_ids:
+            kind=kinds.get(str(tech_id))
             row=tech_row(tech_id)
             row["jobs_completed"] += 1
-            if team_size == 1:
+            if len(tech_ids) == 1:
                 row["solo_jobs"] += 1
             else:
                 row["team_jobs"] += 1
+            if has_owner and kind in ("micah","calien"):
+                row["owner_assisted_jobs"] += 1
+            if has_micah and has_calien and kind in ("micah","calien"):
+                row["micah_calien_jobs"] += 1
             if is_callback:
                 row["callbacks"] += 1
             row["revenue_serviced"] += job_value
             row["allocated_revenue"] += allocated
+
+            commission_rate=None
+            if kind=="owner":
+                commission_rate=0.0
+            elif kind in ("micah","calien"):
+                if unknown_commission_techs:
+                    commission_rate=None
+                elif has_micah and has_calien:
+                    commission_rate=0.135 if kind=="micah" else 0.09
+                elif len(commission_techs)==1:
+                    commission_rate=0.225
             if commission_rate is None:
                 row["commission_unmodeled_jobs"] += 1
             else:
                 row["estimated_commission"] += job_value * commission_rate
+
             if duration is None:
                 row["untracked_time_jobs"] += 1
             else:
@@ -1497,7 +1538,7 @@ def hcp_technician_scorecards(start,end):
         "technicians":rows,
         "jobs_completed":len(jobs),
         "jobs_without_assignments":jobs_without_assignments,
-        "commission_note":"Estimated field commission only: 22.5% on solo jobs and 15% per technician on two-tech jobs. Jobs with 3+ assigned technicians are not commission-modeled. Upsell commission is not included because HCP does not reliably identify which technician created the upsell."
+        "commission_note":"Commission model: Micah 22.5% when he is the only commission tech, or 13.5% when working with Calien. Calien 22.5% when he is the only commission tech, or 9% when working with Micah. Ro receives 0% commission and is treated as owner/helper, so his presence does not reduce Micah or Calien from the 22.5% solo rate. Jobs involving another commission-eligible technician are left unmodeled. Upsell commission is not included."
     }
 
 def hcp_job_tech_metrics(completed_jobs):
