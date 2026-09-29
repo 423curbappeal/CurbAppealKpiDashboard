@@ -250,7 +250,7 @@ def hcp_estimate_pipeline_snapshot(lookback_days=120, recent_days=30, max_detail
     # Newest first keeps the most actionable estimates if a very large account
     # hits the defensive detail-call cap.
     summaries.sort(
-        key=lambda x: hcp_parse_datetime(x.get("created_at")) or datetime.min.replace(tzinfo=timezone.utc),
+        key=lambda x: str(x.get("created_at") or ""),
         reverse=True
     )
 
