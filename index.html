@@ -2703,12 +2703,19 @@ function renderMonthly() {
   const entries = byMonth[selected];
   const partial = getPartialWeek(selected);
   const partialData = partials[selected] || null;
+  const prevYM = selMo === 1 ? `${selYr-1}-12` : `${selYr}-${String(selMo-1).padStart(2,'0')}`;
+  const incomingBoundary = getPartialWeek(prevYM);
+  const incomingPartial = (incomingBoundary && incomingBoundary.weekEndDate.slice(0,7) === selected) ? (partials[prevYM] || null) : null;
 
-  // Aggregate WashWorks
-  const sum = key => entries.reduce((s,e) => s + (parseFloat(e.ww?.[key])||0), 0);
-  const sumSec = sec => entries.reduce((s,e) => {
-    return s + (WW_SECTIONS[sec]||[]).reduce((ss,id)=>ss+(parseFloat(e.ww?.[id])||0),0);
-  }, 0);
+  // Aggregate WashWorks. If the previous month stored a partial split from
+  // a cross-month week, subtract it here because this month's saved Sunday
+  // entry contains the full Mon–Sun week. This prevents double-counting.
+  const incomingVal = key => incomingPartial ? (parseFloat(incomingPartial[key])||0) : 0;
+  const sum = key => entries.reduce((s,e) => s + (parseFloat(e.ww?.[key])||0), 0) - incomingVal(key);
+  const sumSec = sec => (WW_SECTIONS[sec]||[]).reduce((total,id) => {
+    const full=entries.reduce((s,e)=>s+(parseFloat(e.ww?.[id])||0),0);
+    return total + full - incomingVal(id);
+  },0);
 
   let totalRev    = sum('revenue');
   let totalJobs   = sum('jobsCompleted');
@@ -2722,11 +2729,11 @@ function renderMonthly() {
   let totalSW     = sumSec('software');
   let totalOH     = sumSec('overhead');
   let totalBadDebt= sumSec('baddebt');
-  let totalMetaSpend   = entries.reduce((s,e)=>s+(parseFloat(e.ww?.['ww-meta-spend'])||0),0);
-  let totalGoogleSpend = entries.reduce((s,e)=>s+(parseFloat(e.ww?.['ww-google-spend'])||0),0);
-  let totalLsaSpend    = entries.reduce((s,e)=>s+(parseFloat(e.ww?.['ww-lsa-spend'])||0),0);
-  let totalYardSpend   = entries.reduce((s,e)=>s+(parseFloat(e.ww?.['ww-yardsign-spend'])||0)+(parseFloat(e.ww?.['ww-yardsign-labor'])||0)+(parseFloat(e.ww?.['ww-yardsign-labor-tax'])||0),0);
-  let totalDoorSpend   = entries.reduce((s,e)=>s+(parseFloat(e.ww?.['ww-doorhanger-spend'])||0)+(parseFloat(e.ww?.['ww-doorhanger-labor'])||0)+(parseFloat(e.ww?.['ww-doorhanger-labor-tax'])||0),0);
+  let totalMetaSpend   = sum('ww-meta-spend');
+  let totalGoogleSpend = sum('ww-google-spend');
+  let totalLsaSpend    = sum('ww-lsa-spend');
+  let totalYardSpend   = sum('ww-yardsign-spend') + sum('ww-yardsign-labor') + sum('ww-yardsign-labor-tax');
+  let totalDoorSpend   = sum('ww-doorhanger-spend') + sum('ww-doorhanger-labor') + sum('ww-doorhanger-labor-tax');
   let totalMetaLeads   = sum('metaLeads');
   let totalGoogleLeads = sum('googleLeads'); let totalGoogleClicks = sum('googleClicks');
   let totalLsaLeads    = sum('lsaLeads');
@@ -2762,7 +2769,7 @@ function renderMonthly() {
   }
 
   // Full line-item aggregates
-  const sumLine = key => entries.reduce((s,e)=>s+(parseFloat(e.ww?.[key])||0),0);
+  const sumLine = key => sum(key);
   let tPayroll=sumLine('ww-payroll'), tWorkersComp=sumLine('ww-workers-comp'), tPayrollTax=sumLine('ww-payroll-tax'), tSubcontractors=sumLine('ww-subcontractors');
   let tGas=sumLine('ww-gas'), tChemicals=sumLine('ww-chemicals'), tSupplies=sumLine('ww-supplies');
   let tAgency=sumLine('ww-mktg-agency'), tPrinted=sumLine('ww-printed');
@@ -2814,10 +2821,13 @@ function renderMonthly() {
   // Adding it to totalSold would double-count the same sales.
   const totalSoldRev = totalSold;
   const weeks = entries.length;
-  const techMetricComplete = !partialData && entries.every(e => e.ww && Object.prototype.hasOwnProperty.call(e.ww,'techRevenue'));
+  const techMetricComplete = !partialData && !incomingPartial && entries.every(e => e.ww && Object.prototype.hasOwnProperty.call(e.ww,'techRevenue'));
   const totalTechRevenue = entries.reduce((s,e)=>s+(parseFloat(e.ww?.techRevenue)||0),0);
   const totalTechManHours = entries.reduce((s,e)=>s+((parseFloat(e.ww?.techCount)||0)*(parseFloat(e.ww?.techHours)||0)),0);
   const avgActiveTechs = weeks>0 ? tTechCount/weeks : 0;
+  const incomingDays = incomingPartial && incomingBoundary ? Number(incomingBoundary.daysInMonth || 0) : 0;
+  const outgoingDays = partialData && partial ? Number(partial.daysInMonth || 0) : 0;
+  const weekEquivalents = Math.max(0, weeks - (incomingDays/7) + (outgoingDays/7));
   const revPerTechHour = techMetricComplete && totalTechManHours > 0 ? totalTechRevenue / totalTechManHours : 0;
 
   // Ghudzy aggregates
@@ -2858,7 +2868,7 @@ function renderMonthly() {
 
   const PICONS = {instagram:'📸',tiktok:'🎵',facebook:'👤',snapchat:'👻',youtube:'▶️'};
 
-  html += `<h2 style="margin:0 0 16px;font-size:20px;">${monthName} — ${weeks} week${weeks!==1?'s':''}</h2>`;
+  html += `<h2 style="margin:0 0 16px;font-size:20px;">${monthName} — ${weeks} saved week${weeks!==1?'s':''}</h2>`;
 
   // Partial week banner
   const editMode = window._monthlyEditMode === selected;
@@ -3077,8 +3087,8 @@ function renderMonthly() {
       ${sb('Mktg % of Rev',pct(totalMktg,totalRev))}
       ${sb('5-Star Reviews','⭐ '+$n(totalReviews))}
       ${sb('Callbacks',$n(totalCallbacks))}
-      ${sb('Avg Rev/Week',weeks>0?$m(totalRev/weeks):'—')}
-      ${sb('Avg Jobs/Week',weeks>0?(totalJobs/weeks).toFixed(1):'—')}
+      ${sb('Avg Rev/Week',weekEquivalents>0?$m(totalRev/weekEquivalents):'—')}
+      ${sb('Avg Jobs/Week',weekEquivalents>0?(totalJobs/weekEquivalents).toFixed(1):'—')}
       ${avgActiveTechs>0?sb('Avg Active Techs',avgActiveTechs.toFixed(1)):''}
       ${techMetricComplete && totalTechManHours>0?sb('Tech Man-Hours',totalTechManHours.toFixed(1)+'h'):''}
       ${revPerTechHour>0?sb('Rev / Tech Hour','$'+(revPerTechHour).toFixed(2),revPerTechHour>=125?'var(--green)':'var(--orange)'):''}
