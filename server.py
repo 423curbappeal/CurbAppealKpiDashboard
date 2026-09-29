@@ -3051,7 +3051,7 @@ class Handler(SimpleHTTPRequestHandler):
                 production_jobs=[job for job in completed_jobs if not hcp_is_callback(job)]
                 revenue=sum(hcp_money_to_dollars(job.get("total_amount")) for job in production_jobs)
                 revenue_split=hcp_split_completed_revenue(production_jobs)
-                repeat_customers=hcp_repeat_customer_count(production_jobs, start)
+                repeat_metrics=hcp_repeat_customer_metrics(production_jobs, start)
                 # Include callback labor in tech hours so rework lowers revenue/hour instead of adding duplicate revenue.
                 tech_metrics=hcp_job_tech_metrics(completed_jobs)
                 review_count, review_records_total = review_count_for_week(start,end)
@@ -3075,8 +3075,9 @@ class Handler(SimpleHTTPRequestHandler):
                     "revenue_residential":round(revenue_split["residential"],2),
                     "revenue_commercial":round(revenue_split["commercial"],2),
                     "revenue_unclassified":round(revenue_split["unknown"],2),
-                    "repeat_customers":repeat_customers,
-                    "repeat_customer_pct":round((repeat_customers / len(production_jobs) * 100.0),1) if production_jobs else 0.0,
+                    "repeat_customers":repeat_metrics["repeat_customers"],
+                    "customers_served":repeat_metrics["customers_served"],
+                    "repeat_customer_pct":repeat_metrics["repeat_customer_pct"],
                     "callbacks":callbacks,
                     "five_star_reviews":review_metrics["five_star_reviews"],
                     "reviews_available":review_metrics["available"],
@@ -3084,15 +3085,16 @@ class Handler(SimpleHTTPRequestHandler):
                     "reviews_json_payloads_found":review_metrics["json_payloads_found"],
                     "reviews_widget_html_bytes":review_metrics["widget_html_bytes"],
                     "tech_count":tech_metrics["tech_count"],
+                    "tech_revenue":tech_metrics["tech_revenue"],
                     "total_tech_hours":tech_metrics["total_tech_hours"],
                     "hours_per_tech":tech_metrics["hours_per_tech"],
-                    "tech_rev_per_hour":round((revenue / tech_metrics["total_tech_hours"]),2) if tech_metrics["total_tech_hours"] else 0.0,
+                    "tech_rev_per_hour":tech_metrics["tech_rev_per_hour"],
                     "tech_time_actual_jobs":tech_metrics["actual_time_jobs"],
                     "tech_time_scheduled_fallback_jobs":tech_metrics["scheduled_fallback_jobs"],
                     "tech_time_untracked_jobs":tech_metrics["untracked_jobs"],
                     "sold_revenue":round(sold_revenue,2),
                     "jobs_sold":len(won_estimates),
-                    "scope_note":"Revenue/jobs completed use the actual HCP completion timestamp and exclude callback/rework appointments so prior revenue is not counted twice. Residential vs commercial and repeat-customer metrics use non-callback production jobs. Callbacks are counted separately. Tech hours still include callback labor so revenue/hour reflects rework cost. Sold revenue/jobs sold use approved Housecall Pro estimates created within the selected week."
+                    "scope_note":"Revenue/jobs completed use Housecall Pro completion timestamps converted to the business timezone and exclude callback/rework appointments. Residential vs commercial uses non-callback production jobs. Repeat Customer % is repeat unique customers divided by unique customers served. Technician productivity excludes owner/helper assignments and owner-only revenue; callback labor remains in tech hours. Sold revenue/jobs sold are approved estimates created within the selected week (an estimate cohort, not an approval-date metric)."
                 })
             except urllib.error.HTTPError as e:
                 try: detail=json.loads(e.read().decode("utf-8"))
