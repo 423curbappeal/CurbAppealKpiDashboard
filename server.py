@@ -17,6 +17,17 @@ QB_WEBHOOK_SECRET = os.getenv("QB_WEBHOOK_SECRET", REVIEWS_WEBHOOK_SECRET).strip
 QB_EXPENSE_DATA_PATH = os.getenv("QB_EXPENSE_DATA_PATH", "/data/qb_expenses.json").strip() or "/data/qb_expenses.json"
 BUSINESS_TIMEZONE = os.getenv("BUSINESS_TIMEZONE", "America/New_York").strip() or "America/New_York"
 BUSINESS_TZ = ZoneInfo(BUSINESS_TIMEZONE)
+WEEKLY_REVENUE_GOAL = float(os.getenv("WEEKLY_REVENUE_GOAL", "6000") or 6000)
+_RUNTIME_CACHE = {}
+
+def cached_runtime(key, ttl_seconds, loader):
+    now=time.time()
+    item=_RUNTIME_CACHE.get(key)
+    if item and (now-item.get("ts",0)) < ttl_seconds:
+        return item.get("value")
+    value=loader()
+    _RUNTIME_CACHE[key]={"ts":now,"value":value}
+    return value
 
 def graph(path, params=None, access_token=None):
     params = dict(params or {})
@@ -295,6 +306,117 @@ def hcp_operations_brief():
             "due_next7_amount":round(sum(float(x.get("due_amount") or 0) for x in due_next7),2),
             "largest_overdue":overdue[:6]
         }
+    }
+
+def needs_attention_snapshot():
+    ops=cached_runtime("hcp_operations_brief", 60, hcp_operations_brief)
+    pipe=cached_runtime("hcp_estimate_pipeline", 90, hcp_estimate_pipeline_snapshot)
+
+    alerts=[]
+    ar=ops.get("ar") or {}
+    next7=ops.get("next7") or {}
+    open_pipe=pipe.get("open_pipeline") or {}
+    aging=open_pipe.get("aging") or {}
+    recent=pipe.get("recent") or {}
+
+    overdue_amount=float(ar.get("overdue_amount") or 0)
+    overdue_count=int(ar.get("overdue_count") or 0)
+    if overdue_count > 0:
+        alerts.append({
+            "severity":"critical",
+            "icon":"💸",
+            "title":f"{overdue_count} overdue invoice" + ("" if overdue_count==1 else "s"),
+            "detail":f"${overdue_amount:,.2f} is past due and should be collected.",
+            "metric":round(overdue_amount,2),
+            "key":"overdue_ar"
+        })
+    else:
+        alerts.append({
+            "severity":"good","icon":"✅","title":"No overdue invoices",
+            "detail":"Accounts receivable is current.","metric":0,"key":"overdue_ar"
+        })
+
+    stale_count=sum(int((aging.get(k) or {}).get("count") or 0) for k in ("8_14","15_30","31_plus"))
+    stale_value=sum(float((aging.get(k) or {}).get("value") or 0) for k in ("8_14","15_30","31_plus"))
+    if stale_count > 0:
+        alerts.append({
+            "severity":"critical",
+            "icon":"📋",
+            "title":f"{stale_count} estimates open 8+ days",
+            "detail":f"${stale_value:,.2f} of old pipeline needs follow-up.",
+            "metric":round(stale_value,2),
+            "key":"stale_estimates"
+        })
+
+    warm_count=int((aging.get("4_7") or {}).get("count") or 0)
+    warm_value=float((aging.get("4_7") or {}).get("value") or 0)
+    if warm_count > 0:
+        alerts.append({
+            "severity":"warning",
+            "icon":"⏰",
+            "title":f"{warm_count} estimates are 4–7 days old",
+            "detail":f"${warm_value:,.2f} should be touched before it gets stale.",
+            "metric":round(warm_value,2),
+            "key":"warm_estimates"
+        })
+
+    booked=float(next7.get("revenue") or 0)
+    goal=max(0.0,float(WEEKLY_REVENUE_GOAL or 0))
+    if goal > 0:
+        pct=(booked/goal)*100.0
+        gap=max(0.0,goal-booked)
+        if pct < 60:
+            severity="critical"
+            icon="📉"
+            title="Next 7 days are underbooked"
+            detail=f"${booked:,.2f} booked vs ${goal:,.0f} goal — ${gap:,.2f} gap."
+        elif pct < 85:
+            severity="warning"
+            icon="📅"
+            title="Booking pace needs attention"
+            detail=f"${booked:,.2f} booked vs ${goal:,.0f} goal — ${gap:,.2f} gap."
+        else:
+            severity="good"
+            icon="✅"
+            title="Next 7 days are on pace"
+            detail=f"${booked:,.2f} booked against the ${goal:,.0f} weekly goal."
+        alerts.append({
+            "severity":severity,"icon":icon,"title":title,"detail":detail,
+            "metric":round(booked,2),"percent":round(pct,1),"key":"booking_pace"
+        })
+
+    close_rate=float(recent.get("close_rate") or 0)
+    decided=int(recent.get("won_count") or 0)+int(recent.get("lost_count") or 0)
+    if decided >= 5:
+        if close_rate < 50:
+            alerts.append({
+                "severity":"warning","icon":"🎯","title":"Estimate close rate is below 50%",
+                "detail":f"30-day close rate is {close_rate:.1f}% across {decided} decided estimates.",
+                "metric":round(close_rate,1),"key":"close_rate"
+            })
+        elif close_rate >= 65:
+            alerts.append({
+                "severity":"good","icon":"✅","title":"Estimate close rate is strong",
+                "detail":f"30-day close rate is {close_rate:.1f}% across {decided} decided estimates.",
+                "metric":round(close_rate,1),"key":"close_rate"
+            })
+
+    order={"critical":0,"warning":1,"good":2,"info":3}
+    alerts.sort(key=lambda a:order.get(a.get("severity"),9))
+    critical=sum(1 for a in alerts if a.get("severity")=="critical")
+    warning=sum(1 for a in alerts if a.get("severity")=="warning")
+
+    return {
+        "ok":True,
+        "as_of":datetime.now(BUSINESS_TZ).isoformat(),
+        "weekly_revenue_goal":round(goal,2),
+        "summary":{
+            "critical":critical,
+            "warning":warning,
+            "attention_count":critical+warning,
+            "good":sum(1 for a in alerts if a.get("severity")=="good")
+        },
+        "alerts":alerts
     }
 
 def hcp_estimate_status_text(estimate):
@@ -1324,11 +1446,22 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.send_json(200,{"ok":True,"samples":samples})
             except Exception as e:
                 return self.send_json(400,{"ok":False,"error":str(e)})
+        if parsed.path == "/api/needs-attention":
+            try:
+                if not HCP_API_KEY:
+                    return self.send_json(503, {"ok":False,"error":"Housecall Pro is not configured. Add HCP_API_KEY in Railway Variables."})
+                return self.send_json(200,needs_attention_snapshot())
+            except urllib.error.HTTPError as e:
+                try: detail=json.loads(e.read().decode("utf-8"))
+                except Exception: detail={"message":str(e)}
+                return self.send_json(502, {"ok":False,"error":"Needs Attention data request failed","detail":detail})
+            except Exception as e:
+                return self.send_json(400, {"ok":False,"error":str(e)})
         if parsed.path == "/api/hcp-operations-brief":
             try:
                 if not HCP_API_KEY:
                     return self.send_json(503, {"ok":False,"error":"Housecall Pro is not configured. Add HCP_API_KEY in Railway Variables."})
-                return self.send_json(200,hcp_operations_brief())
+                return self.send_json(200,cached_runtime("hcp_operations_brief",60,hcp_operations_brief))
             except urllib.error.HTTPError as e:
                 try: detail=json.loads(e.read().decode("utf-8"))
                 except Exception: detail={"message":str(e)}
@@ -1339,7 +1472,7 @@ class Handler(SimpleHTTPRequestHandler):
             try:
                 if not HCP_API_KEY:
                     return self.send_json(503, {"ok":False,"error":"Housecall Pro is not configured. Add HCP_API_KEY in Railway Variables."})
-                snapshot=hcp_estimate_pipeline_snapshot()
+                snapshot=cached_runtime("hcp_estimate_pipeline",90,hcp_estimate_pipeline_snapshot)
                 return self.send_json(200,snapshot)
             except urllib.error.HTTPError as e:
                 try: detail=json.loads(e.read().decode("utf-8"))
