@@ -22,6 +22,8 @@ GHL_API_TOKEN = os.getenv("GHL_API_TOKEN", "").strip()
 GHL_LOCATION_ID = os.getenv("GHL_LOCATION_ID", "").strip()
 GHL_API_BASE = "https://services.leadconnectorhq.com"
 GHL_API_VERSION = os.getenv("GHL_API_VERSION", "v3").strip() or "v3"
+GHL_HANDOFF_WARNING_MINUTES = int(os.getenv("GHL_HANDOFF_WARNING_MINUTES", "120") or 120)
+HCP_ESTIMATE_WARNING_HOURS = int(os.getenv("HCP_ESTIMATE_WARNING_HOURS", "24") or 24)
 _RUNTIME_CACHE = {}
 
 def cached_runtime(key, ttl_seconds, loader):
@@ -255,6 +257,264 @@ def ghl_lead_response_snapshot(lookback_days=7,max_conversations=60):
         },
         "waiting":waiting[:15],
         "scope_note":"Tracks recent HighLevel conversations with inbound activity. First-response time counts manual outbound replies and excludes workflow/campaign/API automation."
+    }
+
+def ghl_get_version(path,params=None,version=None):
+    if not GHL_API_TOKEN or not GHL_LOCATION_ID:
+        raise RuntimeError("HighLevel is not configured. Add GHL_API_TOKEN and GHL_LOCATION_ID in Railway Variables.")
+    query=urllib.parse.urlencode(params or {},doseq=True)
+    url=GHL_API_BASE + "/" + path.lstrip("/")
+    if query:
+        url += "?" + query
+    req=urllib.request.Request(
+        url,
+        headers={
+            "Authorization":"Bearer " + GHL_API_TOKEN,
+            "Accept":"application/json",
+            "Version":version or GHL_API_VERSION,
+            "User-Agent":"CurbAppealKPIDashboard/1.0"
+        }
+    )
+    with urllib.request.urlopen(req,timeout=30) as r:
+        return json.loads(r.read().decode("utf-8"))
+
+def normalize_email(value):
+    return str(value or "").strip().lower()
+
+def normalize_phone(value):
+    digits="".join(ch for ch in str(value or "") if ch.isdigit())
+    if len(digits)==11 and digits.startswith("1"):
+        digits=digits[1:]
+    return digits
+
+def extract_emails(obj):
+    out=set()
+    if not isinstance(obj,dict):
+        return out
+    for key in ("email","email_address","emailAddress"):
+        value=normalize_email(obj.get(key))
+        if value:
+            out.add(value)
+    for key in ("emails","additional_emails","additionalEmails"):
+        values=obj.get(key) or []
+        if isinstance(values,dict): values=list(values.values())
+        if not isinstance(values,list): values=[values]
+        for item in values:
+            if isinstance(item,dict):
+                value=normalize_email(item.get("email") or item.get("value") or item.get("address"))
+            else:
+                value=normalize_email(item)
+            if value: out.add(value)
+    return out
+
+def extract_phones(obj):
+    out=set()
+    if not isinstance(obj,dict):
+        return out
+    for key in ("phone","mobile_number","mobileNumber","home_number","homeNumber","work_number","workNumber"):
+        value=normalize_phone(obj.get(key))
+        if value:
+            out.add(value)
+    for key in ("phones","phone_numbers","phoneNumbers","additional_phones","additionalPhones"):
+        values=obj.get(key) or []
+        if isinstance(values,dict): values=list(values.values())
+        if not isinstance(values,list): values=[values]
+        for item in values:
+            if isinstance(item,dict):
+                value=normalize_phone(item.get("phone") or item.get("number") or item.get("value"))
+            else:
+                value=normalize_phone(item)
+            if value: out.add(value)
+    return out
+
+def ghl_recent_leads(lookback_days=7,max_contacts=250):
+    now=datetime.now(timezone.utc)
+    cutoff=now-timedelta(days=max(1,int(lookback_days)))
+    contacts=[]
+    start_after=None
+    start_after_id=None
+    pages=0
+    while len(contacts)<max_contacts and pages<8:
+        params={"locationId":GHL_LOCATION_ID,"limit":100}
+        if start_after is not None: params["startAfter"]=start_after
+        if start_after_id: params["startAfterId"]=start_after_id
+        data=ghl_get_version("contacts/",params,version="2023-02-21")
+        batch=data.get("contacts") or data.get("data") or []
+        if not batch:
+            break
+        pages += 1
+        saw_older=False
+        for c in batch:
+            if not isinstance(c,dict): continue
+            added=ghl_parse_datetime(c.get("dateAdded") or c.get("createdAt") or c.get("date_added"))
+            if not added: continue
+            if added < cutoff:
+                saw_older=True
+                continue
+            phones=extract_phones(c)
+            emails=extract_emails(c)
+            if not phones and not emails:
+                continue
+            c2=dict(c)
+            c2["_added_dt"]=added
+            contacts.append(c2)
+        last=batch[-1] if batch else {}
+        last_added=ghl_parse_datetime(last.get("dateAdded") or last.get("createdAt") or last.get("date_added"))
+        start_after=int(last_added.timestamp()*1000) if last_added else None
+        start_after_id=last.get("id")
+        if saw_older or start_after is None or not start_after_id:
+            break
+    contacts.sort(key=lambda c:c.get("_added_dt") or datetime.min.replace(tzinfo=timezone.utc),reverse=True)
+    return contacts[:max_contacts]
+
+def hcp_customer_index(max_pages=25):
+    by_email={}
+    by_phone={}
+    customers={}
+    page=1
+    while page<=max_pages:
+        data=hcp_get("customers",{"page":page,"page_size":100})
+        batch=data.get("customers") or data.get("data") or []
+        if not batch: break
+        for customer in batch:
+            if not isinstance(customer,dict): continue
+            cid=str(customer.get("id") or "")
+            if not cid: continue
+            customers[cid]=customer
+            for email in extract_emails(customer): by_email.setdefault(email,cid)
+            for phone in extract_phones(customer): by_phone.setdefault(phone,cid)
+        total_pages=int(data.get("total_pages") or 1)
+        if page>=total_pages: break
+        page += 1
+    return {"customers":customers,"by_email":by_email,"by_phone":by_phone}
+
+def hcp_match_customer(lead,index):
+    email_matches=[]
+    phone_matches=[]
+    for email in extract_emails(lead):
+        cid=index["by_email"].get(email)
+        if cid: email_matches.append(cid)
+    for phone in extract_phones(lead):
+        cid=index["by_phone"].get(phone)
+        if cid: phone_matches.append(cid)
+    matches=list(dict.fromkeys(email_matches+phone_matches))
+    if not matches:
+        return None,None
+    if len(set(email_matches) | set(phone_matches))>1:
+        return None,"ambiguous"
+    cid=matches[0]
+    return index["customers"].get(cid),("email" if cid in email_matches else "phone")
+
+def hcp_estimate_index(start,end):
+    estimates=hcp_list_estimates_for_week(start,end)
+    by_customer={}
+    for estimate in estimates:
+        cid=hcp_customer_id_from_obj(estimate)
+        if not cid: continue
+        by_customer.setdefault(str(cid),[]).append(estimate)
+    for rows in by_customer.values():
+        rows.sort(key=lambda e:hcp_parse_datetime(e.get("created_at")) or datetime.min.replace(tzinfo=timezone.utc))
+    return by_customer
+
+def lead_handoff_snapshot(lookback_days=7):
+    now=datetime.now(timezone.utc)
+    cutoff=now-timedelta(days=max(1,int(lookback_days)))
+    leads=ghl_recent_leads(lookback_days=lookback_days)
+    customer_index=cached_runtime("hcp_customer_index",300,hcp_customer_index)
+    estimates=hcp_estimate_index(cutoff.date(),datetime.now(BUSINESS_TZ).date())
+
+    rows=[]
+    matched=0
+    estimated=0
+    handoff_gaps=0
+    estimate_gaps=0
+    ambiguous=0
+
+    for lead in leads:
+        added=lead.get("_added_dt")
+        customer,match_method=hcp_match_customer(lead,customer_index)
+        source=str(lead.get("source") or "").strip()
+        name=str(lead.get("contactName") or lead.get("name") or lead.get("fullName") or "").strip()
+        if not name:
+            first=str(lead.get("firstName") or "").strip()
+            last=str(lead.get("lastName") or "").strip()
+            name=(first+" "+last).strip() or "Lead"
+        age_minutes=max(0.0,(now-added).total_seconds()/60.0) if added else 0.0
+        stage="ghl_only"
+        estimate=None
+        estimate_age_hours=None
+
+        if match_method=="ambiguous":
+            ambiguous += 1
+            stage="ambiguous"
+        elif customer:
+            matched += 1
+            cid=str(customer.get("id") or "")
+            candidate_estimates=estimates.get(cid) or []
+            after=[e for e in candidate_estimates if (hcp_parse_datetime(e.get("created_at")) or datetime.min.replace(tzinfo=timezone.utc)) >= (added or datetime.min.replace(tzinfo=timezone.utc))]
+            if after:
+                estimate=after[0]
+                estimated += 1
+                stage="estimated"
+            else:
+                stage="in_hcp"
+                if added:
+                    estimate_age_hours=max(0.0,(now-added).total_seconds()/3600.0)
+
+        needs_attention=False
+        reason=None
+        if stage=="ghl_only" and age_minutes>=GHL_HANDOFF_WARNING_MINUTES:
+            handoff_gaps += 1
+            needs_attention=True
+            reason="No exact HCP customer match yet"
+        elif stage=="in_hcp" and estimate_age_hours is not None and estimate_age_hours>=HCP_ESTIMATE_WARNING_HOURS:
+            estimate_gaps += 1
+            needs_attention=True
+            reason="Matched in HCP but no estimate found after lead creation"
+        elif stage=="ambiguous":
+            needs_attention=True
+            reason="Multiple HCP customers matched this lead; review manually"
+
+        estimate_value=hcp_estimate_pipeline_value(estimate) if estimate else 0.0
+        rows.append({
+            "lead_id":lead.get("id"),
+            "name":name,
+            "source":source or "Unknown",
+            "created_at":added.isoformat() if added else None,
+            "age_minutes":round(age_minutes,1),
+            "stage":stage,
+            "match_method":match_method,
+            "hcp_customer_id":customer.get("id") if isinstance(customer,dict) else None,
+            "estimate_id":estimate.get("id") if isinstance(estimate,dict) else None,
+            "estimate_value":round(float(estimate_value or 0),2),
+            "needs_attention":needs_attention,
+            "attention_reason":reason
+        })
+
+    priority={"ambiguous":0,"ghl_only":1,"in_hcp":2,"estimated":3}
+    rows.sort(key=lambda r:(0 if r.get("needs_attention") else 1,priority.get(r.get("stage"),9),-float(r.get("age_minutes") or 0)))
+    total=len(rows)
+    return {
+        "ok":True,
+        "as_of":now.isoformat(),
+        "lookback_days":lookback_days,
+        "thresholds":{
+            "hcp_handoff_minutes":GHL_HANDOFF_WARNING_MINUTES,
+            "estimate_hours":HCP_ESTIMATE_WARNING_HOURS
+        },
+        "summary":{
+            "ghl_leads":total,
+            "matched_hcp_customers":matched,
+            "estimates_found":estimated,
+            "handoff_rate":round((matched/total*100.0),1) if total else 0.0,
+            "estimate_rate_after_match":round((estimated/matched*100.0),1) if matched else 0.0,
+            "handoff_gaps":handoff_gaps,
+            "estimate_gaps":estimate_gaps,
+            "ambiguous_matches":ambiguous,
+            "needs_attention":sum(1 for r in rows if r.get("needs_attention"))
+        },
+        "rows":rows[:40],
+        "scope_note":"Matches HighLevel leads to Housecall Pro by exact normalized phone or email only. Names are never fuzzy-matched. HCP becomes the source of truth after handoff."
     }
 
 def hcp_get(path, params=None):
@@ -2130,6 +2390,19 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.send_json(502, {"ok":False,"error":"Housecall Pro API request failed","detail":detail})
             except Exception as e:
                 return self.send_json(400, {"ok":False,"error":str(e)})
+        if parsed.path == "/api/lead-handoff":
+            try:
+                if not GHL_API_TOKEN or not GHL_LOCATION_ID:
+                    return self.send_json(503,{"ok":False,"configured":False,"error":"HighLevel is not configured. Add GHL_API_TOKEN and GHL_LOCATION_ID in Railway Variables."})
+                if not HCP_API_KEY:
+                    return self.send_json(503,{"ok":False,"configured":False,"error":"Housecall Pro is not configured."})
+                return self.send_json(200,cached_runtime("lead_handoff",90,lead_handoff_snapshot))
+            except urllib.error.HTTPError as e:
+                try: detail=json.loads(e.read().decode("utf-8"))
+                except Exception: detail={"message":str(e)}
+                return self.send_json(502,{"ok":False,"configured":True,"error":"Lead handoff data request failed","detail":detail})
+            except Exception as e:
+                return self.send_json(400,{"ok":False,"configured":True,"error":str(e)})
         if parsed.path == "/api/ghl-lead-response":
             try:
                 if not GHL_API_TOKEN or not GHL_LOCATION_ID:
