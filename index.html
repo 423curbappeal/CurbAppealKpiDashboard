@@ -1276,6 +1276,21 @@
     <div id="hcp-pipeline-followups" style="display:grid;gap:7px;"></div>
   </div>
 
+  <!-- Automated Technician Scorecards -->
+  <div id="tech-scorecards-card" style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:20px;margin-bottom:20px;">
+    <div style="display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-bottom:14px;">
+      <div>
+        <div style="font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:0.8px;">👷 Technician Scorecards · Auto</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px;">Live from Housecall Pro for the selected week · revenue, hours, productivity, callbacks, and estimated field commission</div>
+      </div>
+      <button class="btn btn-ghost btn-sm" id="tech-scorecards-refresh" type="button">↻ Refresh</button>
+    </div>
+    <div id="tech-scorecards-status" style="font-size:12px;color:var(--muted);margin-bottom:12px;">Loading technician performance…</div>
+    <div id="tech-scorecards-summary" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px;margin-bottom:14px;"></div>
+    <div id="tech-scorecards-list" style="display:grid;gap:10px;"></div>
+    <div id="tech-scorecards-note" style="font-size:10px;color:var(--muted);margin-top:10px;line-height:1.4;"></div>
+  </div>
+
   <!-- Callbacks & Reviews -->
   <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:20px;">
     <div style="flex:1;min-width:160px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;">
@@ -3871,6 +3886,124 @@ function clearMonthlyPartial(ym) {
   }
 
   setInterval(loadPipeline,15*60*1000);
+})();
+</script>
+<script>
+(function () {
+  const card=document.getElementById('tech-scorecards-card');
+  if (!card) return;
+  const refresh=document.getElementById('tech-scorecards-refresh');
+  const status=document.getElementById('tech-scorecards-status');
+  const summary=document.getElementById('tech-scorecards-summary');
+  const list=document.getElementById('tech-scorecards-list');
+  const note=document.getElementById('tech-scorecards-note');
+  const money=(n) => '$'+Number(n || 0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+
+  function selectedWeek() {
+    const el=document.getElementById('entry-date');
+    return el && el.value ? el.value : '';
+  }
+
+  function metric(label,value,color) {
+    const el=document.createElement('div');
+    el.style.cssText='background:var(--surface2);border-radius:10px;padding:11px;';
+    const l=document.createElement('div');
+    l.style.cssText='font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.45px;';
+    l.textContent=label;
+    const v=document.createElement('div');
+    v.style.cssText='font-size:17px;font-weight:800;margin-top:3px;'+(color ? 'color:'+color+';' : '');
+    v.textContent=value;
+    el.appendChild(l); el.appendChild(v);
+    return el;
+  }
+
+  function render(data) {
+    summary.innerHTML='';
+    const techs=Array.isArray(data.technicians) ? data.technicians : [];
+    const totalCommission=techs.reduce((sum,t) => sum+Number(t.estimated_commission || 0),0);
+    const totalHours=techs.reduce((sum,t) => sum+Number(t.hours || 0),0);
+    const totalServiced=techs.reduce((sum,t) => sum+Number(t.revenue_serviced || 0),0);
+    summary.appendChild(metric('Technicians',String(techs.length),'var(--blue)'));
+    summary.appendChild(metric('Completed jobs',String(Number(data.jobs_completed || 0)),'var(--green)'));
+    summary.appendChild(metric('Tracked tech hours',Number(totalHours).toFixed(1)+'h',null));
+    summary.appendChild(metric('Est. field commission',money(totalCommission),'var(--orange)'));
+
+    list.innerHTML='';
+    if (!techs.length) {
+      list.innerHTML='<div style="font-size:12px;color:var(--muted);padding:8px 0;">No assigned technician activity found for this week.</div>';
+    } else {
+      techs.forEach(t => {
+        const wrap=document.createElement('div');
+        wrap.style.cssText='border:1px solid var(--border);background:var(--surface2);border-radius:12px;padding:13px;';
+
+        const head=document.createElement('div');
+        head.style.cssText='display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px;';
+        const name=document.createElement('div');
+        name.style.cssText='font-size:14px;font-weight:800;color:var(--text);';
+        name.textContent=t.name || 'Technician';
+        const mix=document.createElement('div');
+        mix.style.cssText='font-size:10px;color:var(--muted);font-weight:700;';
+        mix.textContent=Number(t.solo_jobs || 0)+' solo · '+Number(t.team_jobs || 0)+' team';
+        head.appendChild(name); head.appendChild(mix);
+
+        const grid=document.createElement('div');
+        grid.style.cssText='display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;';
+        grid.appendChild(metric('Jobs',String(Number(t.jobs_completed || 0)),null));
+        grid.appendChild(metric('Revenue serviced',money(t.revenue_serviced),'var(--green)'));
+        grid.appendChild(metric('Hours',Number(t.hours || 0).toFixed(2)+'h',null));
+        grid.appendChild(metric('Rev / hour',money(t.revenue_per_hour),'var(--blue)'));
+        grid.appendChild(metric('Avg ticket',money(t.avg_ticket),null));
+        grid.appendChild(metric('Callbacks',String(Number(t.callbacks || 0)),Number(t.callbacks || 0)>0 ? 'var(--orange)' : 'var(--green)'));
+        grid.appendChild(metric('Est. commission',money(t.estimated_commission),'var(--orange)'));
+
+        if (Number(t.untracked_time_jobs || 0) > 0 || Number(t.commission_unmodeled_jobs || 0) > 0) {
+          const warning=document.createElement('div');
+          warning.style.cssText='font-size:10px;color:var(--orange);margin-top:8px;line-height:1.4;';
+          const parts=[];
+          if (Number(t.untracked_time_jobs || 0)>0) parts.push(Number(t.untracked_time_jobs)+' job(s) missing usable time');
+          if (Number(t.commission_unmodeled_jobs || 0)>0) parts.push(Number(t.commission_unmodeled_jobs)+' job(s) with 3+ assigned techs excluded from commission estimate');
+          warning.textContent='⚠️ '+parts.join(' · ');
+          wrap.appendChild(head); wrap.appendChild(grid); wrap.appendChild(warning);
+        } else {
+          wrap.appendChild(head); wrap.appendChild(grid);
+        }
+        list.appendChild(wrap);
+      });
+    }
+    note.textContent=(data.commission_note || '') + (Number(data.jobs_without_assignments || 0)>0 ? ' ⚠️ '+Number(data.jobs_without_assignments)+' completed job(s) had no assigned technician and are excluded from individual scorecards.' : '');
+  }
+
+  async function load() {
+    const week=selectedWeek();
+    if (!week) {
+      status.textContent='Select a week-ending date first.';
+      return;
+    }
+    if (refresh) { refresh.disabled=true; refresh.textContent='Loading…'; }
+    status.textContent='Pulling technician performance from Housecall Pro…';
+    try {
+      const res=await fetch('/api/hcp-tech-scorecards?week_ending='+encodeURIComponent(week),{cache:'no-store'});
+      const data=await res.json();
+      if (!res.ok || !data.ok) {
+        const detail=data && data.detail ? JSON.stringify(data.detail) : '';
+        throw new Error((data.error || 'Technician scorecard request failed')+(detail ? ': '+detail : ''));
+      }
+      render(data);
+      status.textContent=data.week_start+' → '+data.week_ending+' · updated '+new Date().toLocaleTimeString([], {hour:'numeric',minute:'2-digit'});
+    } catch (err) {
+      summary.innerHTML=''; list.innerHTML=''; note.textContent='';
+      status.textContent='Technician scorecards failed: '+((err && err.message) ? err.message : String(err));
+    } finally {
+      if (refresh) { refresh.disabled=false; refresh.textContent='↻ Refresh'; }
+    }
+  }
+
+  if (refresh) refresh.addEventListener('click',load);
+  const date=document.getElementById('entry-date');
+  if (date) date.addEventListener('change',() => setTimeout(load,100));
+  if (document.readyState==='loading') document.addEventListener('DOMContentLoaded',() => setTimeout(load,650));
+  else setTimeout(load,650);
+  setInterval(load,15*60*1000);
 })();
 </script>
 <script>
