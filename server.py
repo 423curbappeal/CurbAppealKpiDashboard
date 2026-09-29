@@ -894,6 +894,144 @@ def hcp_assigned_employee_ids(job):
                 out.append(str(employee))
     return out
 
+def hcp_employee_directory():
+    key="hcp_employee_directory"
+    def loader():
+        data=hcp_get("employees", {"page":1,"page_size":100})
+        employees=data.get("employees") or data.get("data") or []
+        out={}
+        for emp in employees:
+            if not isinstance(emp,dict) or not emp.get("id"):
+                continue
+            first=str(emp.get("first_name") or emp.get("firstName") or "").strip()
+            last=str(emp.get("last_name") or emp.get("lastName") or "").strip()
+            name=(first+" "+last).strip()
+            if not name:
+                name=str(emp.get("name") or emp.get("display_name") or emp.get("displayName") or ("Employee "+str(emp.get("id"))[-6:])).strip()
+            out[str(emp.get("id"))]={
+                "id":str(emp.get("id")),
+                "name":name,
+                "role":str(emp.get("role") or emp.get("employee_type") or emp.get("employeeType") or "").strip()
+            }
+        return out
+    try:
+        return cached_runtime(key,600,loader) or {}
+    except Exception:
+        return {}
+
+def hcp_job_duration_hours(job):
+    if not isinstance(job,dict):
+        return None,"untracked"
+    timestamps=job.get("work_timestamps") or {}
+    started=hcp_parse_datetime(timestamps.get("started_at"))
+    completed=hcp_parse_datetime(timestamps.get("completed_at"))
+    if started and completed and completed > started:
+        candidate=(completed-started).total_seconds()/3600.0
+        if 0 < candidate <= 24:
+            return candidate,"actual"
+    schedule=job.get("schedule") or {}
+    scheduled_start=hcp_parse_datetime(schedule.get("scheduled_start"))
+    scheduled_end=hcp_parse_datetime(schedule.get("scheduled_end"))
+    if scheduled_start and scheduled_end and scheduled_end > scheduled_start:
+        candidate=(scheduled_end-scheduled_start).total_seconds()/3600.0
+        if 0 < candidate <= 24:
+            return candidate,"scheduled"
+    return None,"untracked"
+
+def hcp_technician_scorecards(start,end):
+    jobs=hcp_list_completed_jobs(start,end)
+    employees=hcp_employee_directory()
+    stats={}
+
+    def tech_row(tech_id):
+        tech_id=str(tech_id)
+        if tech_id not in stats:
+            info=employees.get(tech_id) or {}
+            stats[tech_id]={
+                "employee_id":tech_id,
+                "name":info.get("name") or ("Employee "+tech_id[-6:]),
+                "role":info.get("role") or "",
+                "jobs_completed":0,
+                "solo_jobs":0,
+                "team_jobs":0,
+                "callbacks":0,
+                "hours":0.0,
+                "actual_time_jobs":0,
+                "scheduled_fallback_jobs":0,
+                "untracked_time_jobs":0,
+                "revenue_serviced":0.0,
+                "allocated_revenue":0.0,
+                "estimated_commission":0.0,
+                "commission_unmodeled_jobs":0
+            }
+        return stats[tech_id]
+
+    jobs_without_assignments=0
+    for job in jobs:
+        tech_ids=hcp_assigned_employee_ids(job)
+        if not tech_ids:
+            jobs_without_assignments += 1
+            continue
+        team_size=len(tech_ids)
+        job_value=hcp_money_to_dollars(job.get("total_amount"))
+        duration,source=hcp_job_duration_hours(job)
+        is_callback=hcp_job_has_tag(job,"Callback")
+        allocated=(job_value/team_size) if team_size else 0.0
+        commission_rate=0.225 if team_size == 1 else (0.15 if team_size == 2 else None)
+
+        for tech_id in tech_ids:
+            row=tech_row(tech_id)
+            row["jobs_completed"] += 1
+            if team_size == 1:
+                row["solo_jobs"] += 1
+            else:
+                row["team_jobs"] += 1
+            if is_callback:
+                row["callbacks"] += 1
+            row["revenue_serviced"] += job_value
+            row["allocated_revenue"] += allocated
+            if commission_rate is None:
+                row["commission_unmodeled_jobs"] += 1
+            else:
+                row["estimated_commission"] += job_value * commission_rate
+            if duration is None:
+                row["untracked_time_jobs"] += 1
+            else:
+                row["hours"] += duration
+                if source == "actual":
+                    row["actual_time_jobs"] += 1
+                else:
+                    row["scheduled_fallback_jobs"] += 1
+
+    rows=[]
+    for row in stats.values():
+        jobs_count=int(row["jobs_completed"])
+        hours=float(row["hours"])
+        serviced=float(row["revenue_serviced"])
+        allocated=float(row["allocated_revenue"])
+        rows.append({
+            **row,
+            "hours":round(hours,2),
+            "revenue_serviced":round(serviced,2),
+            "allocated_revenue":round(allocated,2),
+            "avg_ticket":round((serviced/jobs_count),2) if jobs_count else 0.0,
+            "revenue_per_hour":round((serviced/hours),2) if hours else 0.0,
+            "allocated_revenue_per_hour":round((allocated/hours),2) if hours else 0.0,
+            "estimated_commission":round(float(row["estimated_commission"]),2),
+            "commission_pct_of_serviced_revenue":round((float(row["estimated_commission"])/serviced*100.0),1) if serviced else 0.0
+        })
+
+    rows.sort(key=lambda r:(r.get("revenue_serviced",0),r.get("jobs_completed",0)),reverse=True)
+    return {
+        "ok":True,
+        "week_start":start.isoformat(),
+        "week_ending":end.isoformat(),
+        "technicians":rows,
+        "jobs_completed":len(jobs),
+        "jobs_without_assignments":jobs_without_assignments,
+        "commission_note":"Estimated field commission only: 22.5% on solo jobs and 15% per technician on two-tech jobs. Jobs with 3+ assigned technicians are not commission-modeled. Upsell commission is not included because HCP does not reliably identify which technician created the upsell."
+    }
+
 def hcp_job_tech_metrics(completed_jobs):
     unique_techs=set()
     total_tech_hours=0.0
@@ -1783,6 +1921,22 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.send_json(502, {"ok":False,"error":"Housecall Pro API request failed","detail":detail})
             except Exception as e:
                 return self.send_json(400, {"ok":False,"error":str(e)})
+        if parsed.path == "/api/hcp-tech-scorecards":
+            try:
+                if not HCP_API_KEY:
+                    return self.send_json(503, {"ok":False,"error":"Housecall Pro is not configured."})
+                q=urllib.parse.parse_qs(parsed.query)
+                week_ending=(q.get("week_ending") or [""])[0]
+                end=datetime.strptime(week_ending,"%Y-%m-%d").date()
+                start=end-timedelta(days=6)
+                key="hcp_tech_scorecards:"+start.isoformat()+":"+end.isoformat()
+                return self.send_json(200,cached_runtime(key,120,lambda: hcp_technician_scorecards(start,end)))
+            except urllib.error.HTTPError as e:
+                try: detail=json.loads(e.read().decode("utf-8"))
+                except Exception: detail={"message":str(e)}
+                return self.send_json(502,{"ok":False,"error":"Housecall Pro technician scorecard request failed","detail":detail})
+            except Exception as e:
+                return self.send_json(400,{"ok":False,"error":str(e)})
         if parsed.path == "/api/hcp-source-attribution":
             try:
                 if not HCP_API_KEY:
