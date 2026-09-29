@@ -3611,7 +3611,7 @@ function clearMonthlyPartial(ym) {
       ch += '</tbody></table></div>';
       campaignEl.innerHTML=ch;
     }
-    noteEl.textContent=(data.scope_note || "")+" Conversion window currently extends through "+String(data.conversion_window_end || data.week_ending || "")+".";
+    noteEl.textContent=(data.scope_note || "")+" Conversion window extends through "+String(data.conversion_window_end || data.week_ending || "")+"; realized production is checked through "+String(data.realization_through || data.conversion_window_end || data.week_ending || "")+".";
   }
 
   async function load() {
