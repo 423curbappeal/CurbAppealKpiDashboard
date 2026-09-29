@@ -381,29 +381,30 @@ def hcp_customer_index(max_pages=25):
             cid=str(customer.get("id") or "")
             if not cid: continue
             customers[cid]=customer
-            for email in extract_emails(customer): by_email.setdefault(email,cid)
-            for phone in extract_phones(customer): by_phone.setdefault(phone,cid)
+            for email in extract_emails(customer):
+                by_email.setdefault(email,set()).add(cid)
+            for phone in extract_phones(customer):
+                by_phone.setdefault(phone,set()).add(cid)
         total_pages=int(data.get("total_pages") or 1)
         if page>=total_pages: break
         page += 1
     return {"customers":customers,"by_email":by_email,"by_phone":by_phone}
 
 def hcp_match_customer(lead,index):
-    email_matches=[]
-    phone_matches=[]
+    email_matches=set()
+    phone_matches=set()
     for email in extract_emails(lead):
-        cid=index["by_email"].get(email)
-        if cid: email_matches.append(cid)
+        email_matches.update(index["by_email"].get(email) or set())
     for phone in extract_phones(lead):
-        cid=index["by_phone"].get(phone)
-        if cid: phone_matches.append(cid)
-    matches=list(dict.fromkeys(email_matches+phone_matches))
+        phone_matches.update(index["by_phone"].get(phone) or set())
+    matches=email_matches | phone_matches
     if not matches:
         return None,None
-    if len(set(email_matches) | set(phone_matches))>1:
+    if len(matches)>1:
         return None,"ambiguous"
-    cid=matches[0]
-    return index["customers"].get(cid),("email" if cid in email_matches else "phone")
+    cid=next(iter(matches))
+    method="email+phone" if cid in email_matches and cid in phone_matches else ("email" if cid in email_matches else "phone")
+    return index["customers"].get(cid),method
 
 def hcp_estimate_index(start,end):
     estimates=hcp_list_estimates_for_week(start,end)
