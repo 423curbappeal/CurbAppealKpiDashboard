@@ -2721,11 +2721,12 @@ function renderMonthly() {
   let totalVeh    = sumSec('vehicles');
   let totalSW     = sumSec('software');
   let totalOH     = sumSec('overhead');
+  let totalBadDebt= sumSec('baddebt');
   let totalMetaSpend   = entries.reduce((s,e)=>s+(parseFloat(e.ww?.['ww-meta-spend'])||0),0);
   let totalGoogleSpend = entries.reduce((s,e)=>s+(parseFloat(e.ww?.['ww-google-spend'])||0),0);
   let totalLsaSpend    = entries.reduce((s,e)=>s+(parseFloat(e.ww?.['ww-lsa-spend'])||0),0);
-  let totalYardSpend   = entries.reduce((s,e)=>s+(parseFloat(e.ww?.['ww-yardsign-spend'])||0),0);
-  let totalDoorSpend   = entries.reduce((s,e)=>s+(parseFloat(e.ww?.['ww-doorhanger-spend'])||0),0);
+  let totalYardSpend   = entries.reduce((s,e)=>s+(parseFloat(e.ww?.['ww-yardsign-spend'])||0)+(parseFloat(e.ww?.['ww-yardsign-labor'])||0)+(parseFloat(e.ww?.['ww-yardsign-labor-tax'])||0),0);
+  let totalDoorSpend   = entries.reduce((s,e)=>s+(parseFloat(e.ww?.['ww-doorhanger-spend'])||0)+(parseFloat(e.ww?.['ww-doorhanger-labor'])||0)+(parseFloat(e.ww?.['ww-doorhanger-labor-tax'])||0),0);
   let totalMetaLeads   = sum('metaLeads');
   let totalGoogleLeads = sum('googleLeads'); let totalGoogleClicks = sum('googleClicks');
   let totalLsaLeads    = sum('lsaLeads');
@@ -2748,15 +2749,16 @@ function renderMonthly() {
     totalMetaSpend   += pf('ww-meta-spend');   totalMetaLeads    += pi('metaLeads');    totalMetaSoldRev  += pf('metaSoldRevenue');
     totalGoogleSpend += pf('ww-google-spend'); totalGoogleLeads  += pi('googleLeads');  totalGoogleClicks += pi('googleClicks');  totalGoogleSoldRev += pf('googleSoldRevenue');
     totalLsaSpend    += pf('ww-lsa-spend');    totalLsaLeads     += pi('lsaLeads');     totalLsaSoldRev   += pf('lsaSoldRevenue');
-    totalYardSpend   += pf('ww-yardsign-spend');
-    totalDoorSpend   += pf('ww-doorhanger-spend');
+    totalYardSpend   += pf('ww-yardsign-spend') + pf('ww-yardsign-labor') + pf('ww-yardsign-labor-tax');
+    totalDoorSpend   += pf('ww-doorhanger-spend') + pf('ww-doorhanger-labor') + pf('ww-doorhanger-labor-tax');
     // expenses from sections
     totalLabor  += ['ww-payroll','ww-workers-comp','ww-payroll-tax','ww-subcontractors'].reduce((s,k)=>s+pf(k),0);
     totalDirect += ['ww-gas','ww-chemicals','ww-supplies'].reduce((s,k)=>s+pf(k),0);
-    totalMktg   += ['ww-meta-spend','ww-google-spend','ww-lsa-spend','ww-yardsign-spend','ww-doorhanger-spend','ww-mktg-agency','ww-printed'].reduce((s,k)=>s+pf(k),0);
+    totalMktg   += ['ww-meta-spend','ww-google-spend','ww-lsa-spend','ww-yardsign-spend','ww-yardsign-labor','ww-yardsign-labor-tax','ww-doorhanger-spend','ww-doorhanger-labor','ww-doorhanger-labor-tax','ww-referral-giftcard-cost','ww-mktg-agency','ww-printed'].reduce((s,k)=>s+pf(k),0);
     totalVeh    += ['ww-veh-payments','ww-veh-insurance','ww-veh-maintenance'].reduce((s,k)=>s+pf(k),0);
     totalSW     += ['ww-sw-payroll','ww-sw-crm','ww-sw-phone','ww-sw-bookkeeping','ww-sw-website'].reduce((s,k)=>s+pf(k),0);
     totalOH     += ['ww-oh-office-staff','ww-oh-ops-manager','ww-oh-warehouse','ww-oh-admin','ww-oh-culligan','ww-oh-utilities','ww-oh-liability'].reduce((s,k)=>s+pf(k),0);
+    totalBadDebt+= pf('ww-baddebt');
   }
 
   // Full line-item aggregates
@@ -2767,6 +2769,7 @@ function renderMonthly() {
   let tVehPay=sumLine('ww-veh-payments'), tVehIns=sumLine('ww-veh-insurance'), tVehMaint=sumLine('ww-veh-maintenance');
   let tSwPayroll=sumLine('ww-sw-payroll'), tSwCRM=sumLine('ww-sw-crm'), tSwPhone=sumLine('ww-sw-phone'), tSwBooks=sumLine('ww-sw-bookkeeping'), tSwWeb=sumLine('ww-sw-website');
   let tOhOffice=sumLine('ww-oh-office-staff'), tOhOps=sumLine('ww-oh-ops-manager'), tOhWare=sumLine('ww-oh-warehouse'), tOhAdmin=sumLine('ww-oh-admin'), tOhCull=sumLine('ww-oh-culligan'), tOhUtil=sumLine('ww-oh-utilities'), tOhLiab=sumLine('ww-oh-liability');
+  let tBadDebt=sumLine('ww-baddebt');
   let tMetaEst=sum('metaEstimates'), tMetaJobsSold=sum('metaJobsSold');
   let tGoogEst=sum('googleEstimates'), tGoogJobsSold=sum('googleJobsSold');
   let tLsaEst=sum('lsaEstimates'), tLsaJobsSold=sum('lsaJobsSold');
@@ -2790,7 +2793,7 @@ function renderMonthly() {
     tAgency+=pf('ww-mktg-agency'); tPrinted+=pf('ww-printed');
     tVehPay+=pf('ww-veh-payments'); tVehIns+=pf('ww-veh-insurance'); tVehMaint+=pf('ww-veh-maintenance');
     tSwPayroll+=pf('ww-sw-payroll'); tSwCRM+=pf('ww-sw-crm'); tSwPhone+=pf('ww-sw-phone'); tSwBooks+=pf('ww-sw-bookkeeping'); tSwWeb+=pf('ww-sw-website');
-    tOhOffice+=pf('ww-oh-office-staff'); tOhOps+=pf('ww-oh-ops-manager'); tOhWare+=pf('ww-oh-warehouse'); tOhAdmin+=pf('ww-oh-admin'); tOhCull+=pf('ww-oh-culligan'); tOhUtil+=pf('ww-oh-utilities'); tOhLiab+=pf('ww-oh-liability');
+    tOhOffice+=pf('ww-oh-office-staff'); tOhOps+=pf('ww-oh-ops-manager'); tOhWare+=pf('ww-oh-warehouse'); tOhAdmin+=pf('ww-oh-admin'); tOhCull+=pf('ww-oh-culligan'); tOhUtil+=pf('ww-oh-utilities'); tOhLiab+=pf('ww-oh-liability'); tBadDebt+=pf('ww-baddebt');
     tMetaEst+=pi('metaEstimates'); tMetaJobsSold+=pi('metaJobsSold');
     tGoogEst+=pi('googleEstimates'); tGoogJobsSold+=pi('googleJobsSold');
     tLsaEst+=pi('lsaEstimates'); tLsaJobsSold+=pi('lsaJobsSold');
@@ -2800,16 +2803,22 @@ function renderMonthly() {
     tWebLeads+=pi('websiteLeads'); tWebEst+=pi('websiteEstimates'); tWebSold+=pi('websiteJobsSold'); tWebRev+=pf('websiteSoldRevenue');
   }
 
-  const totalExpenses = totalLabor + totalDirect + totalMktg + totalVeh + totalSW + totalOH + Object.values(customTotals).reduce((s,v)=>s+v,0);
+  const totalExpenses = totalLabor + totalDirect + totalMktg + totalVeh + totalSW + totalOH + totalBadDebt + Object.values(customTotals).reduce((s,v)=>s+v,0);
   const grossProfit = totalRev - totalLabor - totalDirect;
   const netProfit = totalRev - totalExpenses;
   const avgTicket = totalJobs > 0 ? totalRev / totalJobs : 0;
   const laborPct  = totalRev > 0 ? totalLabor / totalRev * 100 : 0;
   const mktgPct   = totalRev > 0 ? totalMktg / totalRev * 100 : 0;
   const totalAllLeads = totalMetaLeads + totalGoogleLeads + totalLsaLeads + tYardLeads + tDoorLeads + tBrandLeads + tWebLeads;
-  const totalSoldRev = totalSold + totalMetaSoldRev + totalGoogleSoldRev + totalLsaSoldRev + tYardRev + tDoorRev + tBrandRev + tWebRev;
-  const revPerTechHour = tTechHours > 0 ? totalRev / tTechHours : 0;
+  // Channel sold revenue is a breakdown/subset of the global won-estimate cohort.
+  // Adding it to totalSold would double-count the same sales.
+  const totalSoldRev = totalSold;
   const weeks = entries.length;
+  const techMetricComplete = !partialData && entries.every(e => e.ww && Object.prototype.hasOwnProperty.call(e.ww,'techRevenue'));
+  const totalTechRevenue = entries.reduce((s,e)=>s+(parseFloat(e.ww?.techRevenue)||0),0);
+  const totalTechManHours = entries.reduce((s,e)=>s+((parseFloat(e.ww?.techCount)||0)*(parseFloat(e.ww?.techHours)||0)),0);
+  const avgActiveTechs = weeks>0 ? tTechCount/weeks : 0;
+  const revPerTechHour = techMetricComplete && totalTechManHours > 0 ? totalTechRevenue / totalTechManHours : 0;
 
   // Ghudzy aggregates
   const gSum = (p, key) => entries.reduce((s,e) => s + (parseInt(e.content?.[p]?.[key])||0), 0);
@@ -2929,7 +2938,9 @@ function renderMonthly() {
 
       ${secHdr('🪧 Yard Signs')}
       <div style="${grid()}">
-        ${mpRow('Spend','ww-yardsign-spend',true)}
+        ${mpRow('Materials / Signs','ww-yardsign-spend',true)}
+        ${mpRow('Distribution Labor','ww-yardsign-labor',true)}
+        ${mpRow('Distribution Payroll Tax','ww-yardsign-labor-tax',true)}
         ${mpRow('Count','yardSignCount',false)}
         ${mpRow('Leads','yardSignLeads',false)}
         ${mpRow('Estimates Sent','yardSignEstimates',false)}
@@ -2939,7 +2950,9 @@ function renderMonthly() {
 
       ${secHdr('🚪 Door Hangers')}
       <div style="${grid()}">
-        ${mpRow('Spend','ww-doorhanger-spend',true)}
+        ${mpRow('Materials','ww-doorhanger-spend',true)}
+        ${mpRow('Distribution Labor','ww-doorhanger-labor',true)}
+        ${mpRow('Distribution Payroll Tax','ww-doorhanger-labor-tax',true)}
         ${mpRow('Count','doorHangerCount',false)}
         ${mpRow('Leads','doorHangerLeads',false)}
         ${mpRow('Estimates Sent','doorHangerEstimates',false)}
@@ -2965,8 +2978,14 @@ function renderMonthly() {
 
       ${secHdr('💵 Other Marketing')}
       <div style="${grid()}">
+        ${mpRow('Referral Program Cost','ww-referral-giftcard-cost',true)}
         ${mpRow('Agency Fee','ww-mktg-agency',true)}
         ${mpRow('Printed Materials','ww-printed',true)}
+      </div>
+
+      ${secHdr('📉 Bad Debt')}
+      <div style="${grid()}">
+        ${mpRow('Written Off','ww-baddebt',true)}
       </div>
 
       ${secHdr('🚗 Vehicles')}
@@ -3060,8 +3079,8 @@ function renderMonthly() {
       ${sb('Callbacks',$n(totalCallbacks))}
       ${sb('Avg Rev/Week',weeks>0?$m(totalRev/weeks):'—')}
       ${sb('Avg Jobs/Week',weeks>0?(totalJobs/weeks).toFixed(1):'—')}
-      ${tTechCount>0?sb('Technicians',$n(tTechCount)):''}
-      ${tTechHours>0?sb('Tech Hours',$n(tTechHours)):''}
+      ${avgActiveTechs>0?sb('Avg Active Techs',avgActiveTechs.toFixed(1)):''}
+      ${techMetricComplete && totalTechManHours>0?sb('Tech Man-Hours',totalTechManHours.toFixed(1)+'h'):''}
       ${revPerTechHour>0?sb('Rev / Tech Hour','$'+(revPerTechHour).toFixed(2),revPerTechHour>=125?'var(--green)':'var(--orange)'):''}
     </div>
 
@@ -3135,6 +3154,11 @@ function renderMonthly() {
       ${row('Office Staff',$m(tOhOffice))}${row('Operations Manager',$m(tOhOps))}${row('Warehouse',$m(tOhWare))}${row('Admin / Bookkeeping',$m(tOhAdmin))}${row('Culligan Water',$m(tOhCull))}${row('Utilities',$m(tOhUtil))}${row('Liability Insurance',$m(tOhLiab))}
       ${customTotals.overhead>0?row('Custom (Overhead)',$m(customTotals.overhead)):''}
     </div>
+
+    ${secHd('📉 Bad Debt — ' + $m(totalBadDebt + (customTotals.baddebt||0)))}
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:6px;">
+      ${row('Written Off',$m(tBadDebt))}${customTotals.baddebt>0?row('Custom (Bad Debt)',$m(customTotals.baddebt)):''}
+    </div>
   </div>`;
 
   // Ghudzy summary
@@ -3181,10 +3205,10 @@ function saveMonthlyPartial(ym) {
   // Expense section fields
   ['ww-payroll','ww-workers-comp','ww-payroll-tax','ww-subcontractors',
    'ww-gas','ww-chemicals','ww-supplies',
-   'ww-meta-spend','ww-google-spend','ww-lsa-spend','ww-yardsign-spend','ww-doorhanger-spend','ww-mktg-agency','ww-printed',
+   'ww-meta-spend','ww-google-spend','ww-lsa-spend','ww-yardsign-spend','ww-yardsign-labor','ww-yardsign-labor-tax','ww-doorhanger-spend','ww-doorhanger-labor','ww-doorhanger-labor-tax','ww-referral-giftcard-cost','ww-mktg-agency','ww-printed',
    'ww-veh-payments','ww-veh-insurance','ww-veh-maintenance',
    'ww-sw-payroll','ww-sw-crm','ww-sw-phone','ww-sw-bookkeeping','ww-sw-website',
-   'ww-oh-office-staff','ww-oh-ops-manager','ww-oh-warehouse','ww-oh-admin','ww-oh-culligan','ww-oh-utilities','ww-oh-liability'
+   'ww-oh-office-staff','ww-oh-ops-manager','ww-oh-warehouse','ww-oh-admin','ww-oh-culligan','ww-oh-utilities','ww-oh-liability','ww-baddebt'
   ].forEach(k => data[k] = gv(k));
   // Marketing channel results
   ['metaLeads','metaEstimates','metaJobsSold','metaSoldRevenue',
