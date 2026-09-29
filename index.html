@@ -1185,6 +1185,33 @@
     </div>
   </div>
 
+  <!-- Live HCP Estimate Pipeline -->
+  <div id="hcp-estimate-pipeline-card" style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:20px;margin-bottom:20px;">
+    <div style="display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-bottom:14px;">
+      <div>
+        <div style="font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:0.8px;">📈 Estimate Pipeline · Auto</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px;">Live from Housecall Pro · refreshes automatically every 15 minutes</div>
+      </div>
+      <button class="btn btn-ghost btn-sm" id="hcp-pipeline-refresh" type="button">↻ Refresh</button>
+    </div>
+
+    <div id="hcp-pipeline-status" style="font-size:12px;color:var(--muted);margin-bottom:12px;">Loading Housecall Pro estimate pipeline…</div>
+
+    <div id="hcp-pipeline-metrics" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(145px,1fr));gap:10px;margin-bottom:14px;">
+      <div style="background:var(--surface2);border-radius:10px;padding:12px;"><div style="font-size:10px;color:var(--muted);font-weight:700;">OPEN PIPELINE</div><div id="hcp-pipe-open-value" style="font-size:18px;font-weight:800;">—</div><div id="hcp-pipe-open-count" style="font-size:11px;color:var(--muted);">—</div></div>
+      <div style="background:var(--surface2);border-radius:10px;padding:12px;"><div style="font-size:10px;color:var(--muted);font-weight:700;">QUOTED · 30D</div><div id="hcp-pipe-quoted" style="font-size:18px;font-weight:800;">—</div><div id="hcp-pipe-created" style="font-size:11px;color:var(--muted);">—</div></div>
+      <div style="background:var(--surface2);border-radius:10px;padding:12px;"><div style="font-size:10px;color:var(--muted);font-weight:700;">WON · 30D</div><div id="hcp-pipe-won-value" style="font-size:18px;font-weight:800;color:var(--green);">—</div><div id="hcp-pipe-won-count" style="font-size:11px;color:var(--muted);">—</div></div>
+      <div style="background:var(--surface2);border-radius:10px;padding:12px;"><div style="font-size:10px;color:var(--muted);font-weight:700;">LOST · 30D</div><div id="hcp-pipe-lost-value" style="font-size:18px;font-weight:800;">—</div><div id="hcp-pipe-lost-count" style="font-size:11px;color:var(--muted);">—</div></div>
+      <div style="background:var(--surface2);border-radius:10px;padding:12px;"><div style="font-size:10px;color:var(--muted);font-weight:700;">CLOSE RATE · 30D</div><div id="hcp-pipe-close-rate" style="font-size:18px;font-weight:800;color:var(--blue);">—</div><div style="font-size:11px;color:var(--muted);">Won ÷ decided</div></div>
+    </div>
+
+    <div style="font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Open-estimate aging</div>
+    <div id="hcp-pipeline-aging" style="display:grid;grid-template-columns:repeat(5,minmax(95px,1fr));gap:8px;overflow-x:auto;margin-bottom:16px;"></div>
+
+    <div style="font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Needs follow-up · 4+ days open</div>
+    <div id="hcp-pipeline-followups" style="display:grid;gap:7px;"></div>
+  </div>
+
   <!-- Callbacks & Reviews -->
   <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:20px;">
     <div style="flex:1;min-width:160px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;">
@@ -3237,6 +3264,186 @@ function clearMonthlyPartial(ym) {
       btn.textContent = '🧰 Preview HCP';
     }
   });
+})();
+</script>
+<script>
+(function () {
+  const card = document.getElementById('hcp-estimate-pipeline-card');
+  if (!card) return;
+
+  const status = document.getElementById('hcp-pipeline-status');
+  const refresh = document.getElementById('hcp-pipeline-refresh');
+  const aging = document.getElementById('hcp-pipeline-aging');
+  const followups = document.getElementById('hcp-pipeline-followups');
+
+  const money = (n) => '
+  if (!btn) return;
+
+  const panel = document.createElement('div');
+  panel.id = 'qb-preview-panel';
+  panel.style.cssText = 'display:none;margin-top:12px;padding:14px;border:1px solid var(--border);border-radius:10px;background:var(--surface2);font-size:13px;line-height:1.6;';
+  btn.parentElement.insertAdjacentElement('afterend', panel);
+
+  btn.addEventListener('click', async function () {
+    const date = document.getElementById('entry-date');
+    if (!date || !date.value) {
+      panel.style.display = 'block';
+      panel.textContent = 'Select a week-ending date first.';
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Loading QB…';
+    panel.style.display = 'block';
+    panel.textContent = 'Pulling received QuickBooks expense records…';
+
+    try {
+      const res = await fetch('/api/qb-preview?week_ending=' + encodeURIComponent(date.value), {cache:'no-store'});
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || 'QuickBooks preview failed');
+      }
+
+      panel.textContent = '';
+
+      const summary = document.createElement('div');
+      summary.innerHTML =
+        '<strong>' + data.week_start + ' → ' + data.week_ending + '</strong><br>' +
+        'Expense records received: <strong>' + Number(data.expense_records) + '</strong>' +
+        ' · Total received expenses: <strong>USD ' + Number(data.expense_total).toFixed(2) + '</strong>';
+
+      const groups = document.createElement('div');
+      groups.style.cssText = 'margin-top:10px;';
+      if (!data.groups || data.groups.length === 0) {
+        groups.textContent = 'No QuickBooks expense records have been received for this week yet.';
+      } else {
+        groups.innerHTML = '<strong>QuickBooks categories/accounts:</strong><br>' +
+          data.groups.map(function (g) {
+            return '• ' + String(g.account_name) + ': USD ' + Number(g.amount).toFixed(2);
+          }).join('<br>');
+      }
+
+      const note = document.createElement('div');
+      note.style.cssText = 'margin-top:8px;color:var(--muted);font-size:11px;';
+      note.textContent = 'This first stage shows the exact QuickBooks account/category names. Once we validate them, the dashboard will map them into Labor, Direct Job Costs, Marketing, Vehicles, Software, and Overhead automatically.';
+
+      panel.appendChild(summary);
+      panel.appendChild(groups);
+      panel.appendChild(note);
+    } catch (err) {
+      panel.textContent = 'QuickBooks preview failed: ' + (err && err.message ? err.message : String(err));
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '💰 Preview QB';
+    }
+  });
+})();
+</script>
+</body>
+</html>
+ + Number(n || 0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+  const setText = (id,value) => {
+    const el=document.getElementById(id);
+    if (el) el.textContent=value;
+  };
+
+  async function loadPipeline() {
+    if (refresh) {
+      refresh.disabled=true;
+      refresh.textContent='Loading…';
+    }
+    if (status) status.textContent='Pulling live estimate pipeline from Housecall Pro…';
+
+    try {
+      const res=await fetch('/api/hcp-estimate-pipeline',{cache:'no-store'});
+      const data=await res.json();
+      if (!res.ok || !data.ok) {
+        const detail=data && data.detail ? JSON.stringify(data.detail) : '';
+        throw new Error((data.error || 'Housecall Pro request failed') + (detail ? ': ' + detail : ''));
+      }
+
+      const recent=data.recent || {};
+      const open=data.open_pipeline || {};
+
+      setText('hcp-pipe-open-value',money(open.value));
+      setText('hcp-pipe-open-count',Number(open.count || 0)+' open estimates · last '+Number(data.lookback_days || 120)+'d');
+      setText('hcp-pipe-quoted',money(recent.quoted_value));
+      setText('hcp-pipe-created',Number(recent.estimates_created || 0)+' estimates created');
+      setText('hcp-pipe-won-value',money(recent.won_value));
+      setText('hcp-pipe-won-count',Number(recent.won_count || 0)+' won');
+      setText('hcp-pipe-lost-value',money(recent.lost_value));
+      setText('hcp-pipe-lost-count',Number(recent.lost_count || 0)+' lost/declined');
+      setText('hcp-pipe-close-rate',Number(recent.close_rate || 0).toFixed(1)+'%');
+
+      const labels=[
+        ['0_3','0–3 days'],
+        ['4_7','4–7 days'],
+        ['8_14','8–14 days'],
+        ['15_30','15–30 days'],
+        ['31_plus','31+ days']
+      ];
+      aging.innerHTML='';
+      labels.forEach(([key,label]) => {
+        const item=(open.aging || {})[key] || {};
+        const el=document.createElement('div');
+        el.style.cssText='background:var(--surface2);border-radius:10px;padding:10px;min-width:95px;';
+        el.innerHTML='<div style="font-size:10px;color:var(--muted);font-weight:700;">'+label+'</div>' +
+          '<div style="font-size:16px;font-weight:800;margin-top:3px;">'+Number(item.count || 0)+'</div>' +
+          '<div style="font-size:11px;color:var(--muted);">'+money(item.value)+'</div>';
+        aging.appendChild(el);
+      });
+
+      followups.innerHTML='';
+      const rows=Array.isArray(data.followups) ? data.followups : [];
+      if (!rows.length) {
+        followups.innerHTML='<div style="font-size:12px;color:var(--green);">✅ No estimates are 4+ days old and still open.</div>';
+      } else {
+        rows.forEach(row => {
+          const el=document.createElement('div');
+          el.style.cssText='display:grid;grid-template-columns:minmax(150px,1fr) auto auto;gap:10px;align-items:center;background:var(--surface2);border-radius:9px;padding:9px 11px;';
+          const name=document.createElement('div');
+          name.innerHTML='<div style="font-size:12px;font-weight:700;"></div><div style="font-size:10px;color:var(--muted);"></div>';
+          name.children[0].textContent=row.customer_name || 'Unknown customer';
+          name.children[1].textContent='Created '+(row.created_at || '—');
+          const age=document.createElement('div');
+          age.style.cssText='font-size:11px;font-weight:700;color:var(--orange);white-space:nowrap;';
+          age.textContent=Number(row.age_days || 0)+' days';
+          const value=document.createElement('div');
+          value.style.cssText='font-size:12px;font-weight:800;text-align:right;white-space:nowrap;';
+          value.textContent=money(row.value);
+          el.appendChild(name);
+          el.appendChild(age);
+          el.appendChild(value);
+          followups.appendChild(el);
+        });
+      }
+
+      if (status) {
+        status.textContent='Updated '+new Date().toLocaleTimeString([], {hour:'numeric',minute:'2-digit'}) +
+          (data.truncated ? ' · ⚠️ Recent estimate detail cap reached; totals may be partial.' : '');
+      }
+    } catch (err) {
+      if (status) status.textContent='Estimate pipeline failed: '+(err && err.message ? err.message : String(err));
+      if (followups) followups.innerHTML='';
+      if (aging) aging.innerHTML='';
+    } finally {
+      if (refresh) {
+        refresh.disabled=false;
+        refresh.textContent='↻ Refresh';
+      }
+    }
+  }
+
+  window.refreshHcpEstimatePipeline=loadPipeline;
+  if (refresh) refresh.addEventListener('click',loadPipeline);
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded',() => setTimeout(loadPipeline,400));
+  } else {
+    setTimeout(loadPipeline,400);
+  }
+
+  setInterval(loadPipeline,15*60*1000);
 })();
 </script>
 <script>
