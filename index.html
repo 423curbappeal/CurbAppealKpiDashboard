@@ -610,12 +610,22 @@
             </div>
             <div style="font-size:11px;color:var(--muted);margin-top:4px;"><span id="resi-pct" style="font-weight:700;color:var(--green);">—</span> of revenue</div>
           </div>
+          <div>
+            <div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:5px;">Unclassified Revenue</div>
+            <div style="position:relative;width:170px;">
+              <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:14px;pointer-events:none;">$</span>
+              <input type="number" id="ww-revenue-unclassified" placeholder="0.00" step="0.01" readonly
+                style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--orange);padding:8px 8px 8px 22px;font-size:16px;font-weight:700;outline:none;">
+            </div>
+            <div style="font-size:11px;color:var(--muted);margin-top:4px;"><span id="unclassified-pct" style="font-weight:700;color:var(--orange);">—</span> of revenue</div>
+          </div>
         </div>
       </div>
       <!-- Sold row -->
       <div style="display:flex;gap:16px;margin-top:14px;flex-wrap:wrap;">
         <div>
-          <div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:5px;">Sold Revenue</div>
+          <div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:5px;">Won Estimate Revenue</div>
+          <div style="font-size:9px;color:var(--muted);margin:-2px 0 5px;">Approved value from estimates created in this week</div>
           <div style="position:relative;width:170px;">
             <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:14px;pointer-events:none;">$</span>
             <input type="number" id="ww-sold-revenue" placeholder="0.00" step="0.01"
@@ -623,7 +633,8 @@
           </div>
         </div>
         <div>
-          <div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:5px;">Jobs Sold</div>
+          <div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:5px;">Estimates Won</div>
+          <div style="font-size:9px;color:var(--muted);margin:-2px 0 5px;">From estimates created in this week</div>
           <div style="position:relative;width:120px;">
             <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:14px;pointer-events:none;">#</span>
             <input type="number" id="ww-jobs-sold" placeholder="0" min="0"
@@ -659,6 +670,7 @@
         <div class="val" id="rc-avg-ticket">—</div>
       </div>
     </div>
+    <div style="font-size:10px;color:var(--muted);margin-top:10px;">Profit and margin reflect only expenses entered or synced into this week. An empty expense feed is not proof of $0 expenses.</div>
   </div>
 
   <!-- Labor -->
@@ -948,7 +960,7 @@
       <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);padding:14px 0 4px;">🎁 Referral Program</div>
       <div class="field-row">
         <div class="field-label"><div class="field-label-main">Referrals Booked ($300+)</div><div class="field-label-hint">Neighbor referrals that booked over $300</div></div>
-        <div class="dollar-wrap" style="width:150px"><span class="sym" style="left:10px">#</span><input type="number" id="ww-referral-count" placeholder="0" min="0" style="padding-left:22px"></div>
+        <div class="dollar-wrap" style="width:150px"><span class="sym" style="left:10px">#</span><input type="number" id="ww-referral-count" placeholder="0" min="0" style="padding-left:22px" oninput="updateReferralCost()"></div>
       </div>
       <div class="field-row">
         <div class="field-label"><div class="field-label-main">Referral Revenue</div><div class="field-label-hint">Revenue booked from referred jobs</div></div>
@@ -959,7 +971,7 @@
         <div class="dollar-wrap" style="width:150px"><span class="sym" style="left:10px">#</span><input type="number" id="ww-referral-giftcards" placeholder="0" min="0" style="padding-left:22px" oninput="updateReferralCost()"></div>
       </div>
       <div class="field-row">
-        <div class="field-label"><div class="field-label-main">Gift Card Cost</div><div class="field-label-hint">Auto-calculated @ $50 per card</div></div>
+        <div class="field-label"><div class="field-label-main">Referral Program Cost</div><div class="field-label-hint">$50 referrer gift card + $50 new-customer discount per booked referral</div></div>
         <div class="dollar-wrap"><span class="sym">$</span><input type="number" id="ww-referral-giftcard-cost" placeholder="0.00" readonly style="opacity:0.75"></div>
       </div>
       <div style="font-size:11px;color:var(--muted);margin:6px 0 8px;padding:6px 10px;background:var(--surface2);border-radius:8px;display:flex;justify-content:space-between;align-items:center;">
@@ -1224,10 +1236,12 @@
           <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:14px;pointer-events:none;">#</span>
           <input type="number" id="ww-repeat-customers" placeholder="0" min="0" oninput="updateSummary()"
             style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px 8px 8px 22px;font-size:16px;font-weight:700;outline:none;">
+          <input type="hidden" id="ww-customers-served">
+          <input type="hidden" id="ww-tech-revenue">
         </div>
       </div>
     </div>
-    <div style="font-size:11px;color:var(--muted);margin:-12px 0 20px;">Repeat Customer % is calculated against Total Jobs Completed above.</div>
+    <div style="font-size:11px;color:var(--muted);margin:-12px 0 20px;">Repeat Customer % = repeat unique customers ÷ unique customers served. Technician productivity excludes owner/helper-only work.</div>
 
     <!-- Scorecard grid -->
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;">
@@ -1244,7 +1258,7 @@
         <div style="font-size:20px;font-weight:800;" id="sc-net">—</div>
       </div>
       <div style="background:var(--surface2);border-radius:12px;padding:14px;">
-        <div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Total Sold</div>
+        <div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Won Estimate Revenue</div>
         <div style="font-size:20px;font-weight:800;color:var(--blue)" id="sc-sold">—</div>
       </div>
       <div style="background:var(--surface2);border-radius:12px;padding:14px;">
@@ -1773,11 +1787,13 @@ function updateSummary() {
   // Commercial / Residential split
   const commRev = parseFloat(document.getElementById('ww-revenue-commercial').value) || 0;
   const resiRev = parseFloat(document.getElementById('ww-revenue-residential').value) || 0;
-  const crBase = commRev + resiRev;
+  const unclassifiedRev = parseFloat(document.getElementById('ww-revenue-unclassified')?.value) || 0;
   const commPctEl = document.getElementById('comm-pct');
   const resiPctEl = document.getElementById('resi-pct');
-  if (commPctEl) commPctEl.textContent = crBase > 0 ? (commRev/crBase*100).toFixed(1)+'%' : '—';
-  if (resiPctEl) resiPctEl.textContent = crBase > 0 ? (resiRev/crBase*100).toFixed(1)+'%' : '—';
+  const unclassifiedPctEl = document.getElementById('unclassified-pct');
+  if (commPctEl) commPctEl.textContent = rev > 0 ? (commRev/rev*100).toFixed(1)+'%' : '—';
+  if (resiPctEl) resiPctEl.textContent = rev > 0 ? (resiRev/rev*100).toFixed(1)+'%' : '—';
+  if (unclassifiedPctEl) unclassifiedPctEl.textContent = rev > 0 ? (unclassifiedRev/rev*100).toFixed(1)+'%' : '—';
   const jobs = parseFloat(document.getElementById('ww-jobs-completed').value) || 0;
   const avgTicketEl = document.getElementById('rc-avg-ticket');
   avgTicketEl.textContent = (rev>0 && jobs>0) ? fmt(rev/jobs) : '—';
@@ -1800,7 +1816,9 @@ function updateSummary() {
   const techCount    = parseFloat(document.getElementById('ww-tech-count').value) || 0;
   const techHours    = parseFloat(document.getElementById('ww-tech-hours').value) || 0;
   const totalHours   = techCount * techHours;
-  const revPerHour   = (rev>0 && totalHours>0) ? rev/totalHours : null;
+  const techRevenueEl= document.getElementById('ww-tech-revenue');
+  const techRevenue  = techRevenueEl && String(techRevenueEl.value || '').trim() !== '' ? (parseFloat(techRevenueEl.value)||0) : rev;
+  const revPerHour   = totalHours>0 ? techRevenue/totalHours : null;
 
   const scRev = document.getElementById('sc-revenue');
   scRev.textContent = rev>0 ? fmt(rev) : '—';
@@ -1823,8 +1841,10 @@ function updateSummary() {
   document.getElementById('sc-rev-per-hour').textContent = revPerHour!==null ? fmt(revPerHour) : '—';
 
   const repeatCustomers = parseFloat(document.getElementById('ww-repeat-customers').value) || 0;
+  const customersServedEl = document.getElementById('ww-customers-served');
+  const customersServed = customersServedEl && String(customersServedEl.value || '').trim() !== '' ? (parseFloat(customersServedEl.value)||0) : jobs;
   const scRepeat = document.getElementById('sc-repeat-pct');
-  scRepeat.textContent = (jobs>0 && repeatCustomers>0) ? (repeatCustomers/jobs*100).toFixed(1)+'%' : '—';
+  scRepeat.textContent = customersServed>0 ? (repeatCustomers/customersServed*100).toFixed(1)+'%' : '—';
 }
 function set(id,val){ const el=document.getElementById(id); if(el) el.textContent=val; }
 
@@ -1834,8 +1854,8 @@ function updateConversions() {
     { label:'📘 Meta',         leads:'ww-meta-leads',        ests:'ww-meta-estimates',        closes:'ww-meta-jobs-sold',        spend:'ww-meta-spend',        rev:'ww-meta-sold-revenue' },
     { label:'🔍 Google Ads',   leads:'ww-google-leads',      ests:'ww-google-estimates',      closes:'ww-google-jobs-sold',      spend:'ww-google-spend',      rev:'ww-google-sold-revenue' },
     { label:'📍 Google LSAs',  leads:'ww-lsa-leads',         ests:'ww-lsa-estimates',         closes:'ww-lsa-jobs-sold',         spend:'ww-lsa-spend',         rev:'ww-lsa-sold-revenue' },
-    { label:'🪧 Yard Signs',   leads:'ww-yardsign-leads',    ests:'ww-yardsign-estimates',    closes:'ww-yardsign-jobs-sold',    spend:'ww-yardsign-spend',    rev:'ww-yardsign-sold-revenue' },
-    { label:'🚪 Door Hangers', leads:'ww-doorhanger-leads',  ests:'ww-doorhanger-estimates',  closes:'ww-doorhanger-jobs-sold',  spend:'ww-doorhanger-spend',  rev:'ww-doorhanger-sold-revenue' },
+    { label:'🪧 Yard Signs',   leads:'ww-yardsign-leads',    ests:'ww-yardsign-estimates',    closes:'ww-yardsign-jobs-sold',    spendIds:['ww-yardsign-spend','ww-yardsign-labor','ww-yardsign-labor-tax'],    rev:'ww-yardsign-sold-revenue' },
+    { label:'🚪 Door Hangers', leads:'ww-doorhanger-leads',  ests:'ww-doorhanger-estimates',  closes:'ww-doorhanger-jobs-sold',  spendIds:['ww-doorhanger-spend','ww-doorhanger-labor','ww-doorhanger-labor-tax'],  rev:'ww-doorhanger-sold-revenue' },
     { label:'✨ Branding',     leads:'ww-branding-leads',    ests:'ww-branding-estimates',    closes:'ww-branding-jobs-sold',    spend:null,                   rev:'ww-branding-sold-revenue' },
     { label:'🌐 Organic Web',  leads:'ww-website-leads',     ests:'ww-website-estimates',     closes:'ww-website-jobs-sold',     spend:null,                   rev:'ww-website-sold-revenue' },
   ];
@@ -1863,7 +1883,7 @@ function updateConversions() {
     const leads   = parseInt(document.getElementById(ch.leads)?.value)  || 0;
     const ests    = parseInt(document.getElementById(ch.ests)?.value)   || 0;
     const closes  = parseInt(document.getElementById(ch.closes)?.value) || 0;
-    const spend   = ch.spend ? (parseFloat(document.getElementById(ch.spend)?.value) || 0) : 0;
+    const spend   = ch.spend ? (parseFloat(document.getElementById(ch.spend)?.value) || 0) : (ch.spendIds || []).reduce((sum,id)=>sum+(parseFloat(document.getElementById(id)?.value)||0),0);
     const rev     = parseFloat(document.getElementById(ch.rev)?.value)  || 0;
     totLeads  += leads;
     totEsts   += ests;
@@ -1910,13 +1930,13 @@ function updateROAS() {
     { id:'roas-meta',       spend:'ww-meta-spend',       rev:'ww-meta-sold-revenue' },
     { id:'roas-google',     spend:'ww-google-spend',     rev:'ww-google-sold-revenue' },
     { id:'roas-lsa',        spend:'ww-lsa-spend',        rev:'ww-lsa-sold-revenue' },
-    { id:'roas-yardsign',   spend:'ww-yardsign-spend',   rev:'ww-yardsign-sold-revenue' },
-    { id:'roas-doorhanger', spend:'ww-doorhanger-spend', rev:'ww-doorhanger-sold-revenue' },
+    { id:'roas-yardsign',   spendIds:['ww-yardsign-spend','ww-yardsign-labor','ww-yardsign-labor-tax'],   rev:'ww-yardsign-sold-revenue' },
+    { id:'roas-doorhanger', spendIds:['ww-doorhanger-spend','ww-doorhanger-labor','ww-doorhanger-labor-tax'], rev:'ww-doorhanger-sold-revenue' },
   ];
   channels.forEach(ch => {
     const el = document.getElementById(ch.id);
     if(!el) return;
-    const spend = parseFloat(document.getElementById(ch.spend)?.value) || 0;
+    const spend = ch.spend ? (parseFloat(document.getElementById(ch.spend)?.value) || 0) : (ch.spendIds || []).reduce((sum,id)=>sum+(parseFloat(document.getElementById(id)?.value)||0),0);
     const rev   = parseFloat(document.getElementById(ch.rev)?.value)   || 0;
     if(spend > 0) {
       const r = rev / spend;
@@ -1932,7 +1952,8 @@ function updateROAS() {
 
 function updateReferralCost() {
   const cards = parseInt(document.getElementById('ww-referral-giftcards').value) || 0;
-  const cost = cards * 50;
+  const booked = parseInt(document.getElementById('ww-referral-count').value) || 0;
+  const cost = (cards * 50) + (booked * 50);
   const costEl = document.getElementById('ww-referral-giftcard-cost');
   costEl.value = cost > 0 ? cost.toFixed(2) : '';
   updateSummary();
@@ -2118,11 +2139,14 @@ function saveEntry() {
     upsoldRevenue:          gv('ww-upsold-revenue'),
     commercialRevenue:      gv('ww-revenue-commercial'),
     residentialRevenue:     gv('ww-revenue-residential'),
+    unclassifiedRevenue:    gv('ww-revenue-unclassified'),
     callbacks:              gn('ww-callbacks'),
     fiveStarReviews:        gn('ww-five-star-reviews'),
     techCount:              gn('ww-tech-count'),
-    techHours:              gn('ww-tech-hours'),
+    techHours:              gv('ww-tech-hours'),
+    techRevenue:            gv('ww-tech-revenue'),
     repeatCustomers:        gn('ww-repeat-customers'),
+    customersServed:        gn('ww-customers-served'),
     soldRevenue:            gv('ww-sold-revenue'),
     jobsSold:               gn('ww-jobs-sold'),
     // Meta
@@ -2224,11 +2248,14 @@ function loadExistingEntry() {
   sf('ww-upsold-revenue',         ws.upsoldRevenue);
   sf('ww-revenue-commercial',     ws.commercialRevenue);
   sf('ww-revenue-residential',    ws.residentialRevenue);
+  sf('ww-revenue-unclassified',   ws.unclassifiedRevenue);
   sf('ww-callbacks',              ws.callbacks);
   sf('ww-five-star-reviews',      ws.fiveStarReviews);
   sf('ww-tech-count',             ws.techCount);
   sf('ww-tech-hours',             ws.techHours);
+  sf('ww-tech-revenue',           ws.techRevenue);
   sf('ww-repeat-customers',       ws.repeatCustomers);
+  sf('ww-customers-served',       ws.customersServed);
   sf('ww-sold-revenue',           ws.soldRevenue);
   sf('ww-jobs-sold',              ws.jobsSold);
   sf('ww-meta-leads',             ws.metaLeads);
@@ -2316,25 +2343,30 @@ function clearForm() {
   document.getElementById('ww-upsold-revenue').value='';
   document.getElementById('ww-revenue-commercial').value='';
   document.getElementById('ww-revenue-residential').value='';
+  document.getElementById('ww-revenue-unclassified').value='';
   document.getElementById('ww-callbacks').value='';
   document.getElementById('ww-five-star-reviews').value='';
   document.getElementById('ww-tech-count').value='';
   document.getElementById('ww-tech-hours').value='';
+  document.getElementById('ww-tech-revenue').value='';
   document.getElementById('ww-repeat-customers').value='';
+  document.getElementById('ww-customers-served').value='';
+  document.getElementById('ww-sold-revenue').value='';
+  document.getElementById('ww-jobs-sold').value='';
   document.getElementById('ww-notes').value='';
   Object.keys(WW_SECTIONS).forEach(sec => {
     WW_SECTIONS[sec].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
     customRows[sec]=[];
     renderCustomRows(sec);
   });
-  ['ww-meta-leads','ww-meta-estimates','ww-meta-jobs-sold','ww-meta-quarterly-count','ww-meta-quarterly-value','ww-meta-biannual-count','ww-meta-biannual-value',
-   'ww-google-leads','ww-google-estimates','ww-google-jobs-sold','ww-google-quarterly-count','ww-google-quarterly-value','ww-google-biannual-count','ww-google-biannual-value',
-   'ww-lsa-leads','ww-lsa-estimates','ww-lsa-jobs-sold','ww-lsa-quarterly-count','ww-lsa-quarterly-value','ww-lsa-biannual-count','ww-lsa-biannual-value',
-   'ww-yardsign-leads','ww-yardsign-estimates','ww-yardsign-jobs-sold','ww-yardsign-quarterly-count','ww-yardsign-quarterly-value','ww-yardsign-biannual-count','ww-yardsign-biannual-value',
-   'ww-doorhanger-leads','ww-doorhanger-estimates','ww-doorhanger-jobs-sold','ww-doorhanger-quarterly-count','ww-doorhanger-quarterly-value','ww-doorhanger-biannual-count','ww-doorhanger-biannual-value',
+  ['ww-meta-leads','ww-meta-estimates','ww-meta-jobs-sold','ww-meta-sold-revenue','ww-meta-quarterly-count','ww-meta-quarterly-value','ww-meta-biannual-count','ww-meta-biannual-value',
+   'ww-google-clicks','ww-google-leads','ww-google-estimates','ww-google-jobs-sold','ww-google-sold-revenue','ww-google-quarterly-count','ww-google-quarterly-value','ww-google-biannual-count','ww-google-biannual-value',
+   'ww-lsa-leads','ww-lsa-estimates','ww-lsa-jobs-sold','ww-lsa-sold-revenue','ww-lsa-quarterly-count','ww-lsa-quarterly-value','ww-lsa-biannual-count','ww-lsa-biannual-value',
+   'ww-yardsign-count','ww-yardsign-leads','ww-yardsign-estimates','ww-yardsign-jobs-sold','ww-yardsign-sold-revenue','ww-yardsign-quarterly-count','ww-yardsign-quarterly-value','ww-yardsign-biannual-count','ww-yardsign-biannual-value',
+   'ww-doorhanger-count','ww-doorhanger-leads','ww-doorhanger-estimates','ww-doorhanger-jobs-sold','ww-doorhanger-sold-revenue','ww-doorhanger-quarterly-count','ww-doorhanger-quarterly-value','ww-doorhanger-biannual-count','ww-doorhanger-biannual-value',
    'ww-website-leads','ww-website-estimates','ww-website-jobs-sold','ww-website-sold-revenue','ww-website-quarterly-count','ww-website-quarterly-value','ww-website-biannual-count','ww-website-biannual-value',
    'ww-branding-leads','ww-branding-estimates','ww-branding-jobs-sold','ww-branding-sold-revenue','ww-branding-quarterly-count','ww-branding-quarterly-value','ww-branding-biannual-count','ww-branding-biannual-value',
-   'ww-referral-count','ww-referral-revenue','ww-referral-giftcards',
+   'ww-referral-count','ww-referral-revenue','ww-referral-giftcards','ww-referral-giftcard-cost',
   ].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
   PLATFORMS.forEach(p => platformCache[p]={});
   renderPlatformForm(currentPlatform);
@@ -2404,7 +2436,7 @@ function renderDashboard() {
       <div class="stat-card"><div class="lbl">Total Expenses</div><div class="val red">${fmt(totalExp)}</div>${prev?deltaHTML(totalExp,prevExp):''}</div>
       <div class="stat-card"><div class="lbl">Labor Costs</div><div class="val">${fmt(secTotalEntry('labor',latest))}</div></div>
       <div class="stat-card"><div class="lbl">Marketing</div><div class="val orange">${fmt(secTotalEntry('marketing',latest))}</div><div class="sub">📘 Meta ${fmt(parseFloat(ww['ww-meta-spend'])||0)} · ${ww.metaLeads||0} leads · ${ww.metaJobsSold||0} sold · ${fmt(ww.metaSoldRevenue||0)}</div><div class="sub">🔍 Google ${fmt(parseFloat(ww['ww-google-spend'])||0)} · ${ww.googleClicks||0} clicks · ${ww.googleLeads||0} leads · ${ww.googleJobsSold||0} sold · ${fmt(ww.googleSoldRevenue||0)}</div></div>
-      <div class="stat-card"><div class="lbl">Total Sold</div><div class="val green">${fmt(ww.soldRevenue||0)}</div><div class="sub">${ww.jobsSold||0} jobs sold this week</div></div>
+      <div class="stat-card"><div class="lbl">Won Estimate Revenue</div><div class="val green">${fmt(ww.soldRevenue||0)}</div><div class="sub">${ww.jobsSold||0} won estimate(s) from this week's created-estimate cohort</div></div>
       <div class="stat-card"><div class="lbl">Direct Job Costs</div><div class="val blue">${fmt(secTotalEntry('direct',latest))}</div><div class="sub">Gas: ${fmt(parseFloat(ww['ww-gas'])||0)} · Chem: ${fmt(parseFloat(ww['ww-chemicals'])||0)}</div></div>
     </div>
 
@@ -2671,12 +2703,19 @@ function renderMonthly() {
   const entries = byMonth[selected];
   const partial = getPartialWeek(selected);
   const partialData = partials[selected] || null;
+  const prevYM = selMo === 1 ? `${selYr-1}-12` : `${selYr}-${String(selMo-1).padStart(2,'0')}`;
+  const incomingBoundary = getPartialWeek(prevYM);
+  const incomingPartial = (incomingBoundary && incomingBoundary.weekEndDate.slice(0,7) === selected) ? (partials[prevYM] || null) : null;
 
-  // Aggregate WashWorks
-  const sum = key => entries.reduce((s,e) => s + (parseFloat(e.ww?.[key])||0), 0);
-  const sumSec = sec => entries.reduce((s,e) => {
-    return s + (WW_SECTIONS[sec]||[]).reduce((ss,id)=>ss+(parseFloat(e.ww?.[id])||0),0);
-  }, 0);
+  // Aggregate WashWorks. If the previous month stored a partial split from
+  // a cross-month week, subtract it here because this month's saved Sunday
+  // entry contains the full Mon–Sun week. This prevents double-counting.
+  const incomingVal = key => incomingPartial ? (parseFloat(incomingPartial[key])||0) : 0;
+  const sum = key => entries.reduce((s,e) => s + (parseFloat(e.ww?.[key])||0), 0) - incomingVal(key);
+  const sumSec = sec => (WW_SECTIONS[sec]||[]).reduce((total,id) => {
+    const full=entries.reduce((s,e)=>s+(parseFloat(e.ww?.[id])||0),0);
+    return total + full - incomingVal(id);
+  },0);
 
   let totalRev    = sum('revenue');
   let totalJobs   = sum('jobsCompleted');
@@ -2689,11 +2728,12 @@ function renderMonthly() {
   let totalVeh    = sumSec('vehicles');
   let totalSW     = sumSec('software');
   let totalOH     = sumSec('overhead');
-  let totalMetaSpend   = entries.reduce((s,e)=>s+(parseFloat(e.ww?.['ww-meta-spend'])||0),0);
-  let totalGoogleSpend = entries.reduce((s,e)=>s+(parseFloat(e.ww?.['ww-google-spend'])||0),0);
-  let totalLsaSpend    = entries.reduce((s,e)=>s+(parseFloat(e.ww?.['ww-lsa-spend'])||0),0);
-  let totalYardSpend   = entries.reduce((s,e)=>s+(parseFloat(e.ww?.['ww-yardsign-spend'])||0),0);
-  let totalDoorSpend   = entries.reduce((s,e)=>s+(parseFloat(e.ww?.['ww-doorhanger-spend'])||0),0);
+  let totalBadDebt= sumSec('baddebt');
+  let totalMetaSpend   = sum('ww-meta-spend');
+  let totalGoogleSpend = sum('ww-google-spend');
+  let totalLsaSpend    = sum('ww-lsa-spend');
+  let totalYardSpend   = sum('ww-yardsign-spend') + sum('ww-yardsign-labor') + sum('ww-yardsign-labor-tax');
+  let totalDoorSpend   = sum('ww-doorhanger-spend') + sum('ww-doorhanger-labor') + sum('ww-doorhanger-labor-tax');
   let totalMetaLeads   = sum('metaLeads');
   let totalGoogleLeads = sum('googleLeads'); let totalGoogleClicks = sum('googleClicks');
   let totalLsaLeads    = sum('lsaLeads');
@@ -2716,25 +2756,27 @@ function renderMonthly() {
     totalMetaSpend   += pf('ww-meta-spend');   totalMetaLeads    += pi('metaLeads');    totalMetaSoldRev  += pf('metaSoldRevenue');
     totalGoogleSpend += pf('ww-google-spend'); totalGoogleLeads  += pi('googleLeads');  totalGoogleClicks += pi('googleClicks');  totalGoogleSoldRev += pf('googleSoldRevenue');
     totalLsaSpend    += pf('ww-lsa-spend');    totalLsaLeads     += pi('lsaLeads');     totalLsaSoldRev   += pf('lsaSoldRevenue');
-    totalYardSpend   += pf('ww-yardsign-spend');
-    totalDoorSpend   += pf('ww-doorhanger-spend');
+    totalYardSpend   += pf('ww-yardsign-spend') + pf('ww-yardsign-labor') + pf('ww-yardsign-labor-tax');
+    totalDoorSpend   += pf('ww-doorhanger-spend') + pf('ww-doorhanger-labor') + pf('ww-doorhanger-labor-tax');
     // expenses from sections
     totalLabor  += ['ww-payroll','ww-workers-comp','ww-payroll-tax','ww-subcontractors'].reduce((s,k)=>s+pf(k),0);
     totalDirect += ['ww-gas','ww-chemicals','ww-supplies'].reduce((s,k)=>s+pf(k),0);
-    totalMktg   += ['ww-meta-spend','ww-google-spend','ww-lsa-spend','ww-yardsign-spend','ww-doorhanger-spend','ww-mktg-agency','ww-printed'].reduce((s,k)=>s+pf(k),0);
+    totalMktg   += ['ww-meta-spend','ww-google-spend','ww-lsa-spend','ww-yardsign-spend','ww-yardsign-labor','ww-yardsign-labor-tax','ww-doorhanger-spend','ww-doorhanger-labor','ww-doorhanger-labor-tax','ww-referral-giftcard-cost','ww-mktg-agency','ww-printed'].reduce((s,k)=>s+pf(k),0);
     totalVeh    += ['ww-veh-payments','ww-veh-insurance','ww-veh-maintenance'].reduce((s,k)=>s+pf(k),0);
     totalSW     += ['ww-sw-payroll','ww-sw-crm','ww-sw-phone','ww-sw-bookkeeping','ww-sw-website'].reduce((s,k)=>s+pf(k),0);
     totalOH     += ['ww-oh-office-staff','ww-oh-ops-manager','ww-oh-warehouse','ww-oh-admin','ww-oh-culligan','ww-oh-utilities','ww-oh-liability'].reduce((s,k)=>s+pf(k),0);
+    totalBadDebt+= pf('ww-baddebt');
   }
 
   // Full line-item aggregates
-  const sumLine = key => entries.reduce((s,e)=>s+(parseFloat(e.ww?.[key])||0),0);
+  const sumLine = key => sum(key);
   let tPayroll=sumLine('ww-payroll'), tWorkersComp=sumLine('ww-workers-comp'), tPayrollTax=sumLine('ww-payroll-tax'), tSubcontractors=sumLine('ww-subcontractors');
   let tGas=sumLine('ww-gas'), tChemicals=sumLine('ww-chemicals'), tSupplies=sumLine('ww-supplies');
   let tAgency=sumLine('ww-mktg-agency'), tPrinted=sumLine('ww-printed');
   let tVehPay=sumLine('ww-veh-payments'), tVehIns=sumLine('ww-veh-insurance'), tVehMaint=sumLine('ww-veh-maintenance');
   let tSwPayroll=sumLine('ww-sw-payroll'), tSwCRM=sumLine('ww-sw-crm'), tSwPhone=sumLine('ww-sw-phone'), tSwBooks=sumLine('ww-sw-bookkeeping'), tSwWeb=sumLine('ww-sw-website');
   let tOhOffice=sumLine('ww-oh-office-staff'), tOhOps=sumLine('ww-oh-ops-manager'), tOhWare=sumLine('ww-oh-warehouse'), tOhAdmin=sumLine('ww-oh-admin'), tOhCull=sumLine('ww-oh-culligan'), tOhUtil=sumLine('ww-oh-utilities'), tOhLiab=sumLine('ww-oh-liability');
+  let tBadDebt=sumLine('ww-baddebt');
   let tMetaEst=sum('metaEstimates'), tMetaJobsSold=sum('metaJobsSold');
   let tGoogEst=sum('googleEstimates'), tGoogJobsSold=sum('googleJobsSold');
   let tLsaEst=sum('lsaEstimates'), tLsaJobsSold=sum('lsaJobsSold');
@@ -2758,7 +2800,7 @@ function renderMonthly() {
     tAgency+=pf('ww-mktg-agency'); tPrinted+=pf('ww-printed');
     tVehPay+=pf('ww-veh-payments'); tVehIns+=pf('ww-veh-insurance'); tVehMaint+=pf('ww-veh-maintenance');
     tSwPayroll+=pf('ww-sw-payroll'); tSwCRM+=pf('ww-sw-crm'); tSwPhone+=pf('ww-sw-phone'); tSwBooks+=pf('ww-sw-bookkeeping'); tSwWeb+=pf('ww-sw-website');
-    tOhOffice+=pf('ww-oh-office-staff'); tOhOps+=pf('ww-oh-ops-manager'); tOhWare+=pf('ww-oh-warehouse'); tOhAdmin+=pf('ww-oh-admin'); tOhCull+=pf('ww-oh-culligan'); tOhUtil+=pf('ww-oh-utilities'); tOhLiab+=pf('ww-oh-liability');
+    tOhOffice+=pf('ww-oh-office-staff'); tOhOps+=pf('ww-oh-ops-manager'); tOhWare+=pf('ww-oh-warehouse'); tOhAdmin+=pf('ww-oh-admin'); tOhCull+=pf('ww-oh-culligan'); tOhUtil+=pf('ww-oh-utilities'); tOhLiab+=pf('ww-oh-liability'); tBadDebt+=pf('ww-baddebt');
     tMetaEst+=pi('metaEstimates'); tMetaJobsSold+=pi('metaJobsSold');
     tGoogEst+=pi('googleEstimates'); tGoogJobsSold+=pi('googleJobsSold');
     tLsaEst+=pi('lsaEstimates'); tLsaJobsSold+=pi('lsaJobsSold');
@@ -2768,19 +2810,34 @@ function renderMonthly() {
     tWebLeads+=pi('websiteLeads'); tWebEst+=pi('websiteEstimates'); tWebSold+=pi('websiteJobsSold'); tWebRev+=pf('websiteSoldRevenue');
   }
 
-  const totalExpenses = totalLabor + totalDirect + totalMktg + totalVeh + totalSW + totalOH + Object.values(customTotals).reduce((s,v)=>s+v,0);
+  const totalExpenses = totalLabor + totalDirect + totalMktg + totalVeh + totalSW + totalOH + totalBadDebt + Object.values(customTotals).reduce((s,v)=>s+v,0);
   const grossProfit = totalRev - totalLabor - totalDirect;
   const netProfit = totalRev - totalExpenses;
   const avgTicket = totalJobs > 0 ? totalRev / totalJobs : 0;
   const laborPct  = totalRev > 0 ? totalLabor / totalRev * 100 : 0;
   const mktgPct   = totalRev > 0 ? totalMktg / totalRev * 100 : 0;
   const totalAllLeads = totalMetaLeads + totalGoogleLeads + totalLsaLeads + tYardLeads + tDoorLeads + tBrandLeads + tWebLeads;
-  const totalSoldRev = totalSold + totalMetaSoldRev + totalGoogleSoldRev + totalLsaSoldRev + tYardRev + tDoorRev + tBrandRev + tWebRev;
-  const revPerTechHour = tTechHours > 0 ? totalRev / tTechHours : 0;
+  // Channel sold revenue is a breakdown/subset of the global won-estimate cohort.
+  // Adding it to totalSold would double-count the same sales.
+  const totalSoldRev = totalSold;
   const weeks = entries.length;
+  const techMetricComplete = !partialData && !incomingPartial && entries.every(e => e.ww && Object.prototype.hasOwnProperty.call(e.ww,'techRevenue'));
+  const totalTechRevenue = entries.reduce((s,e)=>s+(parseFloat(e.ww?.techRevenue)||0),0);
+  const totalTechManHours = entries.reduce((s,e)=>s+((parseFloat(e.ww?.techCount)||0)*(parseFloat(e.ww?.techHours)||0)),0);
+  const avgActiveTechs = weeks>0 ? tTechCount/weeks : 0;
+  const incomingDays = incomingPartial && incomingBoundary ? Number(incomingBoundary.daysInMonth || 0) : 0;
+  const outgoingDays = partialData && partial ? Number(partial.daysInMonth || 0) : 0;
+  const weekEquivalents = Math.max(0, weeks - (incomingDays/7) + (outgoingDays/7));
+  const revPerTechHour = techMetricComplete && totalTechManHours > 0 ? totalTechRevenue / totalTechManHours : 0;
 
   // Ghudzy aggregates
-  const gSum = (p, key) => entries.reduce((s,e) => s + (parseInt(e.content?.[p]?.[key])||0), 0);
+  const incomingGKey = (p,key) => {
+    if (!incomingPartial) return 0;
+    const map={'blueprint-leads':'leads','blueprint-calls':'calls','blueprint-scheduled':'scheduled','blueprint-showed':'showed','blueprint-closed':'closed','blueprint-volume':'volume'};
+    const suffix=map[key];
+    return suffix ? (parseFloat(incomingPartial['g_'+p+'_'+suffix])||0) : 0;
+  };
+  const gSum = (p, key) => entries.reduce((s,e) => s + (parseInt(e.content?.[p]?.[key])||0), 0) - incomingGKey(p,key);
   const platSums = {};
   PLATFORMS.forEach(p => {
     platSums[p] = {
@@ -2790,18 +2847,18 @@ function renderMonthly() {
       scheduled: gSum(p,'blueprint-scheduled'),
       showed:    gSum(p,'blueprint-showed'),
       closed:    gSum(p,'blueprint-closed'),
-      volume:    entries.reduce((s,e)=>s+(parseFloat(e.content?.[p]?.['blueprint-volume'])||0),0),
+      volume:    entries.reduce((s,e)=>s+(parseFloat(e.content?.[p]?.['blueprint-volume'])||0),0) - incomingGKey(p,'blueprint-volume'),
       videos:    gSum(p,'videos'),
     };
   });
-  const totGLeads    = PLATFORMS.reduce((s,p)=>s+platSums[p].leads,0);
-  const totGCalls    = PLATFORMS.reduce((s,p)=>s+platSums[p].calls,0);
-  const totGSched    = PLATFORMS.reduce((s,p)=>s+platSums[p].scheduled,0);
-  const totGShowed   = PLATFORMS.reduce((s,p)=>s+platSums[p].showed,0);
-  const totGClosed   = PLATFORMS.reduce((s,p)=>s+platSums[p].closed,0);
-  const totGVolume   = PLATFORMS.reduce((s,p)=>s+platSums[p].volume,0);
-  const totGVideos   = PLATFORMS.reduce((s,p)=>s+platSums[p].videos,0);
-  const totGGained   = PLATFORMS.reduce((s,p)=>s+platSums[p].gained,0);
+  let totGLeads    = PLATFORMS.reduce((s,p)=>s+platSums[p].leads,0);
+  let totGCalls    = PLATFORMS.reduce((s,p)=>s+platSums[p].calls,0);
+  let totGSched    = PLATFORMS.reduce((s,p)=>s+platSums[p].scheduled,0);
+  let totGShowed   = PLATFORMS.reduce((s,p)=>s+platSums[p].showed,0);
+  let totGClosed   = PLATFORMS.reduce((s,p)=>s+platSums[p].closed,0);
+  let totGVolume   = PLATFORMS.reduce((s,p)=>s+platSums[p].volume,0);
+  let totGVideos   = PLATFORMS.reduce((s,p)=>s+platSums[p].videos,0);
+  let totGGained   = PLATFORMS.reduce((s,p)=>s+platSums[p].gained,0);
 
   // Add Ghudzy partial
   if (partialData) {
@@ -2814,10 +2871,17 @@ function renderMonthly() {
       platSums[p].volume    += parseFloat(partialData['g_'+p+'_volume'])  ||0;
     });
   }
+  // Recompute rollups after applying the outgoing partial-month split.
+  totGLeads  = PLATFORMS.reduce((s,p)=>s+platSums[p].leads,0);
+  totGCalls  = PLATFORMS.reduce((s,p)=>s+platSums[p].calls,0);
+  totGSched  = PLATFORMS.reduce((s,p)=>s+platSums[p].scheduled,0);
+  totGShowed = PLATFORMS.reduce((s,p)=>s+platSums[p].showed,0);
+  totGClosed = PLATFORMS.reduce((s,p)=>s+platSums[p].closed,0);
+  totGVolume = PLATFORMS.reduce((s,p)=>s+platSums[p].volume,0);
 
   const PICONS = {instagram:'📸',tiktok:'🎵',facebook:'👤',snapchat:'👻',youtube:'▶️'};
 
-  html += `<h2 style="margin:0 0 16px;font-size:20px;">${monthName} — ${weeks} week${weeks!==1?'s':''}</h2>`;
+  html += `<h2 style="margin:0 0 16px;font-size:20px;">${monthName} — ${weeks} saved week${weeks!==1?'s':''}</h2>`;
 
   // Partial week banner
   const editMode = window._monthlyEditMode === selected;
@@ -2847,7 +2911,8 @@ function renderMonthly() {
         ${mpRow('Total Revenue','revenue',true)}
         ${mpRow('Jobs Completed','jobsCompleted',false)}
         ${mpRow('Upsold Revenue','upsoldRevenue',true)}
-        ${mpRow('Jobs Sold (pipeline)','jobsSold',false)}
+        ${mpRow('Won Estimate Revenue','soldRevenue',true)}
+        ${mpRow('Estimates Won','jobsSold',false)}
         ${mpRow('5-Star Reviews','fiveStarReviews',false)}
         ${mpRow('Callbacks','callbacks',false)}
       </div>
@@ -2897,7 +2962,9 @@ function renderMonthly() {
 
       ${secHdr('🪧 Yard Signs')}
       <div style="${grid()}">
-        ${mpRow('Spend','ww-yardsign-spend',true)}
+        ${mpRow('Materials / Signs','ww-yardsign-spend',true)}
+        ${mpRow('Distribution Labor','ww-yardsign-labor',true)}
+        ${mpRow('Distribution Payroll Tax','ww-yardsign-labor-tax',true)}
         ${mpRow('Count','yardSignCount',false)}
         ${mpRow('Leads','yardSignLeads',false)}
         ${mpRow('Estimates Sent','yardSignEstimates',false)}
@@ -2907,7 +2974,9 @@ function renderMonthly() {
 
       ${secHdr('🚪 Door Hangers')}
       <div style="${grid()}">
-        ${mpRow('Spend','ww-doorhanger-spend',true)}
+        ${mpRow('Materials','ww-doorhanger-spend',true)}
+        ${mpRow('Distribution Labor','ww-doorhanger-labor',true)}
+        ${mpRow('Distribution Payroll Tax','ww-doorhanger-labor-tax',true)}
         ${mpRow('Count','doorHangerCount',false)}
         ${mpRow('Leads','doorHangerLeads',false)}
         ${mpRow('Estimates Sent','doorHangerEstimates',false)}
@@ -2933,8 +3002,14 @@ function renderMonthly() {
 
       ${secHdr('💵 Other Marketing')}
       <div style="${grid()}">
+        ${mpRow('Referral Program Cost','ww-referral-giftcard-cost',true)}
         ${mpRow('Agency Fee','ww-mktg-agency',true)}
         ${mpRow('Printed Materials','ww-printed',true)}
+      </div>
+
+      ${secHdr('📉 Bad Debt')}
+      <div style="${grid()}">
+        ${mpRow('Written Off','ww-baddebt',true)}
       </div>
 
       ${secHdr('🚗 Vehicles')}
@@ -3026,10 +3101,10 @@ function renderMonthly() {
       ${sb('Mktg % of Rev',pct(totalMktg,totalRev))}
       ${sb('5-Star Reviews','⭐ '+$n(totalReviews))}
       ${sb('Callbacks',$n(totalCallbacks))}
-      ${sb('Avg Rev/Week',weeks>0?$m(totalRev/weeks):'—')}
-      ${sb('Avg Jobs/Week',weeks>0?(totalJobs/weeks).toFixed(1):'—')}
-      ${tTechCount>0?sb('Technicians',$n(tTechCount)):''}
-      ${tTechHours>0?sb('Tech Hours',$n(tTechHours)):''}
+      ${sb('Avg Rev/Week',weekEquivalents>0?$m(totalRev/weekEquivalents):'—')}
+      ${sb('Avg Jobs/Week',weekEquivalents>0?(totalJobs/weekEquivalents).toFixed(1):'—')}
+      ${avgActiveTechs>0?sb('Avg Active Techs',avgActiveTechs.toFixed(1)):''}
+      ${techMetricComplete && totalTechManHours>0?sb('Tech Man-Hours',totalTechManHours.toFixed(1)+'h'):''}
       ${revPerTechHour>0?sb('Rev / Tech Hour','$'+(revPerTechHour).toFixed(2),revPerTechHour>=125?'var(--green)':'var(--orange)'):''}
     </div>
 
@@ -3103,11 +3178,16 @@ function renderMonthly() {
       ${row('Office Staff',$m(tOhOffice))}${row('Operations Manager',$m(tOhOps))}${row('Warehouse',$m(tOhWare))}${row('Admin / Bookkeeping',$m(tOhAdmin))}${row('Culligan Water',$m(tOhCull))}${row('Utilities',$m(tOhUtil))}${row('Liability Insurance',$m(tOhLiab))}
       ${customTotals.overhead>0?row('Custom (Overhead)',$m(customTotals.overhead)):''}
     </div>
+
+    ${secHd('📉 Bad Debt — ' + $m(totalBadDebt + (customTotals.baddebt||0)))}
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:6px;">
+      ${row('Written Off',$m(tBadDebt))}${customTotals.baddebt>0?row('Custom (Bad Debt)',$m(customTotals.baddebt)):''}
+    </div>
   </div>`;
 
   // Ghudzy summary
-  const totGSched2 = PLATFORMS.reduce((s,p)=>s+platSums[p].scheduled,0);
-  const totGShowed2 = PLATFORMS.reduce((s,p)=>s+platSums[p].showed,0);
+  const totGSched2 = totGSched;
+  const totGShowed2 = totGShowed;
   html += `<div class="card">
     <div class="card-title">📱 Social — ${monthName}</div>
     ${secHd('📊 Totals Across All Platforms')}
@@ -3145,14 +3225,14 @@ function saveMonthlyPartial(ym) {
   const partials = getMonthlyPartials();
   const data = {};
   // Revenue / jobs
-  ['revenue','jobsCompleted','upsoldRevenue','jobsSold','fiveStarReviews','callbacks'].forEach(k => data[k] = gv(k));
+  ['revenue','jobsCompleted','upsoldRevenue','soldRevenue','jobsSold','fiveStarReviews','callbacks'].forEach(k => data[k] = gv(k));
   // Expense section fields
   ['ww-payroll','ww-workers-comp','ww-payroll-tax','ww-subcontractors',
    'ww-gas','ww-chemicals','ww-supplies',
-   'ww-meta-spend','ww-google-spend','ww-lsa-spend','ww-yardsign-spend','ww-doorhanger-spend','ww-mktg-agency','ww-printed',
+   'ww-meta-spend','ww-google-spend','ww-lsa-spend','ww-yardsign-spend','ww-yardsign-labor','ww-yardsign-labor-tax','ww-doorhanger-spend','ww-doorhanger-labor','ww-doorhanger-labor-tax','ww-referral-giftcard-cost','ww-mktg-agency','ww-printed',
    'ww-veh-payments','ww-veh-insurance','ww-veh-maintenance',
    'ww-sw-payroll','ww-sw-crm','ww-sw-phone','ww-sw-bookkeeping','ww-sw-website',
-   'ww-oh-office-staff','ww-oh-ops-manager','ww-oh-warehouse','ww-oh-admin','ww-oh-culligan','ww-oh-utilities','ww-oh-liability'
+   'ww-oh-office-staff','ww-oh-ops-manager','ww-oh-warehouse','ww-oh-admin','ww-oh-culligan','ww-oh-utilities','ww-oh-liability','ww-baddebt'
   ].forEach(k => data[k] = gv(k));
   // Marketing channel results
   ['metaLeads','metaEstimates','metaJobsSold','metaSoldRevenue',
@@ -3205,16 +3285,17 @@ function clearMonthlyPartial(ym) {
     setVal('ww-revenue',data.revenue,2);
     setVal('ww-jobs-completed',data.jobs_completed);
     setVal('ww-repeat-customers',data.repeat_customers);
+    setVal('ww-customers-served',data.customers_served);
     setVal('ww-callbacks',data.callbacks);
     setVal('ww-tech-count',data.tech_count);
     setVal('ww-tech-hours',data.hours_per_tech,2);
+    setVal('ww-tech-revenue',data.tech_revenue,2);
     setVal('ww-sold-revenue',data.sold_revenue,2);
     setVal('ww-jobs-sold',data.jobs_sold);
     if (data.reviews_available) setVal('ww-five-star-reviews',data.five_star_reviews);
-    if (Number(data.revenue_unclassified || 0) === 0) {
-      setVal('ww-revenue-residential',data.revenue_residential,2);
-      setVal('ww-revenue-commercial',data.revenue_commercial,2);
-    }
+    setVal('ww-revenue-residential',data.revenue_residential,2);
+    setVal('ww-revenue-commercial',data.revenue_commercial,2);
+    setVal('ww-revenue-unclassified',data.revenue_unclassified,2);
   }
 
   function applyQb(data, skipFields) {
@@ -3291,7 +3372,7 @@ function clearMonthlyPartial(ym) {
       if (hcp && hcp.ok) {
         applyHcp(hcp.data);
         let line='✅ HCP: $'+Number(hcp.data.revenue || 0).toFixed(2)+' revenue · '+Number(hcp.data.jobs_completed || 0)+' completed · $'+Number(hcp.data.sold_revenue || 0).toFixed(2)+' sold';
-        if (Number(hcp.data.revenue_unclassified || 0) > 0) line += ' · residential/commercial left unchanged';
+        if (Number(hcp.data.revenue_unclassified || 0) > 0) line += ' · $'+Number(hcp.data.revenue_unclassified || 0).toFixed(2)+' revenue unclassified';
         messages.push(line);
       } else {
         messages.push('⚠️ HCP: '+(hcp ? hcp.error : 'not returned'));
@@ -3319,7 +3400,7 @@ function clearMonthlyPartial(ym) {
         const applied=applyAttribution(attribution.data,[]);
         const coverage=attribution.data.coverage || {};
         let line='✅ GHL → HCP Attribution: '+applied+' marketing KPI field'+(applied===1?'':'s')+' auto-filled';
-        line += ' · '+Number(coverage.hcp_matched_leads || 0)+' of '+Number(coverage.ghl_leads_total || 0)+' GHL leads matched to HCP';
+        line += ' · '+Number(coverage.hcp_matched_leads || 0)+' of '+Number(coverage.ghl_leads_total || 0)+' GHL inquiries matched to HCP';
         line += ' · '+Number(coverage.estimates_attributed || 0)+' estimates attributed';
         if (meta && meta.ok) line += ' · Meta spend from Meta API, lead count from GHL';
         messages.push(line);
@@ -3327,6 +3408,7 @@ function clearMonthlyPartial(ym) {
         messages.push('⚠️ Attribution: '+(attribution ? attribution.error : 'not returned'));
       }
 
+      if (typeof updateReferralCost === 'function') updateReferralCost();
       if (typeof updateSummary === 'function') updateSummary();
       if (typeof updateConversions === 'function') updateConversions();
       if (typeof updateROAS === 'function') updateROAS();
@@ -3392,7 +3474,7 @@ function clearMonthlyPartial(ym) {
   function render(data) {
     const s=data.summary || {};
     metrics.innerHTML='';
-    metrics.appendChild(tile('GHL leads',String(Number(s.ghl_leads || 0)),'var(--blue)','last '+Number(data.lookback_days || 7)+' days'));
+    metrics.appendChild(tile('GHL inquiries',String(Number(s.ghl_leads || 0)),'var(--blue)','contacts with phone/email · last '+Number(data.lookback_days || 7)+' days'));
     metrics.appendChild(tile('Matched in HCP',String(Number(s.matched_hcp_customers || 0)),null,Number(s.handoff_rate || 0).toFixed(1)+'% handoff rate'));
     metrics.appendChild(tile('Estimates found',String(Number(s.estimates_found || 0)),'var(--green)',Number(s.estimate_rate_after_match || 0).toFixed(1)+'% of HCP matches'));
     metrics.appendChild(tile('Needs attention',String(Number(s.needs_attention || 0)),Number(s.needs_attention || 0)>0 ? '#ef4444' : 'var(--green)','handoff or estimate gaps'));
@@ -3500,7 +3582,7 @@ function clearMonthlyPartial(ym) {
     const c=data.coverage || {};
     coverageEl.innerHTML='';
     [
-      ['GHL leads',Number(c.ghl_leads_total || 0)],
+      ['GHL inquiries',Number(c.ghl_leads_total || 0)],
       ['Matched to HCP',Number(c.hcp_matched_leads || 0)+' / '+Number(c.ghl_leads_total || 0)],
       ['Estimates attributed',Number(c.estimates_attributed || 0)],
       ['Attributed sold revenue',money(c.sold_revenue_attributed)],
@@ -3542,7 +3624,7 @@ function clearMonthlyPartial(ym) {
       ch += '</tbody></table></div>';
       campaignEl.innerHTML=ch;
     }
-    noteEl.textContent=(data.scope_note || "")+" Conversion window currently extends through "+String(data.conversion_window_end || data.week_ending || "")+".";
+    noteEl.textContent=(data.scope_note || "")+" Conversion window extends through "+String(data.conversion_window_end || data.week_ending || "")+"; realized production is checked through "+String(data.realization_through || data.conversion_window_end || data.week_ending || "")+".";
   }
 
   async function load() {
@@ -3575,6 +3657,7 @@ function clearMonthlyPartial(ym) {
     (snapshot.auto_fields || []).forEach(item => {
       if (setField(item.field_id,item.value,item.metric)) applied += 1;
     });
+    if (typeof updateReferralCost==='function') updateReferralCost();
     if (typeof updateSummary==='function') updateSummary();
     if (typeof updateConversions==='function') updateConversions();
     if (typeof updateROAS==='function') updateROAS();
@@ -3853,11 +3936,11 @@ function clearMonthlyPartial(ym) {
         '<strong>' + data.week_start + ' → ' + data.week_ending + '</strong><br>' +
         'Completed revenue: <strong>USD ' + Number(data.revenue).toFixed(2) + '</strong>' +
         ' · Jobs completed: <strong>' + Number(data.jobs_completed) + '</strong><br>' +
-        (Number(data.revenue_unclassified) > 0
-          ? 'Residential / Commercial: <strong>manual</strong><br>'
-          : 'Residential: <strong>USD ' + Number(data.revenue_residential).toFixed(2) + '</strong>' +
-            ' · Commercial: <strong>USD ' + Number(data.revenue_commercial).toFixed(2) + '</strong><br>') +
+        'Residential: <strong>USD ' + Number(data.revenue_residential).toFixed(2) + '</strong>' +
+        ' · Commercial: <strong>USD ' + Number(data.revenue_commercial).toFixed(2) + '</strong>' +
+        ' · Unclassified: <strong>USD ' + Number(data.revenue_unclassified).toFixed(2) + '</strong><br>' +
         'Repeat customers: <strong>' + Number(data.repeat_customers) + '</strong>' +
+        ' / ' + Number(data.customers_served || 0) + ' customers served' +
         ' · Repeat customer %: <strong>' + Number(data.repeat_customer_pct).toFixed(1) + '%</strong>' +
         ' · Callbacks: <strong>' + Number(data.callbacks) + '</strong><br>' +
         (data.reviews_available
@@ -3866,15 +3949,15 @@ function clearMonthlyPartial(ym) {
         'Technicians: <strong>' + Number(data.tech_count) + '</strong>' +
         ' · Total tech hours: <strong>' + Number(data.total_tech_hours).toFixed(2) + '</strong>' +
         ' · Tech rev/hr: <strong>USD ' + Number(data.tech_rev_per_hour).toFixed(2) + '</strong><br>' +
-        'Sold revenue: <strong>USD ' + Number(data.sold_revenue).toFixed(2) + '</strong>' +
-        ' · Jobs sold: <strong>' + Number(data.jobs_sold) + '</strong>';
+        'Won estimate revenue (created-week cohort): <strong>USD ' + Number(data.sold_revenue).toFixed(2) + '</strong>' +
+        ' · Estimates won: <strong>' + Number(data.jobs_sold) + '</strong>';
 
       const note = document.createElement('div');
       note.style.cssText = 'margin-top:5px;color:var(--muted);font-size:11px;';
       note.textContent = (data.scope_note || '') +
         (!data.reviews_available
-          ? ' Review widget data was not readable enough to auto-count 5-star reviews yet.'
-          : '') +
+          ? ' 5-star review count is unavailable for this selected week because the stored review feed does not cover the full period.'
+          : (data.review_coverage_start ? ' Review feed coverage starts '+data.review_coverage_start+'.' : '')) +
         (Number(data.tech_time_scheduled_fallback_jobs) > 0
           ? ' ' + Number(data.tech_time_scheduled_fallback_jobs) + ' completed job(s) used scheduled duration because HCP Start/Finish time was missing.'
           : '') +
@@ -3895,30 +3978,35 @@ function clearMonthlyPartial(ym) {
         const jobsSold = document.getElementById('ww-jobs-sold');
         const residentialRevenue = document.getElementById('ww-revenue-residential');
         const commercialRevenue = document.getElementById('ww-revenue-commercial');
+        const unclassifiedRevenue = document.getElementById('ww-revenue-unclassified');
         const repeatCustomers = document.getElementById('ww-repeat-customers');
+        const customersServed = document.getElementById('ww-customers-served');
         const callbacks = document.getElementById('ww-callbacks');
         const fiveStarReviews = document.getElementById('ww-five-star-reviews');
         const techCount = document.getElementById('ww-tech-count');
         const techHours = document.getElementById('ww-tech-hours');
+        const techRevenue = document.getElementById('ww-tech-revenue');
 
         if (revenue) revenue.value = Number(preview.revenue).toFixed(2);
         if (jobsCompleted) jobsCompleted.value = Number(preview.jobs_completed);
-        if (Number(preview.revenue_unclassified) === 0) {
-          if (residentialRevenue) residentialRevenue.value = Number(preview.revenue_residential).toFixed(2);
-          if (commercialRevenue) commercialRevenue.value = Number(preview.revenue_commercial).toFixed(2);
-        }
+        if (residentialRevenue) residentialRevenue.value = Number(preview.revenue_residential).toFixed(2);
+        if (commercialRevenue) commercialRevenue.value = Number(preview.revenue_commercial).toFixed(2);
+        if (unclassifiedRevenue) unclassifiedRevenue.value = Number(preview.revenue_unclassified).toFixed(2);
         if (repeatCustomers) repeatCustomers.value = Number(preview.repeat_customers);
+        if (customersServed) customersServed.value = Number(preview.customers_served || 0);
         if (callbacks) callbacks.value = Number(preview.callbacks);
         if (preview.reviews_available && fiveStarReviews) fiveStarReviews.value = Number(preview.five_star_reviews);
         if (techCount) techCount.value = Number(preview.tech_count);
         if (techHours) techHours.value = Number(preview.hours_per_tech).toFixed(2);
+        if (techRevenue) techRevenue.value = Number(preview.tech_revenue || 0).toFixed(2);
         if (soldRevenue) soldRevenue.value = Number(preview.sold_revenue).toFixed(2);
         if (jobsSold) jobsSold.value = Number(preview.jobs_sold);
 
         const splitText = Number(preview.revenue_unclassified) > 0
-          ? ' Residential/Commercial was left unchanged because HCP does not have a reliable customer type on these jobs.'
-          : ' Residential/Commercial was applied too.';
-        panel.insertAdjacentHTML('beforeend','<div style="margin-top:8px;">✅ Applied Revenue, Jobs Completed, Repeat Customers, Callbacks, Technician Count/Hours, Sold Revenue, and Jobs Sold.' + splitText + ' Review, then click Save This Week.</div>');
+          ? ' $'+Number(preview.revenue_unclassified).toFixed(2)+' remains unclassified and is shown separately.'
+          : ' All completed revenue is classified.';
+        panel.insertAdjacentHTML('beforeend','<div style="margin-top:8px;">✅ Applied completed production, customer retention, callbacks, technician productivity, and estimate-cohort sales.' + splitText + ' Review, then click Save This Week.</div>');
+        updateSummary();
       });
 
       panel.appendChild(summary);

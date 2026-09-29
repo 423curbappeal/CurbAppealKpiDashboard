@@ -422,7 +422,7 @@ def lead_handoff_snapshot(lookback_days=7):
     cutoff=now-timedelta(days=max(1,int(lookback_days)))
     leads=ghl_recent_leads(lookback_days=lookback_days)
     customer_index=cached_runtime("hcp_customer_index",300,hcp_customer_index)
-    estimates=hcp_estimate_index(cutoff.date(),datetime.now(BUSINESS_TZ).date())
+    estimates=hcp_estimate_index(cutoff.astimezone(BUSINESS_TZ).date(),datetime.now(BUSINESS_TZ).date())
 
     rows=[]
     matched=0
@@ -515,7 +515,7 @@ def lead_handoff_snapshot(lookback_days=7):
             "needs_attention":sum(1 for r in rows if r.get("needs_attention"))
         },
         "rows":rows[:40],
-        "scope_note":"Matches HighLevel leads to Housecall Pro by exact normalized phone or email only. Names are never fuzzy-matched. HCP becomes the source of truth after handoff."
+        "scope_note":"HighLevel contacts with a phone/email are treated as inbound inquiries; this can include calls/messages that are not yet qualified leads. Matches to Housecall Pro use exact normalized phone or email only. Names are never fuzzy-matched. HCP becomes the source of truth after handoff."
     }
 
 def hcp_get(path, params=None):
@@ -573,8 +573,8 @@ def hcp_list_completed_jobs(start, end):
             if job.get("deleted_at"):
                 continue
             completed_at=((job.get("work_timestamps") or {}).get("completed_at"))
-            completed_dt=hcp_parse_datetime(completed_at)
-            if completed_dt and start <= completed_dt.date() <= end:
+            completed_date=hcp_local_date(completed_at)
+            if completed_date and start <= completed_date <= end:
                 matched.append(job)
 
         total_pages=int(data.get("total_pages") or 1)
@@ -599,10 +599,9 @@ def hcp_list_created_jobs(start, end):
 
         saw_older=False
         for job in batch:
-            created_dt=hcp_parse_datetime(job.get("created_at"))
-            if not created_dt:
+            created_date=hcp_local_date(job.get("created_at"))
+            if not created_date:
                 continue
-            created_date=created_dt.date()
             if created_date < start:
                 saw_older=True
                 continue
@@ -709,17 +708,20 @@ def hcp_operations_brief():
         scheduled_date=hcp_local_date(scheduled_start)
         if not scheduled_date or scheduled_date < today or scheduled_date > next7_end:
             continue
+        is_callback=hcp_is_callback(job)
         scheduled.append({
             "id":job.get("id"),
             "customer_name":hcp_job_customer_name(job),
             "scheduled_start":scheduled_start,
             "scheduled_date":scheduled_date.isoformat(),
             "status":status or "scheduled",
-            "value":round(hcp_money_to_dollars(job.get("total_amount")),2)
+            "is_callback":is_callback,
+            "value":0.0 if is_callback else round(hcp_money_to_dollars(job.get("total_amount")),2)
         })
 
     scheduled.sort(key=lambda j:str(j.get("scheduled_start") or ""))
     today_jobs=[j for j in scheduled if j["scheduled_date"]==today.isoformat()]
+    next7_jobs=[j for j in scheduled if not str(j.get("status") or "").startswith("complete")]
 
     invoices=[]
     page=1
@@ -763,8 +765,8 @@ def hcp_operations_brief():
             "items":today_jobs[:8]
         },
         "next7":{
-            "count":len(scheduled),
-            "revenue":round(sum(float(j.get("value") or 0) for j in scheduled),2)
+            "count":len(next7_jobs),
+            "revenue":round(sum(float(j.get("value") or 0) for j in next7_jobs),2)
         },
         "ar":{
             "outstanding_count":len(outstanding),
@@ -777,6 +779,41 @@ def hcp_operations_brief():
         }
     }
 
+def hcp_current_week_forecast():
+    today=datetime.now(BUSINESS_TZ).date()
+    week_start=today-timedelta(days=today.weekday())
+    week_end=week_start+timedelta(days=6)
+
+    completed=hcp_list_completed_jobs(week_start,today)
+    completed=[job for job in completed if not hcp_is_callback(job)]
+    completed_ids={str(job.get("id") or "") for job in completed if job.get("id")}
+    completed_revenue=sum(hcp_money_to_dollars(job.get("total_amount")) for job in completed)
+
+    scheduled=hcp_list_scheduled_jobs(today,week_end)
+    remaining=[]
+    for job in scheduled:
+        jid=str(job.get("id") or "")
+        if jid and jid in completed_ids:
+            continue
+        status=str(job.get("work_status") or "").strip().lower()
+        if status.startswith("complete") or "cancel" in status:
+            continue
+        if hcp_is_callback(job):
+            continue
+        remaining.append(job)
+
+    remaining_revenue=sum(hcp_money_to_dollars(job.get("total_amount")) for job in remaining)
+    forecast_revenue=completed_revenue+remaining_revenue
+    return {
+        "week_start":week_start.isoformat(),
+        "week_end":week_end.isoformat(),
+        "completed_revenue":round(completed_revenue,2),
+        "remaining_booked_revenue":round(remaining_revenue,2),
+        "forecast_revenue":round(forecast_revenue,2),
+        "completed_jobs":len(completed),
+        "remaining_jobs":len(remaining)
+    }
+
 def needs_attention_snapshot():
     ops=cached_runtime("hcp_operations_brief", 60, hcp_operations_brief)
     pipe=cached_runtime("hcp_estimate_pipeline", 90, hcp_estimate_pipeline_snapshot)
@@ -784,6 +821,7 @@ def needs_attention_snapshot():
     alerts=[]
     ar=ops.get("ar") or {}
     next7=ops.get("next7") or {}
+    week_forecast=cached_runtime("hcp_current_week_forecast",60,hcp_current_week_forecast)
     open_pipe=pipe.get("open_pipeline") or {}
     aging=open_pipe.get("aging") or {}
     recent=pipe.get("recent") or {}
@@ -829,26 +867,29 @@ def needs_attention_snapshot():
             "key":"warm_estimates"
         })
 
-    booked=float(next7.get("revenue") or 0)
+    booked=float((week_forecast or {}).get("forecast_revenue") or 0)
+    completed_wtd=float((week_forecast or {}).get("completed_revenue") or 0)
+    remaining=float((week_forecast or {}).get("remaining_booked_revenue") or 0)
     goal=max(0.0,float(WEEKLY_REVENUE_GOAL or 0))
     if goal > 0:
         pct=(booked/goal)*100.0
         gap=max(0.0,goal-booked)
+        base_detail=f"${completed_wtd:,.2f} completed + ${remaining:,.2f} remaining = ${booked:,.2f} forecast"
         if pct < 60:
             severity="critical"
             icon="📉"
-            title="Next 7 days are underbooked"
-            detail=f"${booked:,.2f} booked vs ${goal:,.0f} goal — ${gap:,.2f} gap."
+            title="Current week is under goal"
+            detail=base_detail+f" vs ${goal:,.0f} goal — ${gap:,.2f} gap."
         elif pct < 85:
             severity="warning"
             icon="📅"
-            title="Booking pace needs attention"
-            detail=f"${booked:,.2f} booked vs ${goal:,.0f} goal — ${gap:,.2f} gap."
+            title="Current-week pace needs attention"
+            detail=base_detail+f" vs ${goal:,.0f} goal — ${gap:,.2f} gap."
         else:
             severity="good"
             icon="✅"
-            title="Next 7 days are on pace"
-            detail=f"${booked:,.2f} booked against the ${goal:,.0f} weekly goal."
+            title="Current week is on pace"
+            detail=base_detail+f" against the ${goal:,.0f} goal."
         alerts.append({
             "severity":severity,"icon":icon,"title":title,"detail":detail,
             "metric":round(booked,2),"percent":round(pct,1),"key":"booking_pace"
@@ -859,14 +900,14 @@ def needs_attention_snapshot():
     if decided >= 5:
         if close_rate < 50:
             alerts.append({
-                "severity":"warning","icon":"🎯","title":"Estimate close rate is below 50%",
-                "detail":f"30-day close rate is {close_rate:.1f}% across {decided} decided estimates.",
+                "severity":"warning","icon":"🎯","title":"Decision close rate is below 50%",
+                "detail":f"30-day decided close rate is {close_rate:.1f}% across {decided} won/lost estimates; {int(recent.get('open_count') or 0)} are still open.",
                 "metric":round(close_rate,1),"key":"close_rate"
             })
         elif close_rate >= 65:
             alerts.append({
-                "severity":"good","icon":"✅","title":"Estimate close rate is strong",
-                "detail":f"30-day close rate is {close_rate:.1f}% across {decided} decided estimates.",
+                "severity":"good","icon":"✅","title":"Decision close rate is strong",
+                "detail":f"30-day decided close rate is {close_rate:.1f}% across {decided} won/lost estimates; {int(recent.get('open_count') or 0)} are still open.",
                 "metric":round(close_rate,1),"key":"close_rate"
             })
 
@@ -890,11 +931,20 @@ def needs_attention_snapshot():
 
 def hcp_estimate_status_text(estimate):
     values=[]
+    if not isinstance(estimate,dict):
+        return ""
     for key in ("approval_status","status","estimate_status","approval_state"):
-        value=estimate.get(key) if isinstance(estimate,dict) else None
+        value=estimate.get(key)
         if value:
             values.append(str(value))
-    return " | ".join(values)
+    for option in estimate.get("options") or []:
+        if not isinstance(option,dict):
+            continue
+        value=option.get("approval_status") or option.get("status") or option.get("approval_state")
+        if value:
+            values.append(str(value))
+    # Keep a compact unique list for diagnostics.
+    return " | ".join(dict.fromkeys(values))
 
 def hcp_is_declined_status(value):
     status=hcp_normalize_status(value)
@@ -978,7 +1028,7 @@ def hcp_estimate_pipeline_class(estimate):
     return "open", hcp_estimate_pipeline_value(estimate)
 
 def hcp_estimate_pipeline_snapshot(lookback_days=120, recent_days=30, max_pages=5):
-    today=datetime.now(timezone.utc).date()
+    today=datetime.now(BUSINESS_TZ).date()
     lookback_start=today-timedelta(days=max(1,int(lookback_days)))
     recent_start=today-timedelta(days=max(1,int(recent_days))-1)
 
@@ -993,8 +1043,8 @@ def hcp_estimate_pipeline_snapshot(lookback_days=120, recent_days=30, max_pages=
             break
 
         for summary in batch:
-            created_dt=hcp_parse_datetime(summary.get("created_at"))
-            if created_dt and created_dt.date() >= lookback_start:
+            created_date=hcp_local_date(summary.get("created_at"))
+            if created_date and created_date >= lookback_start:
                 summaries.append(summary)
 
         total_pages=int(data.get("total_pages") or 1)
@@ -1006,10 +1056,9 @@ def hcp_estimate_pipeline_snapshot(lookback_days=120, recent_days=30, max_pages=
 
     rows=[]
     for estimate in summaries:
-        created_dt=hcp_parse_datetime(estimate.get("created_at"))
-        if not created_dt:
+        created_date=hcp_local_date(estimate.get("created_at"))
+        if not created_date:
             continue
-        created_date=created_dt.date()
         age=max(0,(today-created_date).days)
         bucket,value=hcp_estimate_pipeline_class(estimate)
         rows.append({
@@ -1136,10 +1185,9 @@ def hcp_list_won_estimates(start, end):
             break
 
         for summary in batch:
-            created_dt=hcp_parse_datetime(summary.get("created_at"))
-            if not created_dt:
+            created_date=hcp_local_date(summary.get("created_at"))
+            if not created_date:
                 continue
-            created_date=created_dt.date()
             if created_date < start or created_date > end:
                 continue
 
@@ -1336,9 +1384,10 @@ def hcp_is_callback(job):
 def hcp_callback_count(completed_jobs):
     return sum(1 for job in completed_jobs if hcp_is_callback(job))
 
-def hcp_repeat_customer_count(completed_jobs, week_start):
-    # A repeat customer is someone with at least one completed job before
-    # the selected week who also has a completed job during this week.
+def hcp_repeat_customer_metrics(completed_jobs, week_start):
+    # Compare customers to customers. The old metric divided unique repeat
+    # customers by number of jobs, which mixes units when one customer has
+    # multiple jobs in the same week.
     prior_customers=set()
     page=1
 
@@ -1356,12 +1405,10 @@ def hcp_repeat_customer_count(completed_jobs, week_start):
             status=str(job.get("work_status") or "").lower()
             if not status.startswith("complete") or job.get("deleted_at"):
                 continue
-
             completed_at=((job.get("work_timestamps") or {}).get("completed_at"))
-            completed_dt=hcp_parse_datetime(completed_at)
-            if not completed_dt or completed_dt.date() >= week_start:
+            completed_date=hcp_local_date(completed_at)
+            if not completed_date or completed_date >= week_start:
                 continue
-
             customer_id=hcp_customer_id_from_job(job)
             if customer_id:
                 prior_customers.add(str(customer_id))
@@ -1371,13 +1418,27 @@ def hcp_repeat_customer_count(completed_jobs, week_start):
             break
         page += 1
 
+    current_customers=set()
     repeat_customers=set()
     for job in completed_jobs:
         customer_id=hcp_customer_id_from_job(job)
-        if customer_id and str(customer_id) in prior_customers:
-            repeat_customers.add(str(customer_id))
+        if not customer_id:
+            continue
+        cid=str(customer_id)
+        current_customers.add(cid)
+        if cid in prior_customers:
+            repeat_customers.add(cid)
 
-    return len(repeat_customers)
+    served=len(current_customers)
+    repeat=len(repeat_customers)
+    return {
+        "repeat_customers":repeat,
+        "customers_served":served,
+        "repeat_customer_pct":round((repeat/served*100.0),1) if served else 0.0
+    }
+
+def hcp_repeat_customer_count(completed_jobs, week_start):
+    return hcp_repeat_customer_metrics(completed_jobs,week_start)["repeat_customers"]
 
 def hcp_assigned_employee_ids(job):
     ids=job.get("assigned_employee_ids") or []
@@ -1642,25 +1703,43 @@ def hcp_technician_scorecards(start,end):
     }
 
 def hcp_job_tech_metrics(completed_jobs):
+    employees=hcp_employee_directory()
     unique_techs=set()
     total_tech_hours=0.0
+    tech_revenue=0.0
     actual_time_jobs=0
     scheduled_fallback_jobs=0
     untracked_jobs=0
 
+    def is_owner(tech_id):
+        info=employees.get(str(tech_id)) or {}
+        name=" ".join(str(info.get("name") or "").lower().split())
+        return (
+            name in ("ro sneed","roylee sneed")
+            or name.startswith("ro sneed ")
+            or name.startswith("roylee sneed ")
+        )
+
     for job in completed_jobs:
-        tech_ids=hcp_assigned_employee_ids(job)
+        all_ids=hcp_assigned_employee_ids(job)
+        tech_ids=[tid for tid in all_ids if not is_owner(tid)]
+
+        # Owner-only work is company production, not technician production.
+        if not tech_ids:
+            if not all_ids:
+                untracked_jobs += 1
+            continue
+
         for tech_id in tech_ids:
             unique_techs.add(tech_id)
 
-        if not tech_ids:
-            untracked_jobs += 1
-            continue
+        if not hcp_is_callback(job):
+            # Credit shared production once at the company/crew level.
+            tech_revenue += hcp_money_to_dollars(job.get("total_amount"))
 
         timestamps=job.get("work_timestamps") or {}
         started=hcp_parse_datetime(timestamps.get("started_at"))
         completed=hcp_parse_datetime(timestamps.get("completed_at"))
-
         duration_hours=None
         source=None
 
@@ -1670,8 +1749,6 @@ def hcp_job_tech_metrics(completed_jobs):
                 duration_hours=candidate
                 source="actual"
 
-        # If the crew did not use HCP Start/Finish, fall back to the job's
-        # scheduled window so tech productivity still auto-populates.
         if duration_hours is None:
             schedule=job.get("schedule") or {}
             scheduled_start=hcp_parse_datetime(schedule.get("scheduled_start"))
@@ -1686,6 +1763,7 @@ def hcp_job_tech_metrics(completed_jobs):
             untracked_jobs += 1
             continue
 
+        # Callback labor stays in hours so rework lowers productivity.
         total_tech_hours += duration_hours * len(tech_ids)
         if source == "actual":
             actual_time_jobs += 1
@@ -1694,11 +1772,12 @@ def hcp_job_tech_metrics(completed_jobs):
 
     tech_count=len(unique_techs)
     avg_hours_per_tech=(total_tech_hours / tech_count) if tech_count else 0.0
-
     return {
         "tech_count":tech_count,
+        "tech_revenue":round(tech_revenue,2),
         "total_tech_hours":round(total_tech_hours,2),
         "hours_per_tech":round(avg_hours_per_tech,2),
+        "tech_rev_per_hour":round((tech_revenue/total_tech_hours),2) if total_tech_hours else 0.0,
         "actual_time_jobs":actual_time_jobs,
         "scheduled_fallback_jobs":scheduled_fallback_jobs,
         "untracked_jobs":untracked_jobs
@@ -1876,7 +1955,7 @@ def review_rating_number(value):
 def review_count_for_week(start, end):
     rows=review_store_load()
     seen=set()
-    count=0
+    valid=[]
     for row in rows:
         if not isinstance(row, dict):
             continue
@@ -1886,12 +1965,24 @@ def review_count_for_week(start, end):
         if review_id:
             seen.add(review_id)
         rating=review_rating_number(row.get("rating"))
-        created=hcp_parse_datetime(row.get("create_time"))
-        if rating is None or not created:
+        created_date=hcp_local_date(row.get("create_time"))
+        if rating is None or not created_date:
             continue
-        if rating >= 4.999 and start <= created.date() <= end:
-            count += 1
-    return count, len(rows)
+        valid.append((rating,created_date))
+
+    coverage_start=min((d for _,d in valid),default=None)
+    coverage_end=max((d for _,d in valid),default=None)
+    # Without a backfill marker, the earliest stored review is the earliest
+    # point from which this webhook-backed metric can be treated as covered.
+    available=bool(coverage_start and start >= coverage_start)
+    count=sum(1 for rating,d in valid if rating >= 4.999 and start <= d <= end) if available else 0
+    return {
+        "count":count,
+        "records_total":len(valid),
+        "available":available,
+        "coverage_start":coverage_start.isoformat() if coverage_start else None,
+        "coverage_end":coverage_end.isoformat() if coverage_end else None
+    }
 
 def qb_expense_store_load():
     try:
@@ -2051,10 +2142,9 @@ def hcp_list_leads_for_week(start,end):
         for lead in batch:
             if not isinstance(lead,dict):
                 continue
-            created=hcp_parse_datetime(lead.get("created_at") or lead.get("createdAt"))
-            if not created:
+            d=hcp_local_date(lead.get("created_at") or lead.get("createdAt"))
+            if not d:
                 continue
-            d=created.date()
             if d < start:
                 saw_older=True
                 continue
@@ -2077,8 +2167,8 @@ def hcp_list_estimates_for_week(start,end):
         for estimate in batch:
             if not isinstance(estimate,dict):
                 continue
-            created=hcp_parse_datetime(estimate.get("created_at"))
-            if created and start <= created.date() <= end:
+            created_date=hcp_local_date(estimate.get("created_at"))
+            if created_date and start <= created_date <= end:
                 summaries.append(estimate)
         total_pages=int(data.get("total_pages") or 1)
         if page >= total_pages:
@@ -2211,8 +2301,13 @@ def cross_source_attribution_snapshot(start,end):
 
     today=datetime.now(BUSINESS_TZ).date()
     conversion_end=min(today,end+timedelta(days=30))
+    realization_end=today
     estimates=hcp_list_estimates_for_week(start,conversion_end) if conversion_end>=start else []
-    completed_jobs=hcp_list_completed_jobs(start,conversion_end) if conversion_end>=start else []
+    # A lead can convert/book within 30 days but the service may be completed
+    # later. Search production through today, then require the job creation
+    # (or completion when creation is unavailable) to fall inside the 30-day
+    # lead conversion window before attributing realized revenue.
+    completed_jobs=hcp_list_completed_jobs(start,realization_end) if realization_end>=start else []
     completed_jobs=[job for job in completed_jobs if not hcp_is_callback(job)]
 
     buckets={name:{
@@ -2381,6 +2476,7 @@ def cross_source_attribution_snapshot(start,end):
         "week_start":start.isoformat(),
         "week_ending":end.isoformat(),
         "conversion_window_end":conversion_end.isoformat(),
+        "realization_through":realization_end.isoformat(),
         "rows":rows,
         "campaigns":campaign_rows[:12],
         "auto_fields":auto_fields,
@@ -2394,7 +2490,7 @@ def cross_source_attribution_snapshot(start,end):
             "unknown_leads":int(unknown["leads"]),
             "unknown_estimates":int(unknown["estimates"])
         },
-        "scope_note":"Lead source comes from GoHighLevel original attribution. Housecall Pro supplies customer matching, estimates, approvals, sold revenue, completed jobs, and realized production revenue. Matching uses exact normalized phone/email only. Each estimate or non-callback completed job is attributed once to the most recent matching GHL lead created before it, within 30 days. Callback/rework jobs contribute $0 realized revenue."
+        "scope_note":"The cohort starts with GoHighLevel inbound inquiries that have phone/email; not every inquiry is a qualified lead. Marketing source comes from GoHighLevel original attribution. Housecall Pro supplies customer matching, estimates, approvals, sold revenue, completed jobs, and realized production revenue. Matching uses exact normalized phone/email only. Estimates/jobs must originate within 30 days of the matching GHL inquiry, but a qualifying job can realize completed revenue after that 30-day conversion window. Callback/rework jobs contribute $0 realized revenue."
     }
 
 def hcp_source_attribution_snapshot(start,end):
@@ -2985,14 +3081,16 @@ class Handler(SimpleHTTPRequestHandler):
                 production_jobs=[job for job in completed_jobs if not hcp_is_callback(job)]
                 revenue=sum(hcp_money_to_dollars(job.get("total_amount")) for job in production_jobs)
                 revenue_split=hcp_split_completed_revenue(production_jobs)
-                repeat_customers=hcp_repeat_customer_count(production_jobs, start)
+                repeat_metrics=hcp_repeat_customer_metrics(production_jobs, start)
                 # Include callback labor in tech hours so rework lowers revenue/hour instead of adding duplicate revenue.
                 tech_metrics=hcp_job_tech_metrics(completed_jobs)
-                review_count, review_records_total = review_count_for_week(start,end)
+                review_data=review_count_for_week(start,end)
                 review_metrics={
-                    "available":True,
-                    "five_star_reviews":review_count,
-                    "review_records_found":review_records_total,
+                    "available":bool(review_data.get("available")),
+                    "five_star_reviews":int(review_data.get("count") or 0),
+                    "review_records_found":int(review_data.get("records_total") or 0),
+                    "coverage_start":review_data.get("coverage_start"),
+                    "coverage_end":review_data.get("coverage_end"),
                     "json_payloads_found":0,
                     "widget_html_bytes":0
                 }
@@ -3009,24 +3107,28 @@ class Handler(SimpleHTTPRequestHandler):
                     "revenue_residential":round(revenue_split["residential"],2),
                     "revenue_commercial":round(revenue_split["commercial"],2),
                     "revenue_unclassified":round(revenue_split["unknown"],2),
-                    "repeat_customers":repeat_customers,
-                    "repeat_customer_pct":round((repeat_customers / len(production_jobs) * 100.0),1) if production_jobs else 0.0,
+                    "repeat_customers":repeat_metrics["repeat_customers"],
+                    "customers_served":repeat_metrics["customers_served"],
+                    "repeat_customer_pct":repeat_metrics["repeat_customer_pct"],
                     "callbacks":callbacks,
                     "five_star_reviews":review_metrics["five_star_reviews"],
                     "reviews_available":review_metrics["available"],
                     "review_records_found":review_metrics["review_records_found"],
+                    "review_coverage_start":review_metrics["coverage_start"],
+                    "review_coverage_end":review_metrics["coverage_end"],
                     "reviews_json_payloads_found":review_metrics["json_payloads_found"],
                     "reviews_widget_html_bytes":review_metrics["widget_html_bytes"],
                     "tech_count":tech_metrics["tech_count"],
+                    "tech_revenue":tech_metrics["tech_revenue"],
                     "total_tech_hours":tech_metrics["total_tech_hours"],
                     "hours_per_tech":tech_metrics["hours_per_tech"],
-                    "tech_rev_per_hour":round((revenue / tech_metrics["total_tech_hours"]),2) if tech_metrics["total_tech_hours"] else 0.0,
+                    "tech_rev_per_hour":tech_metrics["tech_rev_per_hour"],
                     "tech_time_actual_jobs":tech_metrics["actual_time_jobs"],
                     "tech_time_scheduled_fallback_jobs":tech_metrics["scheduled_fallback_jobs"],
                     "tech_time_untracked_jobs":tech_metrics["untracked_jobs"],
                     "sold_revenue":round(sold_revenue,2),
                     "jobs_sold":len(won_estimates),
-                    "scope_note":"Revenue/jobs completed use the actual HCP completion timestamp and exclude callback/rework appointments so prior revenue is not counted twice. Residential vs commercial and repeat-customer metrics use non-callback production jobs. Callbacks are counted separately. Tech hours still include callback labor so revenue/hour reflects rework cost. Sold revenue/jobs sold use approved Housecall Pro estimates created within the selected week."
+                    "scope_note":"Revenue/jobs completed use Housecall Pro completion timestamps converted to the business timezone and exclude callback/rework appointments. Residential vs commercial uses non-callback production jobs. Repeat Customer % is repeat unique customers divided by unique customers served. Technician productivity excludes owner/helper assignments and owner-only revenue; callback labor remains in tech hours. Sold revenue/jobs sold are approved estimates created within the selected week (an estimate cohort, not an approval-date metric)."
                 })
             except urllib.error.HTTPError as e:
                 try: detail=json.loads(e.read().decode("utf-8"))
@@ -3053,8 +3155,8 @@ class Handler(SimpleHTTPRequestHandler):
             }).get("data",[])
             spend=sum(float(x.get("spend") or 0) for x in insights)
 
-            start_dt=datetime.combine(start, datetime.min.time(), tzinfo=timezone.utc)
-            end_dt=datetime.combine(end+timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc)
+            start_dt=datetime.combine(start, datetime.min.time(), tzinfo=BUSINESS_TZ).astimezone(timezone.utc)
+            end_dt=datetime.combine(end+timedelta(days=1), datetime.min.time(), tzinfo=BUSINESS_TZ).astimezone(timezone.utc)
             leads=0
             forms_checked=0
             page_breakdown=[]
