@@ -483,7 +483,7 @@
     <span class="week-bar-label">📅 Week</span>
     <span id="week-range" style="font-size:14px;font-weight:700;color:var(--text);">—</span>
     <span style="font-size:12px;color:var(--muted);">· ending Sunday:</span>
-    <input type="date" id="entry-date" oninput="updateWeekLabel()" title="Select the Sunday this week ends on">
+    <input type="date" id="entry-date" oninput="updateWeekLabel()" onchange="switchWeekContext()" title="Select the Sunday this week ends on">
     <div class="week-bar-spacer"></div>
     <button class="btn btn-success btn-sm" id="auto-fill-week-btn" type="button">⚡ Auto Fill Week</button>
     <button class="btn btn-ghost btn-sm" onclick="loadExistingEntry()">Load Existing</button>
@@ -1663,21 +1663,8 @@ function updateFollowerSnapshot() {
     }
   });
 
-  // Per-platform most recent saved blueprint sales
-  const lastSavedSales = {};
-  PLATFORMS.forEach(p => {
-    for (const entry of allEntries) {
-      const c = entry.content && entry.content[p];
-      if (!c) continue;
-      const l  = parseInt(c['blueprint-leads'])      || 0;
-      const ca = parseInt(c['blueprint-calls'])      || 0;
-      const sc = parseInt(c['blueprint-scheduled'])  || 0;
-      const sh = parseInt(c['blueprint-showed'])     || 0;
-      const cl = parseInt(c['blueprint-closed'])     || 0;
-      const vo = parseFloat(c['blueprint-volume'])   || 0;
-      if (l || ca || sc || sh || cl || vo) { lastSavedSales[p] = {l, ca, sc, sh, cl, vo}; break; }
-    }
-  });
+  // Sales funnel metrics are week-specific. Never borrow a previous week's
+  // lead/call/sales values when the selected week is blank.
 
   let totLeads = 0, totCalls = 0, totScheduled = 0, totShowed = 0, totClosed = 0, totVolume = 0, totFollowers = 0, totGained = 0;
   const fmt = (n, isMoney) => n > 0 ? (isMoney ? '$' + n.toLocaleString('en-US', {minimumFractionDigits:2,maximumFractionDigits:2}) : n.toLocaleString()) : '—';
@@ -1696,16 +1683,13 @@ function updateFollowerSnapshot() {
     totFollowers += total;
     totGained    += gained;
 
-    // Use current cache if any sales data entered, else fall back to last saved
-    let l  = parseInt(cache['blueprint-leads'])     || 0;
-    let ca = parseInt(cache['blueprint-calls'])     || 0;
-    let sc = parseInt(cache['blueprint-scheduled']) || 0;
-    let sh = parseInt(cache['blueprint-showed'])    || 0;
-    let cl = parseInt(cache['blueprint-closed'])    || 0;
-    let vo = parseFloat(cache['blueprint-volume'])  || 0;
-    if (!l && !ca && !sc && !sh && !cl && !vo && lastSavedSales[p]) {
-      ({l, ca, sc, sh, cl, vo} = lastSavedSales[p]);
-    }
+    // Use only the selected week's cache/saved entry for funnel metrics.
+    const l  = parseInt(cache['blueprint-leads'])     || 0;
+    const ca = parseInt(cache['blueprint-calls'])     || 0;
+    const sc = parseInt(cache['blueprint-scheduled']) || 0;
+    const sh = parseInt(cache['blueprint-showed'])    || 0;
+    const cl = parseInt(cache['blueprint-closed'])    || 0;
+    const vo = parseFloat(cache['blueprint-volume'])  || 0;
     if (el('snap-leads-' + p)) el('snap-leads-' + p).textContent = fmt(l);
     if (el('snap-calls-' + p)) el('snap-calls-' + p).textContent = fmt(ca);
     totLeads += l; totCalls += ca; totScheduled += sc; totShowed += sh; totClosed += cl; totVolume += vo;
@@ -2235,11 +2219,11 @@ function saveEntry() {
 }
 
 // ── Load ──────────────────────────────────────────────────────
-function loadExistingEntry() {
+function loadExistingEntry(silent=false) {
   const dateStr = document.getElementById('entry-date').value;
-  if (!dateStr) { showToast('⚠️ Pick a date first','#f97316'); return; }
+  if (!dateStr) { if (!silent) showToast('⚠️ Pick a date first','#f97316'); return false; }
   const entry = getEntry(dateStr);
-  if (!entry) { showToast('No entry for that week yet','#6b6b8a'); return; }
+  if (!entry) { if (!silent) showToast('No entry for that week yet','#6b6b8a'); return false; }
 
   const ws = entry.ww;
   const sf = (id, val) => { const el = document.getElementById(id); if(el) el.value = (val != null && val !== 0) ? val : ''; };
@@ -2333,7 +2317,9 @@ function loadExistingEntry() {
   PLATFORMS.forEach(p => { platformCache[p] = {...(entry.content[p]||{})}; });
   renderPlatformForm(currentPlatform);
   loadPlatFromCache(currentPlatform);
-  showToast('📂 Entry loaded!','var(--blue)');
+  updateFollowerSnapshot();
+  if (!silent) showToast('📂 Entry loaded!','var(--blue)');
+  return true;
 }
 
 // ── Clear ─────────────────────────────────────────────────────
@@ -2370,6 +2356,7 @@ function clearForm() {
   ].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
   PLATFORMS.forEach(p => platformCache[p]={});
   renderPlatformForm(currentPlatform);
+  updateFollowerSnapshot();
   updateSummary();
   updateROAS();
   updateReferralROI();
@@ -2567,7 +2554,7 @@ function exportData() {
   const blob = new Blob([JSON.stringify(arr, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  const today = new Date().toISOString().split('T')[0];
+  const today = localYmd(new Date());
   a.href = url;
   a.download = `gudzy-kpis-backup-${today}.json`;
   a.click();
@@ -2600,6 +2587,23 @@ function importData(e) {
 }
 
 // ── Week label ────────────────────────────────────────────────
+function localYmd(d) {
+  const y=d.getFullYear();
+  const m=String(d.getMonth()+1).padStart(2,'0');
+  const day=String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+}
+
+function switchWeekContext() {
+  updateWeekLabel();
+  const dateStr=document.getElementById('entry-date').value;
+  if (!dateStr) return;
+  // A date change is a context switch: clear the old week's unsaved values,
+  // then hydrate the selected week if it has already been saved.
+  clearForm();
+  loadExistingEntry(true);
+}
+
 function updateWeekLabel() {
   const dateStr = document.getElementById('entry-date').value;
   const el  = document.getElementById('week-range');
@@ -2630,7 +2634,7 @@ function syncGhudzyDate() {
   const daysUntilSunday = day === 0 ? 0 : 7 - day;
   const sun = new Date(today);
   sun.setDate(today.getDate() + daysUntilSunday);
-  document.getElementById('entry-date').value = sun.toISOString().split('T')[0];
+  document.getElementById('entry-date').value = localYmd(sun);
   updateWeekLabel();
   renderPlatformForm('instagram');
   updateSummary();
