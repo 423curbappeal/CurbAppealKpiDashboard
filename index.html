@@ -535,22 +535,23 @@
     </div>
   </div>
 
-  <!-- Automated Lead Response Monitor -->
-  <div id="lead-response-card" style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:18px;margin-bottom:20px;">
+  <!-- Automated GHL to HCP Handoff Monitor -->
+  <div id="lead-handoff-card" style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:18px;margin-bottom:20px;">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
       <div>
-        <div style="font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:0.8px;">📞 Lead Response Monitor · Auto</div>
-        <div style="font-size:11px;color:var(--muted);margin-top:3px;">Live from HighLevel · manual response speed, waiting leads, unread conversations, and missed calls</div>
+        <div style="font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:0.8px;">🔄 GHL → HCP Lead Handoff · Auto</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:3px;">HighLevel owns lead intake. Housecall Pro owns estimates, scheduling, and the customer lifecycle after handoff.</div>
       </div>
-      <button class="btn btn-ghost btn-sm" id="lead-response-refresh" type="button">↻ Refresh</button>
+      <button class="btn btn-ghost btn-sm" id="lead-handoff-refresh" type="button">↻ Refresh</button>
     </div>
-    <div id="lead-response-status" style="font-size:12px;color:var(--muted);margin-bottom:12px;">Loading HighLevel inbox performance…</div>
-    <div id="lead-response-metrics" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:9px;margin-bottom:14px;"></div>
-    <div style="font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Needs a human response now</div>
-    <div id="lead-response-waiting" style="display:grid;gap:7px;"></div>
-    <div id="lead-response-note" style="font-size:10px;color:var(--muted);margin-top:10px;line-height:1.4;"></div>
+    <div id="lead-handoff-status" style="font-size:12px;color:var(--muted);margin-bottom:12px;">Checking lead handoffs…</div>
+    <div id="lead-handoff-metrics" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:9px;margin-bottom:14px;"></div>
+    <div style="font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Handoff exceptions</div>
+    <div id="lead-handoff-exceptions" style="display:grid;gap:7px;margin-bottom:14px;"></div>
+    <div style="font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Recent lead funnel</div>
+    <div id="lead-handoff-table" style="overflow-x:auto;"></div>
+    <div id="lead-handoff-note" style="font-size:10px;color:var(--muted);margin-top:10px;line-height:1.4;"></div>
   </div>
-
   <!-- Automated Lead Source Attribution -->
   <div id="source-attribution-card" style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:18px;margin-bottom:20px;">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
@@ -3342,13 +3343,15 @@ function clearMonthlyPartial(ym) {
 </script>
 <script>
 (function () {
-  const card=document.getElementById('lead-response-card');
+  const card=document.getElementById('lead-handoff-card');
   if (!card) return;
-  const refresh=document.getElementById('lead-response-refresh');
-  const status=document.getElementById('lead-response-status');
-  const metrics=document.getElementById('lead-response-metrics');
-  const waiting=document.getElementById('lead-response-waiting');
-  const note=document.getElementById('lead-response-note');
+  const refresh=document.getElementById('lead-handoff-refresh');
+  const status=document.getElementById('lead-handoff-status');
+  const metrics=document.getElementById('lead-handoff-metrics');
+  const exceptions=document.getElementById('lead-handoff-exceptions');
+  const table=document.getElementById('lead-handoff-table');
+  const note=document.getElementById('lead-handoff-note');
+  const money=(n) => '$'+Number(n || 0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
 
   function tile(label,value,color,sub) {
     const el=document.createElement('div');
@@ -3371,70 +3374,88 @@ function clearMonthlyPartial(ym) {
 
   function ageText(minutes) {
     const m=Number(minutes || 0);
-    if (m < 1) return 'now';
-    if (m < 60) return Math.round(m)+'m';
-    if (m < 1440) return (m/60).toFixed(m >= 600 ? 0 : 1)+'h';
+    if (m < 60) return Math.max(1,Math.round(m))+'m';
+    if (m < 1440) return (m/60).toFixed(m>=600 ? 0 : 1)+'h';
     return (m/1440).toFixed(1)+'d';
+  }
+
+  function stageLabel(stage) {
+    return ({ghl_only:'GHL only',in_hcp:'In HCP',estimated:'Estimate sent',ambiguous:'Review match'})[stage] || stage || 'Unknown';
+  }
+
+  function stageColor(stage) {
+    if (stage==='estimated') return 'var(--green)';
+    if (stage==='in_hcp') return 'var(--blue)';
+    if (stage==='ambiguous') return '#ef4444';
+    return 'var(--orange)';
   }
 
   function render(data) {
     const s=data.summary || {};
     metrics.innerHTML='';
-    metrics.appendChild(tile('Waiting now',String(Number(s.waiting_now || 0)),Number(s.waiting_now || 0)>0 ? 'var(--orange)' : 'var(--green)','latest message is inbound'));
-    metrics.appendChild(tile('15+ min',String(Number(s.waiting_15_plus || 0)),Number(s.waiting_15_plus || 0)>0 ? 'var(--orange)' : 'var(--green)','needs quick follow-up'));
-    metrics.appendChild(tile('60+ min',String(Number(s.waiting_60_plus || 0)),Number(s.waiting_60_plus || 0)>0 ? '#ef4444' : 'var(--green)','high priority'));
-    metrics.appendChild(tile('Avg first response',Number(s.avg_first_response_minutes || 0).toFixed(1)+'m','var(--blue)','manual replies only'));
-    metrics.appendChild(tile('Under 15 min',Number(s.under_15_minutes_pct || 0).toFixed(1)+'%',null,'of responded conversations'));
-    metrics.appendChild(tile('Missed calls',String(Number(s.missed_calls || 0)),Number(s.missed_calls || 0)>0 ? 'var(--orange)' : 'var(--green)','last '+Number(data.lookback_days || 7)+' days'));
-    metrics.appendChild(tile('Unread',String(Number(s.unread_conversations || 0)),Number(s.unread_conversations || 0)>0 ? 'var(--orange)' : 'var(--green)','conversations'));
+    metrics.appendChild(tile('GHL leads',String(Number(s.ghl_leads || 0)),'var(--blue)','last '+Number(data.lookback_days || 7)+' days'));
+    metrics.appendChild(tile('Matched in HCP',String(Number(s.matched_hcp_customers || 0)),null,Number(s.handoff_rate || 0).toFixed(1)+'% handoff rate'));
+    metrics.appendChild(tile('Estimates found',String(Number(s.estimates_found || 0)),'var(--green)',Number(s.estimate_rate_after_match || 0).toFixed(1)+'% of HCP matches'));
+    metrics.appendChild(tile('Needs attention',String(Number(s.needs_attention || 0)),Number(s.needs_attention || 0)>0 ? '#ef4444' : 'var(--green)','handoff or estimate gaps'));
 
-    waiting.innerHTML='';
-    const rows=Array.isArray(data.waiting) ? data.waiting : [];
-    if (!rows.length) {
-      waiting.innerHTML='<div style="font-size:12px;color:var(--green);padding:6px 0;">✅ No inbound conversations are waiting on a human reply.</div>';
+    exceptions.innerHTML='';
+    const rows=Array.isArray(data.rows) ? data.rows : [];
+    const attention=rows.filter(r => r.needs_attention);
+    if (!attention.length) {
+      exceptions.innerHTML='<div style="font-size:12px;color:var(--green);padding:6px 0;">✅ No lead handoff exceptions right now.</div>';
     } else {
-      rows.forEach(row => {
+      attention.slice(0,12).forEach(row => {
         const el=document.createElement('div');
-        const mins=Number(row.wait_minutes || 0);
-        const urgent=mins>=60;
-        el.style.cssText='display:grid;grid-template-columns:minmax(145px,1fr) auto;gap:10px;align-items:center;background:var(--surface2);border:1px solid '+(urgent ? 'rgba(239,68,68,.35)' : 'var(--border)')+';border-radius:10px;padding:10px 11px;';
+        el.style.cssText='display:grid;grid-template-columns:minmax(155px,1fr) auto;gap:10px;align-items:center;background:var(--surface2);border:1px solid rgba(239,68,68,.30);border-radius:10px;padding:10px 11px;';
         const body=document.createElement('div');
         const name=document.createElement('div');
         name.style.cssText='font-size:12px;font-weight:800;color:var(--text);';
-        name.textContent=(row.name || 'Unknown lead')+' · '+(row.channel || 'Message');
-        const preview=document.createElement('div');
-        preview.style.cssText='font-size:10px;color:var(--muted);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
-        preview.textContent=row.last_message_preview || (Number(row.unread_count || 0)>0 ? Number(row.unread_count)+' unread' : 'Inbound message');
-        body.appendChild(name); body.appendChild(preview);
+        name.textContent=(row.name || 'Lead')+' · '+(row.source || 'Unknown source');
+        const why=document.createElement('div');
+        why.style.cssText='font-size:10px;color:var(--muted);margin-top:3px;line-height:1.35;';
+        why.textContent=row.attention_reason || 'Needs review';
+        body.appendChild(name); body.appendChild(why);
         const age=document.createElement('div');
-        age.style.cssText='font-size:12px;font-weight:800;white-space:nowrap;color:'+(urgent ? '#ef4444' : 'var(--orange)')+';';
-        age.textContent=ageText(mins);
-        el.appendChild(body); el.appendChild(age); waiting.appendChild(el);
+        age.style.cssText='font-size:11px;font-weight:800;color:#ef4444;white-space:nowrap;';
+        age.textContent=ageText(row.age_minutes);
+        el.appendChild(body); el.appendChild(age); exceptions.appendChild(el);
       });
     }
-    note.textContent=data.scope_note || "";
+
+    const shown=rows.slice(0,25);
+    if (!shown.length) {
+      table.innerHTML='<div style="font-size:12px;color:var(--muted);padding:6px 0;">No recent HighLevel leads with phone/email were found.</div>';
+    } else {
+      let h='<table style="width:100%;border-collapse:collapse;font-size:12px;min-width:690px;"><thead><tr><th style="text-align:left;padding:7px;">Lead</th><th style="text-align:left;padding:7px;">Source</th><th style="text-align:left;padding:7px;">Stage</th><th style="text-align:right;padding:7px;">Age</th><th style="text-align:right;padding:7px;">Estimate</th></tr></thead><tbody>';
+      shown.forEach(row => {
+        h += '<tr style="border-top:1px solid var(--border);"><td style="padding:8px 7px;font-weight:700;">'+String(row.name || 'Lead')+'</td><td style="padding:8px 7px;">'+String(row.source || 'Unknown')+'</td><td style="padding:8px 7px;font-weight:700;color:'+stageColor(row.stage)+';">'+stageLabel(row.stage)+'</td><td style="padding:8px 7px;text-align:right;">'+ageText(row.age_minutes)+'</td><td style="padding:8px 7px;text-align:right;font-weight:700;">'+(row.estimate_id ? money(row.estimate_value) : '—')+'</td></tr>';
+      });
+      h += '</tbody></table>';
+      table.innerHTML=h;
+    }
+    note.textContent=(data.scope_note || "")+" Handoff warning: "+Number((data.thresholds || {}).hcp_handoff_minutes || 120)+" minutes. Estimate warning: "+Number((data.thresholds || {}).estimate_hours || 24)+" hours.";
   }
 
   async function load() {
     if (refresh) { refresh.disabled=true; refresh.textContent='Loading…'; }
-    status.textContent='Checking HighLevel conversations and response times…';
+    status.textContent='Matching recent HighLevel leads to Housecall Pro customers and estimates…';
     try {
-      const res=await fetch('/api/ghl-lead-response',{cache:'no-store'});
+      const res=await fetch('/api/lead-handoff',{cache:'no-store'});
       const data=await res.json();
       if (!res.ok || !data.ok) {
         if (res.status===503 && data && data.configured===false) {
-          metrics.innerHTML=''; waiting.innerHTML=''; note.textContent='';
-          status.textContent='HighLevel API connection needs setup: add GHL_API_TOKEN and GHL_LOCATION_ID in Railway Variables.';
+          metrics.innerHTML=''; exceptions.innerHTML=''; table.innerHTML=''; note.textContent='';
+          status.textContent='HighLevel dashboard connection needs setup: add GHL_API_TOKEN and GHL_LOCATION_ID in Railway Variables.';
           return;
         }
         const detail=data && data.detail ? JSON.stringify(data.detail) : '';
-        throw new Error((data.error || 'HighLevel response monitor failed')+(detail ? ': '+detail : ''));
+        throw new Error((data.error || 'Lead handoff request failed')+(detail ? ': '+detail : ''));
       }
       render(data);
-      status.textContent='Updated '+new Date().toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})+' · '+Number(data.conversations_analyzed || 0)+' inbound conversations analyzed';
+      status.textContent='Updated '+new Date().toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})+' · exact phone/email matching only';
     } catch (err) {
-      metrics.innerHTML=''; waiting.innerHTML=''; note.textContent='';
-      status.textContent='Lead response monitor failed: '+((err && err.message) ? err.message : String(err));
+      metrics.innerHTML=''; exceptions.innerHTML=''; table.innerHTML=''; note.textContent='';
+      status.textContent='Lead handoff monitor failed: '+((err && err.message) ? err.message : String(err));
     } finally {
       if (refresh) { refresh.disabled=false; refresh.textContent='↻ Refresh'; }
     }
