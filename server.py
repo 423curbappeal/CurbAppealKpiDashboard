@@ -214,9 +214,7 @@ def hcp_operations_brief():
         "page":1,
         "page_size":100,
         "scheduled_start_min":start_iso,
-        "scheduled_start_max":end_iso,
-        "sort_by":"scheduled_start",
-        "sort_direction":"asc"
+        "scheduled_start_max":end_iso
     })
     jobs=jobs_data.get("jobs") or jobs_data.get("data") or []
     scheduled=[]
@@ -240,12 +238,13 @@ def hcp_operations_brief():
             "value":round(hcp_money_to_dollars(job.get("total_amount")),2)
         })
 
+    scheduled.sort(key=lambda j:str(j.get("scheduled_start") or ""))
     today_jobs=[j for j in scheduled if j["scheduled_date"]==today.isoformat()]
 
     invoices=[]
     page=1
     while page <= 4:
-        data=hcp_get("invoices", {"page":page,"page_size":100,"sort_by":"due_at","sort_direction":"asc"})
+        data=hcp_get("invoices", {"page":page,"page_size":100})
         batch=data.get("invoices") or data.get("data") or []
         if not batch:
             break
