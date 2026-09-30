@@ -1689,26 +1689,30 @@ async function initializePersistentKpiState() {
     if (!remote || !remote.ok) throw new Error(remote && remote.error ? remote.error : 'Invalid KPI state response');
 
     const serverEntries = normalizeKpiEntries(remote.entries || []);
-    const mergedByDate = new Map(serverEntries.map(e => [e.date, e]));
-    localState.entries.forEach(e => {
-      if (!mergedByDate.has(e.date)) mergedByDate.set(e.date, e);
-    });
+    const serverHasState = serverEntries.length > 0
+      || Object.keys(remote.monthly_partials || {}).length > 0
+      || Object.keys(remote.usernames || {}).length > 0;
 
-    kpiStateCache = {
-      entries: normalizeKpiEntries(Array.from(mergedByDate.values())),
-      monthly_partials: Object.assign({}, localState.monthly_partials || {}, remote.monthly_partials || {}),
-      usernames: Object.assign({}, localState.usernames || {}, remote.usernames || {})
+    // One-time migration: when the new persistent store is empty, seed it
+    // from this browser. After that, the server is authoritative so a stale
+    // browser cannot resurrect a week that was deleted on another device.
+    kpiStateCache = serverHasState ? {
+      entries: serverEntries,
+      monthly_partials: remote.monthly_partials || {},
+      usernames: remote.usernames || {}
+    } : {
+      entries: localState.entries,
+      monthly_partials: localState.monthly_partials || {},
+      usernames: localState.usernames || {}
     };
     persistLocalKpiState();
     kpiServerSyncReady = true;
 
-    const serverComparable = JSON.stringify({
-      version:1,
-      entries:serverEntries,
-      monthly_partials:remote.monthly_partials || {},
-      usernames:remote.usernames || {}
-    });
-    if (JSON.stringify(currentKpiStatePayload()) !== serverComparable) {
+    if (!serverHasState && (
+      localState.entries.length
+      || Object.keys(localState.monthly_partials || {}).length
+      || Object.keys(localState.usernames || {}).length
+    )) {
       scheduleKpiServerSync(0);
     }
 
