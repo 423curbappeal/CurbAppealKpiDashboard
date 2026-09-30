@@ -2533,21 +2533,20 @@ def cross_source_attribution_snapshot(start,end):
         "branding":{"leads":"ww-branding-leads","estimates":"ww-branding-estimates","jobs_sold":"ww-branding-jobs-sold","sold_revenue":"ww-branding-sold-revenue"}
     }
     auto_fields=[]
+    # Load All should be deterministic: every source-backed channel field gets
+    # a value, including zero. Otherwise old values can survive a re-sync.
     for row in rows:
         mapping=field_map.get(row["bucket"])
-        has_evidence=bool(row.get("source_labels")) or any(float(row.get(k) or 0)!=0 for k in ("leads","estimates","jobs_sold","sold_revenue","jobs_completed","completed_revenue"))
-        if not mapping or not has_evidence: continue
+        if not mapping:
+            continue
         for metric,field_id in mapping.items():
             auto_fields.append({"field_id":field_id,"metric":metric,"bucket":row["bucket"],"value":row[metric]})
 
-    referral=next((r for r in rows if r["bucket"]=="referral"),None)
-    if referral and (referral["leads"] or referral["estimates"] or referral["jobs_sold"]):
-        referral_count=int(referral["jobs_sold"])
-        referral_revenue=float(referral["sold_revenue"])
-        auto_fields.extend([
-            {"field_id":"ww-referral-count","metric":"jobs_sold","bucket":"referral","value":referral_count},
-            {"field_id":"ww-referral-revenue","metric":"sold_revenue","bucket":"referral","value":round(referral_revenue,2)}
-        ])
+    referral=next((r for r in rows if r["bucket"]=="referral"),None) or {"jobs_sold":0,"sold_revenue":0.0}
+    auto_fields.extend([
+        {"field_id":"ww-referral-count","metric":"jobs_sold","bucket":"referral","value":int(referral.get("jobs_sold") or 0)},
+        {"field_id":"ww-referral-revenue","metric":"sold_revenue","bucket":"referral","value":round(float(referral.get("sold_revenue") or 0),2)}
+    ])
 
     unknown=next((r for r in rows if r["bucket"]=="unknown"),{"leads":0,"estimates":0,"sold_revenue":0})
     return {
@@ -2695,6 +2694,7 @@ def qb_classify_expense(row):
         ("ww-sw-crm","CRM / Scheduling",("housecall pro","go high level","gohighlevel","lead connector","crm software","scheduling software")),
         ("ww-sw-payroll","Payroll Software",("payroll software","payroll subscription")),
         ("ww-sw-bookkeeping","Bookkeeping Software",("bookkeeping software","accounting software")),
+        ("ww-sw-phone","Phone",("phone bill","business phone","cell phone","mobile phone","verizon","at and t","att wireless","t mobile")),
         ("ww-sw-website","Website",("website hosting","web hosting","domain registration","domain renewal","website software")),
         ("ww-oh-culligan","Culligan Water",("culligan",)),
         ("ww-oh-utilities","Utilities",("electric utility","electric bill","water utility","water bill","utility bill","utilities")),
@@ -2796,6 +2796,7 @@ def qb_expense_preview(start,end):
     return {
         "expense_total":round(total,2),
         "expense_records":count,
+        "supported_field_ids":["ww-payroll","ww-workers-comp","ww-payroll-tax","ww-subcontractors","ww-gas","ww-chemicals","ww-supplies","ww-meta-spend","ww-google-spend","ww-lsa-spend","ww-yardsign-spend","ww-doorhanger-spend","ww-mktg-agency","ww-printed","ww-veh-payments","ww-veh-insurance","ww-veh-maintenance","ww-sw-crm","ww-sw-payroll","ww-sw-bookkeeping","ww-sw-phone","ww-sw-website","ww-oh-office-staff","ww-oh-ops-manager","ww-oh-warehouse","ww-oh-admin","ww-oh-culligan","ww-oh-utilities","ww-oh-liability","ww-baddebt"],
         "groups":groups,
         "mapped_fields":mapped_fields,
         "mapped_total":mapped_total,
