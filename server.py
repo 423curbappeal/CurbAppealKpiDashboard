@@ -1,4 +1,4 @@
-import base64, hmac, json, os, time, urllib.parse, urllib.request, urllib.error
+import base64, hmac, json, os, threading, time, urllib.parse, urllib.request, urllib.error
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -26,7 +26,84 @@ GHL_HANDOFF_WARNING_MINUTES = int(os.getenv("GHL_HANDOFF_WARNING_MINUTES", "120"
 HCP_ESTIMATE_WARNING_HOURS = int(os.getenv("HCP_ESTIMATE_WARNING_HOURS", "24") or 24)
 DASHBOARD_USERNAME = os.getenv("DASHBOARD_USERNAME", "").strip()
 DASHBOARD_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "").strip()
+KPI_STATE_DATA_PATH = os.getenv("KPI_STATE_DATA_PATH", "/data/kpi_state.json").strip() or "/data/kpi_state.json"
 _RUNTIME_CACHE = {}
+_KPI_STATE_LOCK = threading.Lock()
+
+def kpi_state_default():
+    return {"version":1,"entries":[],"monthly_partials":{},"usernames":{}}
+
+def kpi_state_load():
+    with _KPI_STATE_LOCK:
+        try:
+            with open(KPI_STATE_DATA_PATH,"r",encoding="utf-8") as f:
+                data=json.load(f)
+        except FileNotFoundError:
+            return kpi_state_default()
+    if not isinstance(data,dict):
+        raise ValueError("Persistent KPI state is not a valid object")
+    entries=data.get("entries") if isinstance(data.get("entries"),list) else []
+    partials=data.get("monthly_partials") if isinstance(data.get("monthly_partials"),dict) else {}
+    usernames=data.get("usernames") if isinstance(data.get("usernames"),dict) else {}
+    return {"version":1,"entries":entries,"monthly_partials":partials,"usernames":usernames}
+
+def kpi_state_normalize(payload):
+    if not isinstance(payload,dict):
+        raise ValueError("State payload must be an object")
+
+    raw_entries=payload.get("entries")
+    if not isinstance(raw_entries,list):
+        raise ValueError("entries must be an array")
+    if len(raw_entries)>1000:
+        raise ValueError("Too many KPI entries")
+
+    by_date={}
+    for entry in raw_entries:
+        if not isinstance(entry,dict):
+            continue
+        date_text=str(entry.get("date") or "").strip()
+        try:
+            datetime.strptime(date_text,"%Y-%m-%d")
+        except Exception:
+            continue
+        clean=dict(entry)
+        clean["date"]=date_text
+        if not isinstance(clean.get("ww"),dict): clean["ww"]={}
+        if not isinstance(clean.get("content"),dict): clean["content"]={}
+        by_date[date_text]=clean
+    entries=sorted(by_date.values(),key=lambda e:e["date"],reverse=True)
+
+    partials=payload.get("monthly_partials")
+    partials=partials if isinstance(partials,dict) else {}
+    clean_partials={}
+    for key,value in partials.items():
+        text=str(key)
+        if len(text)==7 and text[4]=="-" and isinstance(value,dict):
+            clean_partials[text]=value
+
+    usernames=payload.get("usernames")
+    usernames=usernames if isinstance(usernames,dict) else {}
+    clean_usernames={}
+    for key,value in usernames.items():
+        k=str(key).strip()[:40]
+        v=str(value or "").strip()[:200]
+        if k:
+            clean_usernames[k]=v
+
+    return {"version":1,"entries":entries,"monthly_partials":clean_partials,"usernames":clean_usernames}
+
+def kpi_state_save(payload):
+    state=kpi_state_normalize(payload)
+    directory=os.path.dirname(KPI_STATE_DATA_PATH) or "."
+    os.makedirs(directory,exist_ok=True)
+    tmp_path=KPI_STATE_DATA_PATH+".tmp"
+    with _KPI_STATE_LOCK:
+        with open(tmp_path,"w",encoding="utf-8") as f:
+            json.dump(state,f,separators=(",",":"),ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path,KPI_STATE_DATA_PATH)
+    return state
 
 def cached_runtime(key, ttl_seconds, loader):
     now=time.time()
@@ -2783,6 +2860,23 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         parsed=urllib.parse.urlparse(self.path)
+        if parsed.path == "/api/kpi-state":
+            if not self.require_dashboard_auth():
+                return
+            try:
+                length=int(self.headers.get("Content-Length","0") or 0)
+                if length <= 0 or length > 2_000_000:
+                    return self.send_json(400,{"ok":False,"error":"Invalid request body"})
+                body=json.loads(self.rfile.read(length).decode("utf-8"))
+                state=kpi_state_save(body)
+                return self.send_json(200,{
+                    "ok":True,
+                    "entries":len(state["entries"]),
+                    "monthly_partials":len(state["monthly_partials"]),
+                    "storage":"persistent"
+                })
+            except Exception as e:
+                return self.send_json(400,{"ok":False,"error":str(e)})
         if parsed.path == "/api/quickbooks-expense":
             try:
                 length=int(self.headers.get("Content-Length","0") or 0)
@@ -2889,13 +2983,24 @@ class Handler(SimpleHTTPRequestHandler):
         if not self.require_dashboard_auth():
             return
         parsed=urllib.parse.urlparse(self.path)
+        if parsed.path == "/api/kpi-state":
+            try:
+                state=kpi_state_load()
+                return self.send_json(200,{
+                    "ok":True,
+                    **state,
+                    "storage":"persistent"
+                })
+            except Exception as e:
+                return self.send_json(500,{"ok":False,"error":str(e)})
         if parsed.path == "/api/health":
             return self.send_json(200, {
                 "ok":True,
                 "meta_configured":bool(TOKEN and AD_ACCOUNT and PAGE_IDS),
                 "hcp_configured":bool(HCP_API_KEY),
                 "ghl_configured":bool(GHL_API_TOKEN and GHL_LOCATION_ID),
-                "dashboard_auth_enabled":self.dashboard_auth_enabled()
+                "dashboard_auth_enabled":self.dashboard_auth_enabled(),
+                "kpi_state_storage":"persistent"
             })
         if parsed.path == "/api/qb-preview":
             try:
