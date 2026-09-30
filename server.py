@@ -1,4 +1,4 @@
-import base64, hmac, json, os, time, urllib.parse, urllib.request, urllib.error
+import base64, hmac, json, os, threading, time, urllib.parse, urllib.request, urllib.error
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -28,24 +28,24 @@ DASHBOARD_USERNAME = os.getenv("DASHBOARD_USERNAME", "").strip()
 DASHBOARD_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "").strip()
 KPI_STATE_DATA_PATH = os.getenv("KPI_STATE_DATA_PATH", "/data/kpi_state.json").strip() or "/data/kpi_state.json"
 _RUNTIME_CACHE = {}
+_KPI_STATE_LOCK = threading.Lock()
 
 def kpi_state_default():
     return {"version":1,"entries":[],"monthly_partials":{},"usernames":{}}
 
 def kpi_state_load():
-    try:
-        with open(KPI_STATE_DATA_PATH,"r",encoding="utf-8") as f:
-            data=json.load(f)
-        if not isinstance(data,dict):
+    with _KPI_STATE_LOCK:
+        try:
+            with open(KPI_STATE_DATA_PATH,"r",encoding="utf-8") as f:
+                data=json.load(f)
+        except FileNotFoundError:
             return kpi_state_default()
-        entries=data.get("entries") if isinstance(data.get("entries"),list) else []
-        partials=data.get("monthly_partials") if isinstance(data.get("monthly_partials"),dict) else {}
-        usernames=data.get("usernames") if isinstance(data.get("usernames"),dict) else {}
-        return {"version":1,"entries":entries,"monthly_partials":partials,"usernames":usernames}
-    except FileNotFoundError:
-        return kpi_state_default()
-    except Exception:
-        return kpi_state_default()
+    if not isinstance(data,dict):
+        raise ValueError("Persistent KPI state is not a valid object")
+    entries=data.get("entries") if isinstance(data.get("entries"),list) else []
+    partials=data.get("monthly_partials") if isinstance(data.get("monthly_partials"),dict) else {}
+    usernames=data.get("usernames") if isinstance(data.get("usernames"),dict) else {}
+    return {"version":1,"entries":entries,"monthly_partials":partials,"usernames":usernames}
 
 def kpi_state_normalize(payload):
     if not isinstance(payload,dict):
@@ -97,11 +97,12 @@ def kpi_state_save(payload):
     directory=os.path.dirname(KPI_STATE_DATA_PATH) or "."
     os.makedirs(directory,exist_ok=True)
     tmp_path=KPI_STATE_DATA_PATH+".tmp"
-    with open(tmp_path,"w",encoding="utf-8") as f:
-        json.dump(state,f,separators=(",",":"),ensure_ascii=False)
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(tmp_path,KPI_STATE_DATA_PATH)
+    with _KPI_STATE_LOCK:
+        with open(tmp_path,"w",encoding="utf-8") as f:
+            json.dump(state,f,separators=(",",":"),ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path,KPI_STATE_DATA_PATH)
     return state
 
 def cached_runtime(key, ttl_seconds, loader):
