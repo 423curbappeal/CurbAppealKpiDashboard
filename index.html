@@ -486,7 +486,7 @@
     <input type="date" id="entry-date" oninput="updateWeekLabel()" onchange="switchWeekContext()" title="Select the Sunday this week ends on">
     <div class="week-bar-spacer"></div>
     <span id="kpi-sync-status" style="font-size:11px;color:var(--muted);white-space:nowrap;">☁️ Checking storage…</span>
-    <button class="btn btn-success btn-sm" id="auto-fill-week-btn" type="button">⚡ Auto Fill Week</button>
+    <button class="btn btn-success btn-sm" id="auto-fill-week-btn" type="button" title="Load the saved week, then refresh every field available from HCP, GHL, Meta, and QuickBooks">⚡ Load All</button>
     <button class="btn btn-ghost btn-sm" onclick="loadExistingEntry()">Load Existing</button>
   </div>
   <div id="auto-fill-week-status" style="display:none;margin:-6px 0 14px;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;font-size:12px;line-height:1.5;"></div>
@@ -3451,53 +3451,95 @@ function clearMonthlyPartial(ym) {
 
   const setVal=(id,value,decimals) => {
     const el=document.getElementById(id);
-    if (!el || value === null || value === undefined || Number.isNaN(Number(value))) return;
+    if (!el || value === null || value === undefined || Number.isNaN(Number(value))) return false;
     el.value=decimals === undefined ? Number(value) : Number(value).toFixed(decimals);
+    return true;
   };
 
+  const clearIds=(ids) => {
+    (ids || []).forEach(id => {
+      const el=document.getElementById(id);
+      if (el) el.value='';
+    });
+  };
+
+  const HCP_FIELDS=[
+    'ww-revenue','ww-jobs-completed','ww-repeat-customers','ww-customers-served',
+    'ww-callbacks','ww-tech-count','ww-tech-hours','ww-tech-revenue',
+    'ww-sold-revenue','ww-jobs-sold','ww-revenue-residential','ww-revenue-commercial','ww-revenue-unclassified'
+  ];
+
+  const ATTRIBUTION_FIELDS=[
+    'ww-meta-leads','ww-meta-estimates','ww-meta-jobs-sold','ww-meta-sold-revenue',
+    'ww-google-leads','ww-google-estimates','ww-google-jobs-sold','ww-google-sold-revenue',
+    'ww-lsa-leads','ww-lsa-estimates','ww-lsa-jobs-sold','ww-lsa-sold-revenue',
+    'ww-yardsign-leads','ww-yardsign-estimates','ww-yardsign-jobs-sold','ww-yardsign-sold-revenue',
+    'ww-doorhanger-leads','ww-doorhanger-estimates','ww-doorhanger-jobs-sold','ww-doorhanger-sold-revenue',
+    'ww-website-leads','ww-website-estimates','ww-website-jobs-sold','ww-website-sold-revenue',
+    'ww-branding-leads','ww-branding-estimates','ww-branding-jobs-sold','ww-branding-sold-revenue',
+    'ww-referral-count','ww-referral-revenue'
+  ];
+
   function applyMeta(data) {
-    setVal('ww-meta-spend',data.meta_spend,2);
-    setVal('ww-meta-leads',data.instant_form_leads);
+    let count=0;
+    if (setVal('ww-meta-spend',data.meta_spend,2)) count++;
+    // This is a useful fallback. GHL attribution overwrites the Meta lead
+    // count below with the cross-system source-of-truth count.
+    if (setVal('ww-meta-leads',data.instant_form_leads)) count++;
+    return count;
   }
 
   function applyHcp(data) {
-    setVal('ww-revenue',data.revenue,2);
-    setVal('ww-jobs-completed',data.jobs_completed);
-    setVal('ww-repeat-customers',data.repeat_customers);
-    setVal('ww-customers-served',data.customers_served);
-    setVal('ww-callbacks',data.callbacks);
-    setVal('ww-tech-count',data.tech_count);
-    setVal('ww-tech-hours',data.hours_per_tech,2);
-    setVal('ww-tech-revenue',data.tech_revenue,2);
-    setVal('ww-sold-revenue',data.sold_revenue,2);
-    setVal('ww-jobs-sold',data.jobs_sold);
-    if (data.reviews_available) setVal('ww-five-star-reviews',data.five_star_reviews);
-    setVal('ww-revenue-residential',data.revenue_residential,2);
-    setVal('ww-revenue-commercial',data.revenue_commercial,2);
-    setVal('ww-revenue-unclassified',data.revenue_unclassified,2);
+    clearIds(HCP_FIELDS);
+    let count=0;
+    const put=(id,value,decimals) => { if (setVal(id,value,decimals)) count++; };
+    put('ww-revenue',data.revenue,2);
+    put('ww-jobs-completed',data.jobs_completed);
+    put('ww-repeat-customers',data.repeat_customers);
+    put('ww-customers-served',data.customers_served);
+    put('ww-callbacks',data.callbacks);
+    put('ww-tech-count',data.tech_count);
+    put('ww-tech-hours',data.hours_per_tech,2);
+    put('ww-tech-revenue',data.tech_revenue,2);
+    put('ww-sold-revenue',data.sold_revenue,2);
+    put('ww-jobs-sold',data.jobs_sold);
+    put('ww-revenue-residential',data.revenue_residential,2);
+    put('ww-revenue-commercial',data.revenue_commercial,2);
+    put('ww-revenue-unclassified',data.revenue_unclassified,2);
+    if (data.reviews_available) {
+      if (setVal('ww-five-star-reviews',data.five_star_reviews)) count++;
+    }
+    return count;
   }
 
   function applyQb(data, skipFields) {
     const skip=new Set(skipFields || []);
     const mapped=Array.isArray(data.mapped_fields) ? data.mapped_fields : [];
+    const supported=Array.isArray(data.supported_field_ids) ? data.supported_field_ids : [];
     let applied=0;
+
+    // When the QB feed has records, refresh all QB-owned fields for the week.
+    // Blank means no verified transaction was mapped there; we do not invent $0.
+    if (Number(data.expense_records || 0) > 0) {
+      clearIds(supported.filter(id => !skip.has(id)));
+    }
+
     mapped.forEach(item => {
       if (!item || !item.field_id || skip.has(item.field_id)) return;
-      setVal(item.field_id,item.amount,2);
-      applied += 1;
+      if (setVal(item.field_id,item.amount,2)) applied += 1;
     });
     return applied;
   }
 
-  function applyAttribution(data, skipFields) {
-    const skip=new Set(skipFields || []);
+  function applyAttribution(data) {
+    // Deterministic refresh: zero out every source-backed funnel field first.
+    ATTRIBUTION_FIELDS.forEach(id => setVal(id,0,String(id).includes('revenue') ? 2 : undefined));
     const fields=Array.isArray(data.auto_fields) ? data.auto_fields : [];
     let applied=0;
     fields.forEach(item => {
-      if (!item || !item.field_id || skip.has(item.field_id)) return;
+      if (!item || !item.field_id) return;
       const decimals=item.metric && String(item.metric).includes('revenue') ? 2 : undefined;
-      setVal(item.field_id,item.value,decimals);
-      applied += 1;
+      if (setVal(item.field_id,item.value,decimals)) applied += 1;
     });
     return applied;
   }
@@ -3511,9 +3553,13 @@ function clearMonthlyPartial(ym) {
     }
 
     btn.disabled=true;
-    btn.textContent='Syncing…';
+    btn.textContent='Loading All…';
     status.style.display='block';
-    status.textContent='⚡ Pulling Meta, Housecall Pro, and QuickBooks at the same time…';
+
+    // First hydrate any saved/manual values for this week. Live systems then
+    // overwrite the fields they own with fresh source data.
+    const loadedSaved = (typeof loadExistingEntry === 'function') ? Boolean(loadExistingEntry(true)) : false;
+    status.textContent=(loadedSaved ? '📂 Saved week loaded. ' : '')+'⚡ Pulling HCP, GHL, Meta, and QuickBooks…';
 
     const week=encodeURIComponent(date.value);
     const requests=[
@@ -3540,63 +3586,79 @@ function clearMonthlyPartial(ym) {
       const qb=settled.find(x => x.name==='QuickBooks');
       const attribution=settled.find(x => x.name==='Attribution');
       const messages=[];
-
-      if (meta && meta.ok) {
-        applyMeta(meta.data);
-        messages.push('✅ Meta: $'+Number(meta.data.meta_spend || 0).toFixed(2)+' spend · '+Number(meta.data.instant_form_leads || 0)+' leads applied');
-      } else {
-        messages.push('⚠️ Meta: '+(meta ? meta.error : 'not returned'));
-      }
+      let totalApplied=0;
 
       if (hcp && hcp.ok) {
-        applyHcp(hcp.data);
-        let line='✅ HCP: $'+Number(hcp.data.revenue || 0).toFixed(2)+' revenue · '+Number(hcp.data.jobs_completed || 0)+' completed · $'+Number(hcp.data.sold_revenue || 0).toFixed(2)+' sold';
-        if (Number(hcp.data.revenue_unclassified || 0) > 0) line += ' · $'+Number(hcp.data.revenue_unclassified || 0).toFixed(2)+' revenue unclassified';
+        const applied=applyHcp(hcp.data);
+        totalApplied += applied;
+        let line='✅ HCP: '+applied+' fields · $'+Number(hcp.data.revenue || 0).toFixed(2)+' completed revenue · '+Number(hcp.data.jobs_completed || 0)+' jobs';
+        if (Number(hcp.data.revenue_unclassified || 0)>0) line += ' · $'+Number(hcp.data.revenue_unclassified || 0).toFixed(2)+' unclassified';
         messages.push(line);
       } else {
         messages.push('⚠️ HCP: '+(hcp ? hcp.error : 'not returned'));
       }
 
-      if (qb && qb.ok) {
-        if (Number(qb.data.expense_records || 0) > 0) {
-          const skip=[];
-          if (meta && meta.ok) skip.push('ww-meta-spend');
-          const applied=applyQb(qb.data,skip);
-          const mapped=Number(qb.data.mapped_total || 0);
-          const unmapped=Number(qb.data.unmapped_total || 0);
-          let line='✅ QuickBooks: '+applied+' KPI expense field'+(applied===1?'':'s')+' auto-filled · $'+mapped.toFixed(2)+' mapped';
-          if (unmapped !== 0) line += ' · $'+unmapped.toFixed(2)+' still unmapped';
-          if (skip.includes('ww-meta-spend')) line += ' · Meta ad spend kept from Meta API';
-          messages.push(line);
-        } else {
-          messages.push('ℹ️ QuickBooks: no expense records received for this week yet');
-        }
+      if (meta && meta.ok) {
+        const applied=applyMeta(meta.data);
+        totalApplied += applied;
+        messages.push('✅ Meta: $'+Number(meta.data.meta_spend || 0).toFixed(2)+' spend loaded');
       } else {
-        messages.push('⚠️ QuickBooks: '+(qb ? qb.error : 'not returned'));
+        messages.push('⚠️ Meta: '+(meta ? meta.error : 'not returned'));
       }
 
       if (attribution && attribution.ok) {
-        const applied=applyAttribution(attribution.data,[]);
+        const applied=applyAttribution(attribution.data);
+        totalApplied += applied;
         const coverage=attribution.data.coverage || {};
-        let line='✅ GHL → HCP Attribution: '+applied+' marketing KPI field'+(applied===1?'':'s')+' auto-filled';
-        line += ' · '+Number(coverage.hcp_matched_leads || 0)+' of '+Number(coverage.ghl_leads_total || 0)+' GHL inquiries matched to HCP';
+        let line='✅ GHL → HCP: all channel funnel fields refreshed';
+        line += ' · '+Number(coverage.hcp_matched_leads || 0)+'/'+Number(coverage.ghl_leads_total || 0)+' inquiries matched';
         line += ' · '+Number(coverage.estimates_attributed || 0)+' estimates attributed';
-        if (meta && meta.ok) line += ' · Meta spend from Meta API, lead count from GHL';
         messages.push(line);
       } else {
         messages.push('⚠️ Attribution: '+(attribution ? attribution.error : 'not returned'));
+      }
+
+      if (qb && qb.ok) {
+        if (Number(qb.data.expense_records || 0)>0) {
+          const skip=[];
+          if (meta && meta.ok) skip.push('ww-meta-spend');
+          const applied=applyQb(qb.data,skip);
+          totalApplied += applied;
+          const mapped=Number(qb.data.mapped_total || 0);
+          const unmapped=Number(qb.data.unmapped_total || 0);
+          let line='✅ QuickBooks: '+applied+' expense fields · $'+mapped.toFixed(2)+' mapped';
+          if (unmapped!==0) line += ' · $'+unmapped.toFixed(2)+' needs mapping';
+          messages.push(line);
+        } else {
+          messages.push('ℹ️ QuickBooks: no expense records for this week; saved/manual expense values were left alone');
+        }
+      } else {
+        messages.push('⚠️ QuickBooks: '+(qb ? qb.error : 'not returned'));
       }
 
       if (typeof updateReferralCost === 'function') updateReferralCost();
       if (typeof updateSummary === 'function') updateSummary();
       if (typeof updateConversions === 'function') updateConversions();
       if (typeof updateROAS === 'function') updateROAS();
-      status.innerHTML=messages.map(m => '<div>'+m+'</div>').join('') + '<div style="margin-top:5px;color:var(--muted);">Review anything still manual, then Save This Week.</div>';
+      if (typeof updateFollowerSnapshot === 'function') updateFollowerSnapshot();
+
+      const manual=[
+        'upsold revenue',
+        'yard-sign / door-hanger quantities',
+        'quarterly & biannual recurring counts/values',
+        'referral gift cards actually sent',
+        'unmapped expenses',
+        'organic social/content metrics'
+      ];
+      const top='<div style="font-weight:800;margin-bottom:4px;">⚡ Load All finished · '+totalApplied+' live fields refreshed'+(loadedSaved ? ' + saved/manual fields restored' : '')+'</div>';
+      const sourceLines=messages.map(m => '<div>'+m+'</div>').join('');
+      const manualLine='<div style="margin-top:7px;color:var(--muted);">Still manual only where no connected system has reliable data: '+manual.join(', ')+'. Review, then Save This Week.</div>';
+      status.innerHTML=top+sourceLines+manualLine;
     } catch (err) {
-      status.textContent='Auto Fill failed: '+((err && err.message) ? err.message : String(err));
+      status.textContent='Load All failed: '+((err && err.message) ? err.message : String(err));
     } finally {
       btn.disabled=false;
-      btn.textContent='⚡ Auto Fill Week';
+      btn.textContent='⚡ Load All';
     }
   });
 })();
