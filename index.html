@@ -1719,14 +1719,21 @@ async function initializePersistentKpiState() {
     };
     persistLocalKpiState();
     kpiServerSyncReady = true;
-    setKpiSyncStatus(serverHasState ? '☁️ Server synced' : '☁️ Migrating browser history…','var(--green)');
 
-    if (!serverHasState && (
+    const hasLocalState = Boolean(
       localState.entries.length
       || Object.keys(localState.monthly_partials || {}).length
       || Object.keys(localState.usernames || {}).length
-    )) {
+    );
+
+    if (serverHasState) {
+      setKpiSyncStatus('☁️ Server synced','var(--green)');
+    } else if (hasLocalState) {
+      setKpiSyncStatus('☁️ Migrating browser history…','var(--green)');
       scheduleKpiServerSync(0);
+    } else {
+      // Empty browser + empty server means there is nothing to migrate.
+      setKpiSyncStatus('☁️ Server ready','var(--green)');
     }
 
     updateFollowerSnapshot();
