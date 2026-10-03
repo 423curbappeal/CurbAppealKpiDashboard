@@ -2894,10 +2894,15 @@ class Handler(SimpleHTTPRequestHandler):
 
                 supplied_secret=str(payload.get("secret") or body.get("secret") or "").strip()
                 if not QB_WEBHOOK_SECRET or supplied_secret != QB_WEBHOOK_SECRET:
+                    dedicated_secret=bool(os.getenv("QB_WEBHOOK_SECRET","").strip())
                     return self.send_json(401, {
                         "ok":False,
-                        "error":"Unauthorized",
-                        "secret_received":bool(supplied_secret)
+                        "error":"Unauthorized: webhook secret mismatch",
+                        "secret_received":bool(supplied_secret),
+                        "received_length":len(supplied_secret),
+                        "expected_length":len(QB_WEBHOOK_SECRET),
+                        "same_length":len(supplied_secret)==len(QB_WEBHOOK_SECRET),
+                        "dedicated_qb_secret_configured":dedicated_secret
                     })
 
                 transaction_id=str(payload.get("transaction_id") or "").strip()
