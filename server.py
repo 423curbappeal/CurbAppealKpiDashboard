@@ -2885,20 +2885,31 @@ class Handler(SimpleHTTPRequestHandler):
                     return self.send_json(400, {"ok":False,"error":"Invalid request body"})
 
                 body=json.loads(self.rfile.read(length).decode("utf-8"))
-                supplied_secret=str(body.get("secret") or "").strip()
-                if not QB_WEBHOOK_SECRET or supplied_secret != QB_WEBHOOK_SECRET:
-                    return self.send_json(401, {"ok":False,"error":"Unauthorized"})
+                # Zapier POST actions normally send Data fields at the top level,
+                # but some configurations wrap them inside a "data" object.
+                # Accept either shape so the webhook is resilient to Zapier formatting.
+                payload=body.get("data") if isinstance(body,dict) and isinstance(body.get("data"),dict) else body
+                if not isinstance(payload,dict):
+                    return self.send_json(400, {"ok":False,"error":"Request body must be a JSON object"})
 
-                transaction_id=str(body.get("transaction_id") or "").strip()
-                line_id=str(body.get("line_id") or "").strip()
-                transaction_date=str(body.get("transaction_date") or "").strip()
-                account_name=str(body.get("account_name") or "").strip()
-                vendor_name=str(body.get("vendor_name") or "").strip()
-                transaction_type=str(body.get("transaction_type") or "Expense").strip()
-                memo=str(body.get("memo") or "").strip()
+                supplied_secret=str(payload.get("secret") or body.get("secret") or "").strip()
+                if not QB_WEBHOOK_SECRET or supplied_secret != QB_WEBHOOK_SECRET:
+                    return self.send_json(401, {
+                        "ok":False,
+                        "error":"Unauthorized",
+                        "secret_received":bool(supplied_secret)
+                    })
+
+                transaction_id=str(payload.get("transaction_id") or "").strip()
+                line_id=str(payload.get("line_id") or "").strip()
+                transaction_date=str(payload.get("transaction_date") or "").strip()
+                account_name=str(payload.get("account_name") or "").strip()
+                vendor_name=str(payload.get("vendor_name") or "").strip()
+                transaction_type=str(payload.get("transaction_type") or "Expense").strip()
+                memo=str(payload.get("memo") or "").strip()
 
                 try:
-                    amount=float(body.get("amount"))
+                    amount=float(payload.get("amount"))
                 except Exception:
                     return self.send_json(400, {"ok":False,"error":"amount must be numeric"})
 
