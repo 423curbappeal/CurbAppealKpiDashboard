@@ -5,6 +5,7 @@ import json
 import os
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 import cloud_storage
+import business_kpi
 
 USERNAME = os.getenv("CEO_OS_USERNAME", "")
 PASSWORD = os.getenv("CEO_OS_PASSWORD", "")
@@ -39,6 +40,12 @@ class Handler(SimpleHTTPRequestHandler):
         if not self.require_login():
             return
         route = self.path.split("?", 1)[0]
+        if route == "/api/business-summary":
+            try:
+                self.respond_json(200,business_kpi.load())
+            except Exception:
+                self.respond_json(503,{"status":"unavailable","error":"Business KPI source unavailable. Check your private connection settings."})
+            return
         if route == "/api/state":
             if not cloud_storage.DATABASE_URL:
                 self.respond_json(503, {"error":"Cloud storage not configured"})
