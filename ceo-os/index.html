@@ -11,7 +11,7 @@
 <body><div class="app"><aside><div class="brand">CEO <b>OS</b></div><nav class="nav" id="desktop-nav"></nav></aside><main>
 <div class="row"><div class="eyebrow">Personal command center</div><span class="pill">Prototype</span></div>
 <h1 class="heading" id="page-title">Your command center.</h1><p class="sub" id="page-sub">One place for daily execution and long-term progress.</p>
-<div class="notice">Development preview only. Entries are stored in this browser, not synced or backed up. Do not enter sensitive health or financial details. Live Curb Appeal KPIs are not connected yet.</div>
+<div class="notice"><strong id="sync-label">Checking cloud storage…</strong> <span id="sync-help">Do not enter sensitive financial or medical details yet. Business KPIs are not connected.</span></div>
 <section id="home" class="panel active"><div class="grid">
 <div class="card"><div class="muted small">Today's priorities</div><div class="metric" id="home-tasks">0 / 0</div><div class="small muted">Tasks completed</div><div class="progress"><span id="task-bar"></span></div></div>
 <div class="card"><div class="muted small">Workout logs</div><div class="metric" id="home-workouts">0</div><div class="small muted">Entries this week</div></div>
@@ -30,13 +30,30 @@ const KEY='ceo-os-prototype-v1';
 let state={tasks:[],workouts:[],posts:[]};
 try{const saved=JSON.parse(localStorage.getItem(KEY));if(saved&&typeof saved==='object')for(const k of Object.keys(state))if(Array.isArray(saved[k]))state[k]=saved[k].slice(0,250);}catch(e){}
 const $=id=>document.getElementById(id);
-function save(){try{localStorage.setItem(KEY,JSON.stringify(state));}catch(e){alert('Browser storage is unavailable. Changes may not persist.');}}
+let cloudReady=false,cloudRevision=null,writeQueue=Promise.resolve(),changeCounter=0;
+function syncStatus(message){$('sync-label').textContent=message;}
+function localSave(){try{localStorage.setItem(KEY,JSON.stringify(state));}catch(e){syncStatus('Unable to save locally');}}
+function save(){localSave();changeCounter++;if(!cloudReady){syncStatus('Saved on this device only — cloud disconnected');return;}
+const snapshot=JSON.parse(JSON.stringify(state));writeQueue=writeQueue.then(async()=>{syncStatus('Syncing…');
+const res=await fetch('/api/state',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision:cloudRevision,state:snapshot})});
+if(res.status===409){cloudReady=false;syncStatus('Changed on another device — reload before editing');return;}
+if(!res.ok)throw Error('Cloud save failed');const data=await res.json();cloudRevision=data.revision;syncStatus('Cloud synced');}).catch(()=>{cloudReady=false;syncStatus('Cloud unavailable — saved only on this device. Reload before further changes.');});}
+async function initCloud(){const initialChanges=changeCounter;let local=JSON.parse(JSON.stringify(state));
+try{const res=await fetch('/api/state',{cache:'no-store'});if(!res.ok)throw Error('not connected');const data=await res.json();
+if(initialChanges!==changeCounter){syncStatus('Local edits made during startup — reload to sync');return;}
+cloudRevision=data.revision;const server=data.state;const serverHasData=['tasks','workouts','posts'].some(k=>server[k]?.length);
+const localHasData=['tasks','workouts','posts'].some(k=>local[k]?.length);
+if(!serverHasData && localHasData){if(window.confirm('Your cloud dashboard is empty. Import this device\'s existing entries to the cloud?')){cloudReady=true;syncStatus('Importing local data…');save();return;}}
+state={tasks:Array.isArray(server.tasks)?server.tasks:[],workouts:Array.isArray(server.workouts)?server.workouts:[],posts:Array.isArray(server.posts)?server.posts:[]};
+cloudReady=true;localSave();render();syncStatus('Cloud synced');
+}catch(e){cloudReady=false;syncStatus('Cloud not connected — entries saved on this device only');}}
+
 function navigate(page){const meta=pages.find(p=>p[0]===page)||pages[0];document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('active',p.id===page));document.querySelectorAll('.tab').forEach(t=>{t.classList.toggle('active',t.dataset.page===page);t.setAttribute('aria-current',t.dataset.page===page?'page':'false');});$('page-title').textContent=meta[3];$('page-sub').textContent=meta[4];location.hash=page;window.scrollTo(0,0);}
 for(const id of ['desktop-nav','mobile-nav']){for(const p of pages){const b=document.createElement('button');b.type='button';b.className='tab';b.dataset.page=p[0];const ico=document.createElement('span');ico.textContent=p[1];b.append(ico,document.createTextNode(p[2]));b.addEventListener('click',()=>navigate(p[0]));$(id).append(b);}}
 document.querySelectorAll('[data-page]:not(.tab)').forEach(b=>b.addEventListener('click',()=>navigate(b.dataset.page)));
 function renderList(type,target){const container=$(target);container.replaceChildren();if(!state[type].length){const e=document.createElement('div');e.className='empty';e.textContent='Nothing added yet.';container.append(e);return;}state[type].forEach(item=>{const row=document.createElement('div');row.className='entry';const left=document.createElement('div');left.style.minWidth='0';if(type==='tasks'){const cb=document.createElement('input');cb.type='checkbox';cb.className='check';cb.checked=!!item.done;cb.setAttribute('aria-label','Mark task complete');cb.addEventListener('change',()=>{item.done=cb.checked;save();render();});row.append(cb);}const name=document.createElement('strong');name.textContent=item.text;name.style.overflowWrap='anywhere';if(item.done)name.style.textDecoration='line-through';left.append(name);const date=document.createElement('div');date.className='muted small';date.textContent=new Date(item.when).toLocaleDateString();left.append(date);row.append(left);const remove=document.createElement('button');remove.className='remove';remove.textContent='Remove';remove.setAttribute('aria-label','Remove entry');remove.addEventListener('click',()=>{state[type]=state[type].filter(x=>x.id!==item.id);save();render();});row.append(remove);container.append(row);});}
 function render(){renderList('tasks','task-list');renderList('workouts','workout-list');renderList('posts','post-list');const done=state.tasks.filter(t=>t.done).length;$('home-tasks').textContent=done+' / '+state.tasks.length;$('task-bar').style.width=(state.tasks.length?done/state.tasks.length*100:0)+'%';const weekAgo=Date.now()-7*86400000;$('home-workouts').textContent=state.workouts.filter(w=>w.when>=weekAgo).length;$('home-posts').textContent=state.posts.length;}
 [['task-form','task-input','tasks'],['workout-form','workout-input','workouts'],['post-form','post-input','posts']].forEach(([form,input,type])=>{$(form).addEventListener('submit',e=>{e.preventDefault();const text=$(input).value.trim();if(!text)return;state[type].unshift({id:Date.now()+'-'+Math.random(),text,done:false,when:Date.now()});state[type]=state[type].slice(0,250);$(input).value='';save();render();});});
-window.addEventListener('hashchange',()=>navigate(location.hash.slice(1)));render();navigate(location.hash.slice(1)||'home');
+window.addEventListener('hashchange',()=>navigate(location.hash.slice(1)));render();navigate(location.hash.slice(1)||'home');initCloud();
 })();
 </script></body></html>
