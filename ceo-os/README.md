@@ -1,30 +1,33 @@
-# CEO OS — mobile-first prototype
+# CEO OS — private mobile-first preview
 
-This directory contains the first isolated version of CEO OS, a dark executive-style responsive interface for phone and desktop.
+Separate app in the `ceo-os/` directory on branch `feature/ceo-os-mobile`. The original Curb Appeal KPI app and `main` are untouched.
 
-## What is included
-- Home command center with daily priority completion and prototype counters
-- Business tab linking to the existing KPI application (when served from the same host)
-- Daily priorities: add, complete, and remove
-- Fitness workout notes: add and remove
-- Personal brand content ideas: add and remove
-- Responsive bottom navigation on mobile and sidebar on desktop
-- Dark design and iPhone standalone display metadata
+## Deployment
 
-## Important current limitations
-- This is a UI prototype, not a production-ready private application.
-- Prototype entries are saved ONLY in browser localStorage. They do not sync across devices, are not backed up, and should not contain sensitive details.
-- No authentication or permission boundaries have been implemented for CEO OS.
-- The existing KPI app and its calculations, backend, integrations, and persistent state are unchanged.
-- The Dockerfile and Railway configuration are unchanged. This new directory is NOT currently copied into the Railway image; it is not deployed.
-- To test the prototype locally, open ceo-os/index.html in a desktop browser. To test on an iPhone, use a private staging deployment after authentication and configuration are added.
-- The home page intentionally displays no fabricated financial or health data.
+Use a **separate Railway project or staging service**, never your existing KPI production service. Configure service:
+- Source branch: `feature/ceo-os-mobile`
+- Root Directory: `/ceo-os`
+- Dockerfile: `Dockerfile`
+- Variables: `CEO_OS_USERNAME` and a long random `CEO_OS_PASSWORD`.
+- Generate an HTTPS domain for the CEO OS *app service*.
 
-## Suggested next steps
-1. Decide on domain/subdomain and authentication, then provision a separate staging service (never attach the preview to production before securing it).
-2. Add a persistent database for CEO OS and back up its contents.
-3. Integrate existing business KPIs using authenticated, read-only server endpoints; do not migrate/overwrite current KPI state without a data plan.
-4. Add a proper web app manifest, icons, secure HTTPS staging, and an offline-safe shell after privacy controls are in place.
-5. Test on iPhone Safari and desktop before any deployment to the primary Railway service.
+## Optional PostgreSQL cloud sync
 
-Created on branch feature/ceo-os-mobile, separately from main.
+1. On the same Railway **new CEO OS project canvas**, click **+ New → Database → PostgreSQL**.
+2. Wait for the Postgres service to be running. Do NOT expose the PostgreSQL database publicly.
+3. In the **CEO OS app** service → Variables → Add Reference Variable → select Postgres's `DATABASE_URL` (or explicitly set `DATABASE_URL=${{Postgres.DATABASE_URL}}`, adjusting the actual database service name).
+4. Apply/redeploy and reload your iPhone app. The notice should say **Cloud synced**.
+5. With entries already saved on the iPhone, choose **Import** only if the cloud is empty and the entries should become the shared version.
+6. Open the same app URL on the computer, log in, reload, and verify a new test task syncs between the devices.
+
+The app displays a warning and keeps browser-only storage if no database is configured or if cloud syncing fails. Data on the other device loads when the page is reloaded; there is no real-time cross-device push.
+
+## Security, reliability, and limitations
+
+- This is a **private prototype**, NOT a hardened production application. Basic authentication over HTTPS is a temporary login system, not a full account/passkey/2FA solution.
+- Browser data may be lost. Database data is persistent but **backups must be configured separately** in Railway and tested.
+- Do not use for sensitive medical, identity, or financial information yet.
+- The cloud API is same-origin and checks optimistic revisions to prevent silent overwrites from two devices. If a conflict happens, refresh before adding more entries; the local browser may still contain unsynced entries.
+- Current Curb Appeal business KPIs are NOT integrated. The business tab links to the same-origin root and will need replacement with a safe read-only KPI integration later.
+- For security, the PostgreSQL database should only be accessible on Railway's private network, not have a public networking domain.
+- Never post DB or password variable values in GitHub, screenshots, or chat.
