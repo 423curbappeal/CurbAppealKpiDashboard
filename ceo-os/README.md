@@ -31,3 +31,22 @@ The app displays a warning and keeps browser-only storage if no database is conf
 - Current Curb Appeal business KPIs are NOT integrated. The business tab links to the same-origin root and will need replacement with a safe read-only KPI integration later.
 - For security, the PostgreSQL database should only be accessible on Railway's private network, not have a public networking domain.
 - Never post DB or password variable values in GitHub, screenshots, or chat.
+
+## Read-only Curb Appeal KPI cards
+
+CEO OS now has a backend-only, read-only connection to the *existing* KPI dashboard's saved weekly entries (not to HCP or QuickBooks directly). No change is made to the original KPI production service. To activate, add these **only to the CEO OS app service** under Railway Variables:
+
+- `KPI_SOURCE_URL`: the live Curb Appeal KPI dashboard's bare HTTPS website URL (no `/api/` path; e.g. `https://your-kpi-domain.up.railway.app`).
+- `KPI_SOURCE_USERNAME`: the live dashboard's existing `DASHBOARD_USERNAME`.
+- `KPI_SOURCE_PASSWORD`: the live dashboard's existing `DASHBOARD_PASSWORD`.
+
+The live dashboard's server must have its own username and password enabled for private access. Do not invent or change the existing dashboard credentials as part of this staging feature. Do not expose secrets in screenshots or chat.
+
+Once deployed, open CEO OS > Business > Refresh. It shows the most recently saved week, and recent weekly revenue history. Displayed statistics are saved weeks, **not** current live monthly totals. The bridge fetches only GET /api/kpi-state, filters fields, and never writes to the KPI source. If not configured, no data is shown.
+
+The URL must be a public HTTPS domain; private Railway service references are not supported by this initial bridge. The app service must be able to reach it from Railway.
+
+### Validation and hardening outstanding
+- Deploy CEO OS staging only and verify on phone/desktop.
+- Verify live KPI Basic Auth is active and the bridge displays the expected saved weeks.
+- Production-grade access management, backups, offline handling and data lineage should be completed before sensitive use.
