@@ -50,3 +50,19 @@ The URL must be a public HTTPS domain; private Railway service references are no
 - Deploy CEO OS staging only and verify on phone/desktop.
 - Verify live KPI Basic Auth is active and the bridge displays the expected saved weeks.
 - Production-grade access management, backups, offline handling and data lineage should be completed before sensitive use.
+
+## Daily CEO Planner — 2026-11-07
+
+The CEO OS staging branch now includes:
+- Add tasks with a due date and either top-three or standard priority
+- Top-three priority limit of three open tasks per selected due date
+- Recurring routines on daily, weekday, or weekend schedules
+- Mark routines completed for a specific local calendar day; the checkmark resets for the next scheduled date, with completion history retained
+- Month navigation and task-deadline calendar (not connected to Google Calendar)
+- Daily execution score based on today's tasks plus today's scheduled routines, with home-screen completion progress
+
+The cloud JSONB payload now supports `routines`, task `due` and `priority` fields. Legacy rows containing only tasks/workouts/posts load normally; no database migration or resetting existing records is required. The app preserves existing entries and their completion state.
+
+**Staging verification**: Allow the separate CEO OS Railway service to redeploy this branch. On iPhone, go to Today and add one top priority and one routine; complete both and confirm score. On desktop, refresh CEO OS to confirm tasks/routines persist. Test the month calendar by creating a due date tomorrow. If a conflict warning appears because another device changed data, reload before further edits.
+
+**Known limits**: no Google Calendar sync, push reminders, complex recurrence, automatic daily reset for unfinished tasks, or strong production authentication. CEO OS remains a prototype; its database backups and security still need review. Existing Curb Appeal KPI service and branch `main` have not been modified.
