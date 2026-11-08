@@ -1,6 +1,6 @@
 """Run with python -m unittest ceo-os/test_plaid_categorize.py (no credentials needed)."""
 import unittest
-from plaid_categorize import classify,summarize
+from plaid_categorize import classify,summarize,insights
 
 class CategorizationTests(unittest.TestCase):
     def tx(self,amount,primary,name="Sample",pending=False,day="2026-11-07"):
@@ -43,5 +43,39 @@ class CategorizationTests(unittest.TestCase):
         ])
         self.assertEqual(months["2026-11"]["income"],200)
         self.assertEqual(months["2026-10"]["expenses"],20)
+
+    def test_monthly_recurring_candidate(self):
+        rows,monthly=summarize([
+            {**self.tx(59.99,"ENTERTAINMENT","Streaming Plan",day="2026-09-10"),"account_id":"test-1"},
+            {**self.tx(59.99,"ENTERTAINMENT","Streaming Plan",day="2026-10-10"),"account_id":"test-1"},
+            {**self.tx(59.99,"ENTERTAINMENT","Streaming Plan",day="2026-11-10"),"account_id":"test-1"},
+        ])
+        insight=insights(rows,monthly)
+        self.assertEqual(insight["recurring_candidates"][0]["cadence"],"Monthly-looking")
+        self.assertEqual(insight["recurring_candidates"][0]["observations"],3)
+        self.assertEqual(len(insight["trend"]),3)
+    def test_single_transaction_not_recurring(self):
+        rows,monthly=summarize([self.tx(80,"RENT_AND_UTILITIES","Utility Bill")])
+        self.assertEqual(insights(rows,monthly)["recurring_candidates"],[])
+    def test_transfer_not_recurring(self):
+        rows,monthly=summarize([
+            self.tx(100,"TRANSFER_OUT","Transfer",day="2026-09-10"),
+            self.tx(100,"TRANSFER_OUT","Transfer",day="2026-10-10"),
+        ])
+        self.assertEqual(insights(rows,monthly)["recurring_candidates"],[])
+    def test_top_spending_share(self):
+        rows,monthly=summarize([
+            self.tx(80,"FOOD_AND_DRINK","Food"),
+            self.tx(20,"TRANSPORTATION","Gas")
+        ])
+        top=insights(rows,monthly)["top_categories_by_month"]["2026-11"]
+        self.assertEqual(top[0]["category"],"Food & drink")
+        self.assertEqual(top[0]["share_percent"],80)
+    def test_irregular_amounts_not_recurring(self):
+        rows,monthly=summarize([
+            self.tx(30,"GENERAL_SERVICES","Subscription",day="2026-09-10"),
+            self.tx(100,"GENERAL_SERVICES","Subscription",day="2026-10-10")
+        ])
+        self.assertEqual(insights(rows,monthly)["recurring_candidates"],[])
 
 if __name__=="__main__":unittest.main()
