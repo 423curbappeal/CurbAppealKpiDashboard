@@ -211,6 +211,9 @@ class Handler(SimpleHTTPRequestHandler):
                     self.respond_json(200,plaid_sandbox.link_token())
                 elif route=="/api/plaid/exchange":
                     self.respond_json(200,plaid_sandbox.exchange(body.get("public_token")))
+                elif route=="/api/plaid/correct":
+                    self.respond_json(200,plaid_sandbox.correct_transaction(
+                        body.get("transaction_id"),body.get("category"),body.get("remember_merchant",False)))
                 elif route=="/api/plaid/disconnect":
                     self.respond_json(200,plaid_sandbox.disconnect_all())
                 else:
