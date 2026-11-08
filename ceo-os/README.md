@@ -205,3 +205,20 @@ A new password **recovery form** is available without altering the existing Rail
 6. **Rollback:** delete the optional `CEO_OS_RECOVERY_MODE` variable and redeploy; old Basic Auth works again. Keep `CEO_OS_USERNAME`, `CEO_OS_PASSWORD`, `CEO_OS_SESSION_SECRET` and `DATABASE_URL` untouched.
 
 The new form is tested by code checks only until the operator verifies it on a device. HTTP Basic is still available **until** the optional Railway flag is enabled; do not claim that the old authentication is retired before then. Rate limits are simple protection, not a substitute for a security audit. Database backup restoration and deeper financial-data protection remain incomplete, so live bank production is still disabled.
+
+## Automatic transaction classification (Plaid Sandbox, 2026-11-07)
+
+The Finance tab now shows a **separate monthly Sandbox cash-flow breakdown**: classified income, classified spending, net cash flow, count of ambiguous items needing review, transfer/debt-payment volume excluded, pending count, and category-level spending.
+
+Conservative classification uses Plaid Personal Finance Category and transaction sign:
+- Plaid positive amount means a debit, negative means a credit.
+- Posted, clearly categorized expenses count as spending; clearly categorized income credits count as income.
+- Transfers, card/debt payments and recognized internal movement are not included in spending or income.
+- Pending records are excluded to avoid later double-counting when posted.
+- Ambiguous deposits, refunds, unknown categories and inconsistent transaction directions remain marked **Needs review**, excluded from totals until there is enough information.
+- Monthly summaries cover all locally retained synchronized transactions, not just the 350 shown in the UI. Counts are not authoritative if synchronization history is incomplete or some transactions have aged out of retention.
+- The user's **manual personal Finance entries remain separate** from fictional Sandbox numbers, so sample balances never flow into real financial totals.
+
+The categorizer lives in `plaid_categorize.py`, with a credential-free test suite `test_plaid_categorize.py`. Run from the `ceo-os` directory with `python -m unittest test_plaid_categorize.py` to verify the included scenarios. **This deployment has code-level inspection but has not yet been tested against the user's live Railway Sandbox output.**
+
+The test-bank data refreshes when the app is opened and when **Refresh sample data** is tapped. It does **not** have background scheduled syncs, webhook processing, user-correction persistence or live bank connections. Plaid's metadata and merchant names can be wrong; never assume automated categories are definitive. Real bank credentials and production Plaid APIs remain disabled.
