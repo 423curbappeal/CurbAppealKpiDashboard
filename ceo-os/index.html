@@ -310,11 +310,11 @@ $('refresh-kpi').addEventListener('click',loadBusiness);
 let cloudReady=false,cloudRevision=null,writeQueue=Promise.resolve(),changeCounter=0;
 function syncStatus(message){$('sync-label').textContent=message;}
 function localSave(){try{const nonFinancial={...state,money_entries:[],balance_items:[],bills:[],budgets:[],leads:[],goals:[],weekly_reviews:[]};localStorage.setItem(KEY,JSON.stringify(nonFinancial));}catch(e){syncStatus('Unable to save locally');}}
-function save(){localSave();changeCounter++;if(!cloudReady){syncStatus('Saved on this device only — cloud disconnected');return;}
+function save(){localSave();changeCounter++;if(!cloudReady){syncStatus('Cloud disconnected — only non-sensitive entries can remain on this device');return;}
 const snapshot=JSON.parse(JSON.stringify(state));writeQueue=writeQueue.then(async()=>{syncStatus('Syncing…');
 const res=await fetch('/api/state',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision:cloudRevision,state:snapshot})});
 if(res.status===409){cloudReady=false;syncStatus('Changed on another device — reload before editing');return;}
-if(!res.ok)throw Error('Cloud save failed');const data=await res.json();cloudRevision=data.revision;syncStatus('Cloud synced');}).catch(()=>{cloudReady=false;syncStatus('Cloud unavailable — saved only on this device. Reload before further changes.');});}
+if(!res.ok)throw Error('Cloud save failed');const data=await res.json();cloudRevision=data.revision;syncStatus('Cloud synced');}).catch(()=>{cloudReady=false;syncStatus('Cloud unavailable. Private records cannot save offline; reload to resync before editing.');});}
 async function initCloud(){const initialChanges=changeCounter;let local=JSON.parse(JSON.stringify(state));
 try{const res=await fetch('/api/state',{cache:'no-store'});if(!res.ok)throw Error('not connected');const data=await res.json();
 if(initialChanges!==changeCounter){syncStatus('Local edits made during startup — reload to sync');return;}
@@ -323,7 +323,7 @@ const localHasData=Object.keys(state).some(k=>local[k]?.length);
 if(!serverHasData && localHasData){if(window.confirm('Your cloud dashboard is empty. Import this device\'s existing entries to the cloud?')){cloudReady=true;syncStatus('Importing local data…');save();return;}}
 state=Object.fromEntries(Object.keys(state).map(k=>[k,Array.isArray(server[k])?server[k]:[]]));
 cloudReady=true;localSave();render();syncStatus('Cloud synced');
-}catch(e){cloudReady=false;syncStatus('Cloud not connected — entries saved on this device only');}}
+}catch(e){cloudReady=false;syncStatus('Cloud disconnected — non-sensitive entries may remain on this device; private records require cloud');}}
 
 function navigate(page){const meta=pages.find(p=>p[0]===page)||pages[0];document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('active',p.id===meta[0]));document.querySelectorAll('.tab').forEach(t=>{t.classList.toggle('active',t.dataset.page===meta[0]);t.setAttribute('aria-current',t.dataset.page===meta[0]?'page':'false');});$('page-title').textContent=meta[3];$('page-sub').textContent=meta[4];if(typeof closeMore==='function')closeMore();const secondary=!MOBILE_PRIMARY.includes(meta[0]);if($('mobile-more-toggle'))$('mobile-more-toggle').classList.toggle('active',secondary);location.hash=meta[0];window.scrollTo(0,0);}
 const MOBILE_PRIMARY=['home','planner','business','sales'];
