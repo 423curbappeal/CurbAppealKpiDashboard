@@ -1,0 +1,38 @@
+name: CEO OS code checks
+on:
+  push:
+    branches: [feature/ceo-os-mobile]
+    paths:
+      - 'ceo-os/**'
+      - '.github/workflows/ceo-os-checks.yml'
+  workflow_dispatch:
+jobs:
+  validation:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Validate Python syntax
+        run: python -m compileall -q ceo-os
+      - name: Run financial categorization tests
+        run: python -m unittest discover -s ceo-os -p 'test_*.py' -v
+      - name: Ensure live banking remains opt-in
+        run: |
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+          live=Path("ceo-os/plaid_live.py").read_text()
+          sandbox=Path("ceo-os/plaid_sandbox.py").read_text()
+          ast.parse(live)
+          ast.parse(sandbox)
+          assert 'HOST = "https://production.plaid.com"' in live
+          assert 'PLAID_LIVE_APPROVED' in live
+          assert 'RECOVERY_READY' in live
+          assert 'ceo_plaid_live' in live
+          assert 'ceo_plaid_sandbox' in sandbox
+          print("Production and Sandbox isolation checks passed")
+          PY
