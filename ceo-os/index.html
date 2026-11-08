@@ -82,6 +82,9 @@ select{background:#0b1423;border:1px solid #34415a;border-radius:11px;color:var(
 #plaid-sandbox-card .finance-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
 #plaid-sandbox-card .entry{align-items:flex-start}
 #plaid-sandbox-card .entry>div{min-width:0;overflow-wrap:anywhere}
+#plaid-cashflow-panel[hidden]{display:none!important}
+#plaid-cashflow-panel{margin-top:18px;border-top:1px solid var(--line);padding-top:12px}
+#plaid-cashflow-panel .finance-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
 #plaid-sandbox-card button:disabled{opacity:.5}
 
 #finance .finance-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:14px 0}
@@ -152,6 +155,13 @@ select{background:#0b1423;border:1px solid #34415a;border-radius:11px;color:var(
 <div class="quick-links"><button class="primary" type="button" id="plaid-test-connect" disabled>Connect test bank</button><button class="secondary" type="button" id="plaid-test-refresh" disabled>Refresh sample data</button><button class="secondary" type="button" id="plaid-test-disconnect" disabled>Disconnect test accounts</button></div>
 <p class="muted small" id="plaid-sandbox-status" aria-live="polite">Checking test connection…</p>
 <div class="finance-metrics" id="plaid-demo-stats" style="display:none"><div><div class="muted small">Sample accounts</div><div class="metric" id="plaid-account-count">0</div></div><div><div class="muted small">Sample transactions</div><div class="metric" id="plaid-tx-count">0</div></div></div>
+<div id="plaid-cashflow-panel" hidden>
+<h3>Automatic sample cash flow</h3>
+<label for="plaid-cashflow-month" class="field-label">Sample statement month</label>
+<select id="plaid-cashflow-month" style="max-width:240px"></select>
+<div class="finance-metrics"><div><div class="muted small">Classified income</div><div class="metric" id="plaid-month-income">$0</div></div><div><div class="muted small">Classified spending</div><div class="metric" id="plaid-month-expenses">$0</div></div><div><div class="muted small">Classified net</div><div class="metric" id="plaid-month-net">$0</div></div><div><div class="muted small">Needs review</div><div class="metric" id="plaid-month-review">0</div></div></div>
+<p id="plaid-month-exclusions" class="muted small"></p><h3>Spending by category</h3><div id="plaid-spending-categories"></div>
+<p class="muted small">Only clearly classified, posted transactions count toward totals. Transfers, debt payments, pending items, and ambiguous credits are excluded or flagged for review; totals may be incomplete.</p></div>
 <div id="plaid-demo-accounts"></div><div id="plaid-demo-transactions"></div>
 <p class="muted small">Sandbox information is separate from your manual finance totals and never represents live bank data.</p></div>
 <div class="grid" id="finance-grid">
@@ -353,7 +363,24 @@ renderBrandPipeline();renderBrandCalendar();
 
 
 
-let plaidSandboxReady=false,plaidLinkScript=null;
+let plaidSandboxReady=false,plaidLinkScript=null,plaidMonthly={},plaidSelectedMonth='';
+$('plaid-cashflow-month').addEventListener('change',e=>{plaidSelectedMonth=e.target.value;renderPlaidMonthly();});
+function renderPlaidMonthly(){
+const data=plaidMonthly[plaidSelectedMonth],panel=$('plaid-cashflow-panel');
+panel.hidden=!data;
+if(!data)return;
+$('plaid-month-income').textContent=plaidFormat(data.income);
+$('plaid-month-expenses').textContent=plaidFormat(data.expenses);
+$('plaid-month-net').textContent=plaidFormat(data.net);
+$('plaid-month-review').textContent=String(data.review_count||0);
+$('plaid-month-exclusions').textContent='Transfer/debt payment volume excluded: '+plaidFormat(data.excluded_transfer_volume)+' · Pending: '+(data.pending_count||0)+' · Recorded transactions: '+(data.transaction_count||0);
+const c=$('plaid-spending-categories');c.replaceChildren();
+const cats=Object.entries(data.categories||{});
+if(!cats.length){const msg=document.createElement('p');msg.className='muted small';msg.textContent='No classified spending this month.';c.append(msg);return;}
+for(const [category,amount] of cats){const row=document.createElement('div');row.className='entry';
+const name=document.createElement('strong');name.textContent=category;const val=document.createElement('strong');val.textContent=plaidFormat(amount);
+row.append(name,val);c.append(row);}
+}
 const plaidFormat=n=>typeof n==='number'&&Number.isFinite(n)?new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(n):'Unavailable';
 function plaidStatus(text){$('plaid-sandbox-status').textContent=text;}
 async function plaidRequest(url,body){const response=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})});let result={};try{result=await response.json()}catch(e){}if(!response.ok)throw Error(result.error||'Test-bank request failed');return result;}
@@ -377,6 +404,15 @@ async function plaidOverview(){
     if(!response.ok)throw Error(result.error||'Unable to load sandbox');
     $('plaid-test-disconnect').disabled=result.status!=='connected';
     const accounts=result.accounts||[],transactions=result.transactions||[];
+    plaidMonthly=result.monthly||{};
+    const monthSelect=$('plaid-cashflow-month'),previous=plaidSelectedMonth;
+    monthSelect.replaceChildren();
+    for(const month of Object.keys(plaidMonthly).sort().reverse()){
+      const option=document.createElement('option');option.value=month;option.textContent=month;monthSelect.append(option);
+    }
+    plaidSelectedMonth=plaidMonthly[previous]?previous:(monthSelect.options[0]?.value||'');
+    monthSelect.value=plaidSelectedMonth;
+    renderPlaidMonthly();
     $('plaid-demo-stats').style.display=result.status==='connected'?'grid':'none';
     $('plaid-account-count').textContent=String(accounts.length);
     $('plaid-tx-count').textContent=String(transactions.length);
@@ -393,7 +429,7 @@ async function plaidOverview(){
     if(!transactions.length){const p=document.createElement('p');p.className='muted small';p.textContent='Test transactions are not ready yet. Refresh again shortly.';txContainer.append(p);}
     for(const transaction of transactions.slice(0,12)){const row=document.createElement('div');row.className='entry';
       const left=document.createElement('div');const title=document.createElement('strong');title.textContent=transaction.name;
-      const meta=document.createElement('div');meta.className='muted small';meta.textContent=(transaction.date||'')+' · '+(transaction.pending?'Pending · ':'')+(transaction.category||'Other');left.append(title,meta);
+      const meta=document.createElement('div');meta.className='muted small';meta.textContent=(transaction.date||'')+' · '+(transaction.pending?'Pending · ':'')+(transaction.display_category||'Needs review')+' · '+(transaction.classification||'review');left.append(title,meta);
       const amount=document.createElement('strong');amount.textContent=plaidFormat(transaction.amount);
       row.append(left,amount);txContainer.append(row);}
   }catch(e){plaidStatus(e.message||'Sandbox temporarily unavailable');}
