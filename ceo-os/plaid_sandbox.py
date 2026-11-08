@@ -11,7 +11,7 @@ from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 import psycopg
 from cryptography.fernet import Fernet
-from plaid_categorize import summarize
+from plaid_categorize import summarize, insights
 
 HOST = "https://sandbox.plaid.com"
 CLIENT = os.getenv("PLAID_CLIENT_ID","").strip()
@@ -140,9 +140,11 @@ def overview(refresh=False):
                              "currency":balance.get("iso_currency_code") or "USD"})
         transactions.extend(list((saved or {}).values()))
     transactions.sort(key=lambda a:a.get("date") or "",reverse=True)
+    insight_data={}
     try:
         transactions,monthly=summarize(transactions)
-    except (ValueError,TypeError,KeyError,OverflowError):
+        insight_data=insights(transactions,monthly)
+    except (ValueError,TypeError,KeyError,OverflowError,AttributeError):
         # Bad historical transaction metadata should not hide all saved account data.
         monthly={}
         warnings.append("Some saved sample transactions could not be categorized.")
@@ -150,6 +152,7 @@ def overview(refresh=False):
             "sample_data":True,"accounts":accounts[:50],
             "transactions":transactions[:350],
             "monthly":monthly,
+            "insights":insight_data,
             "warnings":list(dict.fromkeys(warnings)),
             "classification_version":"conservative-v1",
             "retrieved_at":datetime.now(timezone.utc).isoformat()}
