@@ -13,11 +13,14 @@ function dueDate(year,month,day){return local(new Date(year,month,Math.min(day,n
 function upcomingBills(bills,day){
  const current=new Date(day+'T12:00:00'),results=[];
  for(const bill of bills){
+   // Include the current month's unpaid bills even after their due date.
+   // Only show next month's bills when due within the following seven days.
    for(let offset=0;offset<=1;offset++){
-     const year=current.getFullYear(),m=current.getMonth()+offset;
-     const when=dueDate(year,m,bill.due_day),period=when.slice(0,7);
-     if(when>=day&&when<=plusDays(day,7)&&!(bill.paid_months||[]).includes(period)){
-       results.push({bill,when});break;
+     const when=dueDate(current.getFullYear(),current.getMonth()+offset,bill.due_day);
+     const period=when.slice(0,7);
+     if((bill.paid_months||[]).includes(period))continue;
+     if(offset===0 || (when>day && when<=plusDays(day,7))){
+       results.push({bill,when,overdue:when<day});break;
      }
    }
  }
@@ -35,10 +38,14 @@ function metric(target,value){$(target).textContent=String(value);}
 function panel(container,markup){const div=node('div');div.className='command-card';div.innerHTML=markup;container.append(div);return div;}
 const home=$('home');
 const briefing=panel(home,`<div class="row"><div><div class="eyebrow">CEO morning briefing</div><h2 style="margin:5px 0">Your next moves</h2></div><span class="muted small" id="morning-date"></span></div>
+ <form id="morning-quick-form" class="morning-quick-form">
+ <label for="morning-quick-input" class="field-label">Quick priority</label>
+ <div class="morning-quick-row"><input id="morning-quick-input" maxlength="150" placeholder="What must get done today?" required>
+ <button type="submit" class="primary">Add</button></div><p id="morning-quick-status" class="command-note" aria-live="polite"></p></form>
  <div class="command-grid">
  <div><div class="muted small">Open priorities due</div><div class="command-stat" id="morning-priority-count">0</div></div>
  <div><div class="muted small">Sales follow-ups due</div><div class="command-stat" id="morning-lead-count">0</div></div>
- <div><div class="muted small">Bills due within 7 days</div><div class="command-stat" id="morning-bill-count">0</div></div>
+ <div><div class="muted small">Unpaid bills · overdue / next 7 days</div><div class="command-stat" id="morning-bill-count">0</div></div>
  <div><div class="muted small">Workouts logged this week</div><div class="command-stat" id="morning-workouts">0 / 4</div></div>
  <div><div class="muted small">Latest saved KPI revenue</div><div class="command-stat" id="morning-revenue">—</div><div class="command-muted" id="morning-kpi-date">No saved KPI week</div></div>
  <div><div class="muted small">Latest saved KPI net profit</div><div class="command-stat" id="morning-net">—</div><div class="command-muted">Historical KPI week · read-only</div></div>
@@ -109,8 +116,8 @@ function renderMorning(){
  if(!leads.length)empty(l,'No overdue or due-today sales follow-ups.');
  for(const lead of leads.slice(0,4))row(l,lead.text,lead.stage+' · Due '+compact(lead.follow_up),'Sales',()=>api.navigate('sales'));
  const b=$('morning-bills');b.replaceChildren();
- if(!bills.length)empty(b,'No unpaid bills due in the next seven days.');
- for(const {bill,when} of bills.slice(0,4))row(b,bill.text,money(bill.amount)+' · Due '+compact(when),'Mark paid',()=>{
+ if(!bills.length)empty(b,'No overdue or upcoming unpaid bills.');
+ for(const {bill,when,overdue} of bills.slice(0,4))row(b,bill.text,money(bill.amount)+' · '+(overdue?'OVERDUE · ':'Due ')+compact(when),'Mark paid',()=>{
   if(!api.cloudReady()){window.alert('Cloud connection required to mark bills paid.');return;}
   bill.paid_months=Array.from(new Set([...(bill.paid_months||[]),when.slice(0,7)])).sort().slice(-24);
   api.save();api.render();
@@ -125,6 +132,17 @@ function renderMorning(){
  if(!activities.length)empty(a,cal.status==='connected'?'No appointments or time blocks today.': 'No saved time blocks. Calendar may be unavailable.');
  for(const task of activities.slice(0,6))row(a,task.label,task.detail);
 }
+$('morning-quick-form').addEventListener('submit',e=>{
+ e.preventDefault();
+ const text=$('morning-quick-input').value.trim(),status=$('morning-quick-status');
+ if(!text)return;
+ if(state().tasks.length>=250){status.textContent='Task limit reached. Archive or remove old tasks first.';return;}
+ const day=today();
+ const topCount=state().tasks.filter(t=>!t.done&&t.priority==='top'&&(!t.due||t.due===day)).length;
+ state().tasks.unshift({id:String(Date.now())+'-'+Math.random().toString(36).slice(2),
+   text,done:false,when:Date.now(),due:day,priority:topCount<3?'top':'normal'});
+ api.save();api.render();$('morning-quick-input').value='';status.textContent='';
+});
 function reviewData(){return state().weekly_reviews.find(r=>r.week_start===reviewWeek());}
 let dirtyReview=false;
 function populateReview(){
