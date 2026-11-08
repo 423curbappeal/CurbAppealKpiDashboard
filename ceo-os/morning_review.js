@@ -139,7 +139,7 @@ function renderDailyActions(){
  const todos=[
  ...dueTasks.slice(0,3).map(t=>({title:t.text,detail:'Priority'+(t.due&&t.due<day?' · overdue':''),run:()=>{t.done=true;api.save();api.render();}})),
  ...remaining.slice(0,2).map(r=>({title:r.text,detail:'Today’s routine',run:()=>{r.completed=Array.from(new Set([...(r.completed||[]),day])).sort().slice(-180);api.save();api.render();}})),
- ...openLeads.slice(0,1).map(l=>({title:'Follow up: '+l.text,detail:l.stage+' · '+(l.follow_up<day?'Overdue':'Due today'),run:()=>{
+ ...openLeads.slice(0,1).map(l=>({title:'Follow up: '+l.text,detail:l.stage+' · '+(l.follow_up<day?'Overdue':'Due today'),label:'Contacted',run:()=>{
    if(!api.cloudReady()){alert('Reconnect cloud to update sales follow-ups.');return;}
    if(!confirm('Have you contacted '+l.text+'? CEO OS will remind you again in 2 days.'))return;
    if(l.stage==='New')l.stage='Contacted';
@@ -159,7 +159,7 @@ function renderDailyActions(){
  const completed=routines.length-remaining.length;
  $('daily-progress').textContent=completed+' routines done · '+(dueTasks.length+remaining.length+openLeads.length)+' open';
  if(!todos.length){empty(target,'You’re caught up. Check today’s calendar below.');}
- for(const t of todos)row(target,t.title,t.detail,'Done',t.run);
+ for(const t of todos)row(target,t.title,t.detail,t.label||'Done',t.run);
  if(dueTasks.length>3||remaining.length>2||openLeads.length>1){
   const extra=node('button','More items','secondary');extra.type='button';extra.addEventListener('click',()=>{briefingDetails.open=true;briefingDetails.scrollIntoView({behavior:'smooth'});});
   target.append(extra);
@@ -168,6 +168,7 @@ function renderDailyActions(){
 function recordQuickWorkout(category){
  if(state().workouts.length>=250){$('daily-workout-note').textContent='Workout history is full. Remove older entries in Fitness.';return;}
  const stamp=Date.now();
+ if(state().workouts.some(w=>w.category===category&&stamp-w.when<20000&&stamp>=w.when)){$('daily-workout-note').textContent='Already logged just now. Open Fitness to make changes.';return;}
  state().workouts.unshift({id:stamp+'-'+Math.random().toString(36).slice(2),when:stamp,text:category+' session',category,duration:0,done:false});
  api.save();api.render();
  $('daily-workout-note').textContent=category+' session logged with no duration. Add details in Fitness if you want.';
