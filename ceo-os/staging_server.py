@@ -61,6 +61,15 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_header("Location","/")
             self.end_headers()
             return
+        if route in ("/","/index.html") and passkey_auth.ENABLED and not self.authorized():
+            try:
+                if passkey_auth.has_passkeys():
+                    self.send_response(302)
+                    self.send_header("Location","/passkey-login")
+                    self.end_headers()
+                    return
+            except Exception:
+                pass  # Existing password authentication remains the fallback.
         if not self.require_login():
             return
         if route == "/api/google-calendar":
