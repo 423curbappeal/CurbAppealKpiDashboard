@@ -52,7 +52,7 @@ select{background:#0b1423;border:1px solid #34415a;border-radius:11px;color:var(
 <div class="card"><h2>Daily routines</h2><div id="home-routines"></div></div>
 <div class="card full"><div class="row" style="flex-wrap:wrap"><h2 style="margin:0">Calendar appointments</h2><span class="muted small" id="home-appointments-count">Loading…</span></div><div id="home-appointments"></div></div>
 </div>
-<h2 class="section">Make progress today</h2><div class="card"><div class="quick-links"><button class="secondary" data-page="planner">+ Add priority</button><button class="secondary" data-page="fitness">+ Log workout</button><button class="secondary" data-page="brand">+ Content idea</button><button class="secondary" data-page="business">Business KPIs</button></div></div></section>
+<h2 class="section">Face ID access</h2><div class="card"><h2>Sign in with Face ID</h2><p class="muted small">Add an iPhone passkey after signing in with your current username and password. Keep your password as a backup.</p><div class="quick-links"><button class="secondary" type="button" id="passkey-register">Set up Face ID</button><a class="secondary" style="display:inline-block;text-decoration:none" href="/passkey-login">Try Face ID sign-in</a></div><p class="muted small" id="passkey-status" aria-live="polite"></p></div><h2 class="section">Make progress today</h2><div class="card"><div class="quick-links"><button class="secondary" data-page="planner">+ Add priority</button><button class="secondary" data-page="fitness">+ Log workout</button><button class="secondary" data-page="brand">+ Content idea</button><button class="secondary" data-page="business">Business KPIs</button></div></div></section>
 <section id="business" class="panel"><div class="row"><h2 class="section">Curb Appeal overview</h2><button type="button" class="secondary" id="refresh-kpi">Refresh</button></div><p class="muted small" id="kpi-status">Checking read-only KPI connection…</p><div class="grid"><div class="card"><div class="muted small">Latest saved weekly revenue</div><div class="metric" id="kpi-revenue">—</div><div class="muted small" id="kpi-week">No weekly data yet</div></div><div class="card"><div class="muted small">Net profit · saved week</div><div class="metric" id="kpi-net">—</div><div class="muted small" id="kpi-net-margin">Net margin —</div></div><div class="card"><div class="muted small">Gross profit</div><div class="metric" id="kpi-gross">—</div><div class="muted small" id="kpi-gross-margin">Gross margin —</div></div><div class="card"><div class="muted small">Jobs completed / sold</div><div class="metric" id="kpi-jobs">—</div><div class="muted small">Completed / sold</div></div><div class="card"><div class="muted small">Average ticket</div><div class="metric" id="kpi-ticket">—</div></div><div class="card"><div class="muted small">Revenue per tech hour</div><div class="metric" id="kpi-hour">—</div></div><div class="card full"><h2>Recent saved weeks</h2><div id="kpi-history" class="muted">Connection pending.</div><p class="muted small">Figures come from previously saved weekly KPI entries, not live daily revenue. Read-only: updating CEO OS cannot change your original KPI dashboard.</p></div></div></section>
 <section id="planner" class="panel"><div class="grid">
 <div class="card full"><div class="row"><div><div class="eyebrow">Daily execution</div><h2 style="margin:4px 0">Your CEO score</h2></div><div class="metric score" id="daily-score">—</div></div><p class="muted small" id="daily-score-detail">Completed priorities and routines scheduled for today</p><div class="progress"><span id="daily-bar"></span></div></div>
@@ -148,6 +148,22 @@ if(remove){const btn=document.createElement('button');btn.className='remove';btn
 container.append(row);
 }
 function placeholder(el,label){el.replaceChildren();const p=document.createElement('p');p.className='empty';p.textContent=label;el.append(p);}
+const passkeyDecode=s=>{const value=s.replace(/-/g,'+').replace(/_/g,'/');return Uint8Array.from(atob(value+'='.repeat((4-value.length%4)%4)),c=>c.charCodeAt(0));};
+const passkeyEncode=v=>{const arr=new Uint8Array(v),parts=[];for(let i=0;i<arr.length;i+=8192)parts.push(String.fromCharCode(...arr.slice(i,i+8192)));return btoa(parts.join('')).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');};
+async function passkeyPost(path,body={}){const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const result=await response.json();if(!response.ok)throw Error(result.error||'Face ID request failed');return result;}
+$('passkey-register').addEventListener('click',async()=>{
+const button=$('passkey-register'),label=$('passkey-status');button.disabled=true;label.textContent='Starting secure passkey setup…';
+try{
+if(!window.PublicKeyCredential||!navigator.credentials)throw Error('Your browser does not support passkeys');
+const data=await passkeyPost('/api/passkeys/register/options');const opts=data.options;
+opts.challenge=passkeyDecode(opts.challenge);opts.user.id=passkeyDecode(opts.user.id);
+if(opts.excludeCredentials)opts.excludeCredentials=opts.excludeCredentials.map(x=>({...x,id:passkeyDecode(x.id)}));
+const credential=await navigator.credentials.create({publicKey:opts});
+const encoded={id:credential.id,rawId:passkeyEncode(credential.rawId),type:credential.type,response:{clientDataJSON:passkeyEncode(credential.response.clientDataJSON),attestationObject:passkeyEncode(credential.response.attestationObject),transports:credential.response.getTransports?.()||[]},clientExtensionResults:credential.getClientExtensionResults()};
+await passkeyPost('/api/passkeys/register/verify',{token:data.token,credential:encoded});
+label.textContent='Face ID passkey saved! Test Try Face ID sign-in. Your password still works as recovery.';
+}catch(error){label.textContent=error.message||'Setup failed. Your existing login still works.';}finally{button.disabled=false;}
+});
 function renderHomePreview(){
 const day=today(),priorities=$('home-priorities'),routines=$('home-routines'),appointments=$('home-appointments');
 function preview(container,items,emptyLabel,icon){container.replaceChildren();if(!items.length){placeholder(container,emptyLabel);return;}
