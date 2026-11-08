@@ -85,3 +85,21 @@ If a secret address is missing on an organizational calendar, the Google Workspa
 
 ### Safety
 The original Curb Appeal KPI dashboard and its Google Calendar (if any) are unchanged; only the CEO OS staging development branch is modified.
+
+## Optional Face ID / passkey sign-in (staging, not yet device-tested)
+
+A passkey sign-in is included as an **opt-in feature**, preserving existing HTTP Basic username/password as an emergency recovery method.
+
+### Activate without disabling your current login
+
+1. Use your Mac Terminal to generate a fresh secret: `openssl rand -base64 48`. Never share the output.
+2. In **Railway → the CEO OS app service → Variables**, add `CEO_OS_SESSION_SECRET` with that generated value. Do not remove `CEO_OS_USERNAME` or `CEO_OS_PASSWORD`. Ensure `DATABASE_URL` is already connected.
+3. Deploy the latest `feature/ceo-os-mobile` commit. The app remains accessible through its password login even before you set up any passkey.
+4. On iPhone **Safari**, use the normal CEO OS URL and existing username/password to open Home, then tap **Set up Face ID**. Follow Apple's system passkey enrollment prompt. Do not save account credentials in screenshots or chat.
+5. Tap **Try Face ID sign-in** on Home (or visit `https://YOUR-CEO-OS-DOMAIN/passkey-login`) and verify a successful Face ID login.
+6. For a clean test, use a private browsing session (which may require re-authentication). After at least one passkey is registered, unauthenticated visitors to the app root are redirected to the Face ID page, while **Use username and password instead** still allows HTTP Basic recovery.
+7. Do not delete the password variables. Passkeys are tied to the exact HTTPS hostname: moving to another domain will require new enrollment.
+
+Passkeys are created and held by the iPhone's passkey provider; the CEO OS database only stores a credential ID, public key and sign count. A session cookie is Secure, HttpOnly, SameSite=Strict, signed using `CEO_OS_SESSION_SECRET`, and expires after 30 days. Signing in with Face ID generally happens when the session expires or on a new browser; it does **not** force Face ID on every launch.
+
+This is a staging implementation, not independently security-audited or confirmed working on the user's device yet. The old password login remains functional. No production KPI dashboard code is modified.
