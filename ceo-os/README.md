@@ -140,3 +140,9 @@ Older post ideas lacking metadata automatically behave as `Idea` / `Other`. All 
 5. Refresh on desktop and confirm the same entry, dates and metrics appear. Remove test data if desired.
 
 Original Curb Appeal KPI production code is untouched. Database backups, access hardening, and data portability are outstanding before using the staging app as critical business infrastructure.
+
+## Session security update (November 2026)
+
+Face ID/passkey sessions now expire after **7 days** instead of 30; previously issued 30-day session cookies will be rejected and a new Face ID sign-in may be required after deploying this update. Home shows a **Log out** button **only if a valid passkey session is active**. It calls same-origin `POST /api/logout`, clears the HttpOnly session cookie and redirects to the passkey sign-in page. `GET /api/auth-status` reports whether the currently authorized session is a passkey session or HTTP Basic login.
+
+**Limitation:** Browsers may retain HTTP Basic authentication credentials. Clearing the passkey cookie does **not** revoke cached HTTP Basic credentials, and a previously copied signed passkey cookie remains cryptographically valid until it expires because there is not yet a server-side revocation list. Therefore do not treat Log out as a guaranteed sign-out on browsers that have used password recovery. For a fully revocable session model, replace HTTP Basic recovery with a dedicated recovery form and persist sessions and revocations in PostgreSQL. Keep the current recovery variables until a replacement has been deployed and tested.
