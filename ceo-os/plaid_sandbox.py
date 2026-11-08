@@ -101,30 +101,56 @@ def _sync(item_id,token,cursor,existing):
             return transactions
     raise ValueError("Sandbox sync had too many pages; no changes committed")
 def overview(refresh=False):
+    """Return partial test data when Sandbox sync/balances are temporarily unavailable.
+
+    Never invent current balances: fallback accounts/get snapshots carry an explicit
+    freshness warning and are NOT labeled as recently refreshed balances.
+    """
     if not ENABLED:
         return {"status":"not_configured","environment":"sandbox"}
     items=_items()
-    if not items:return {"status":"not_linked","environment":"sandbox","accounts":[],"transactions":[]}
+    if not items:
+        return {"status":"not_linked","environment":"sandbox","accounts":[],"transactions":[],"monthly":{}}
     accounts=[]
     transactions=[]
+    warnings=[]
     for item_id,encrypted,cursor,saved in items[:5]:
         token=_crypto().decrypt(bytes(encrypted)).decode()
         if refresh:
-            saved=_sync(item_id,token,cursor,saved)
-        response=_api("/accounts/balance/get",{"access_token":token})
+            try:
+                saved=_sync(item_id,token,cursor,saved)
+            except (ValueError,HTTPError,OSError,KeyError,TypeError,TimeoutError) as exc:
+                # Retain previously imported transactions; do not reset the sync cursor.
+                warnings.append("Transaction sync temporarily unavailable; showing last saved sample transactions.")
+        try:
+            response=_api("/accounts/balance/get",{"access_token":token})
+        except (ValueError,HTTPError,OSError,KeyError,TypeError,TimeoutError):
+            warnings.append("Live Sandbox balances unavailable; attempting account metadata fallback.")
+            try:
+                response=_api("/accounts/get",{"access_token":token})
+                warnings.append("Balances from account metadata may be stale.")
+            except (ValueError,HTTPError,OSError,KeyError,TypeError,TimeoutError):
+                response={"accounts":[]}
+                warnings.append("Account metadata unavailable; linked test accounts retained.")
         for a in response.get("accounts",[]):
-            balance=a.get("balances",{})
+            balance=a.get("balances") or {}
             accounts.append({"id":a.get("account_id"),"name":str(a.get("name","Account"))[:80],
                              "type":a.get("type"),"subtype":a.get("subtype"),
                              "current":balance.get("current"),"available":balance.get("available"),
                              "currency":balance.get("iso_currency_code") or "USD"})
         transactions.extend(list((saved or {}).values()))
     transactions.sort(key=lambda a:a.get("date") or "",reverse=True)
-    transactions,monthly=summarize(transactions)
+    try:
+        transactions,monthly=summarize(transactions)
+    except (ValueError,TypeError,KeyError,OverflowError):
+        # Bad historical transaction metadata should not hide all saved account data.
+        monthly={}
+        warnings.append("Some saved sample transactions could not be categorized.")
     return {"status":"connected","environment":"sandbox",
             "sample_data":True,"accounts":accounts[:50],
             "transactions":transactions[:350],
             "monthly":monthly,
+            "warnings":list(dict.fromkeys(warnings)),
             "classification_version":"conservative-v1",
             "retrieved_at":datetime.now(timezone.utc).isoformat()}
 def disconnect_all():
