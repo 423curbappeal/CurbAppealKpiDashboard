@@ -67,6 +67,14 @@ def credentials():
             cur.execute("SELECT credential_id,public_key,sign_count FROM ceo_passkeys ORDER BY created_at")
             return cur.fetchall()
 
+def has_passkeys():
+    if not ENABLED:
+        return False
+    with closing(_db()) as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT EXISTS (SELECT 1 FROM ceo_passkeys)")
+            return bool(cur.fetchone()[0])
+
 def _challenge(kind, challenge):
     value=b64(challenge)
     with _guard:
