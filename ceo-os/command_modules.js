@@ -1,5 +1,4 @@
-/* CEO OS additions: local-first interface with existing /api/state cloud persistence.
- * All user data is rendered via textContent, never raw HTML. */
+/* CEO OS operating modules. Static templates use trusted markup; user data is displayed with textContent. */
 (()=>{'use strict';
 const api=window.ceoOSBridge;if(!api)return;
 const $=id=>document.getElementById(id),now=()=>Date.now(),today=()=>api.today(),month=()=>today().slice(0,7);
@@ -28,6 +27,7 @@ function initialize(){
  <button class="primary" type="submit">Schedule block</button></form><p id="block-error" class="command-note" aria-live="polite"></p>
  <div class="row" style="margin-top:14px"><h2 style="margin:0">Your schedule</h2><span class="muted small" id="block-count"></span></div><div id="block-list"></div>
  <p class="muted small">These blocks stay in CEO OS; Google Calendar remains read-only. Overlapping blocks are flagged.</p>`);
+ planner.insertBefore(blocks,planner.firstElementChild);
  $('block-date').value=today();
  $('time-block-form').addEventListener('submit',e=>{e.preventDefault();try{
   const start=$('block-start').value,end=$('block-end').value,date=$('block-date').value;
@@ -35,15 +35,16 @@ function initialize(){
   add('time_blocks',{text:$('block-text').value.trim(),date,start,end,focus:$('block-focus').value});
   $('block-text').value='';$('block-error').textContent='';
  }catch(err){showError('block-error',err);}});
- card(business,`<div class="eyebrow">Business command center</div><h2>Sales execution and revenue goals</h2>
+ const businessCard=card(business,`<div class="eyebrow">Business command center</div><h2>Sales execution and revenue goals</h2>
  <div class="command-grid"><div><div class="muted small">Open opportunities</div><div class="command-stat" id="biz-open">0</div></div>
  <div><div class="muted small">Open quoted value · manually entered</div><div class="command-stat" id="biz-value">$0</div></div>
  <div><div class="muted small">Estimate close rate · tracked leads</div><div class="command-stat" id="biz-close">—</div></div>
  <div><div class="muted small">Next follow-ups due</div><div class="command-stat" id="biz-followups">0</div></div></div>
  <div id="biz-goal-progress" style="margin-top:14px"></div><p class="muted small">Your existing weekly KPI feed above remains read-only. Sales figures below come from your manually tracked opportunities, not Housecall Pro.</p>
  <button class="secondary" type="button" data-command-page="sales">Open sales pipeline</button>`);
- card(finance,`<div class="eyebrow">Financial freedom tracker</div><h2>Monthly bills and spending limits</h2>
- <p class="muted small">Uses manually entered bills and expenses only. Fictional Plaid Sandbox and locked live-bank figures are never included.</p>
+ business.insertBefore(businessCard,business.children[1]||null);
+ const financeCard=card(finance,`<div class="eyebrow">Financial freedom tracker</div><h2>Monthly bills and spending limits</h2>
+ <p class="muted small">Uses manually entered bills and expenses for the current calendar month only. Sandbox and live-bank figures are never included.</p>
  <div class="command-grid"><div><div class="muted small">Planned monthly bills</div><div class="command-stat" id="freedom-bills-total">$0</div></div>
  <div><div class="muted small">Bills marked paid this month</div><div class="command-stat" id="freedom-bills-paid">0 / 0</div></div>
  <div><div class="muted small">Monthly budget tracked</div><div class="command-stat" id="freedom-budget">$0</div></div>
@@ -58,6 +59,7 @@ function initialize(){
  <label class="field-label" for="budget-limit">Monthly limit ($)</label><input id="budget-limit" type="number" min="0" step=".01" required>
  <button class="primary">Save limit</button></form><h2 style="margin-top:16px">Budgets vs manual spending</h2><div id="budget-list"></div></div></div>
  <p id="freedom-error" class="command-note" aria-live="polite"></p>`);
+ finance.insertBefore(financeCard,finance.children[1]||null);
  $('bill-form').addEventListener('submit',e=>{e.preventDefault();try{
   add('bills',{text:$('bill-name').value.trim(),amount:fnum('bill-amount'),due_day:Number($('bill-day').value),paid_months:[]});
   $('bill-name').value='';$('freedom-error').textContent='';
@@ -68,7 +70,7 @@ function initialize(){
   else add('budgets',{text:cat+' spending limit',category:cat,limit});
   $('freedom-error').textContent='';
  }catch(err){showError('freedom-error',err);}});
- card(fitness,`<div class="eyebrow">Discipline & fitness</div><h2>Consistency scorecard</h2>
+ const fitnessCard=card(fitness,`<div class="eyebrow">Discipline & fitness</div><h2>Consistency scorecard</h2>
  <div class="command-grid"><div><div class="muted small">Workout days · last 7</div><div class="command-stat" id="discipline-days">0 / 7</div></div>
  <div><div class="muted small">Consecutive workout days</div><div class="command-stat" id="discipline-streak">0</div></div>
  <div><div class="muted small">Scheduled routine completions · last 7</div><div class="command-stat" id="discipline-routines">0 / 0</div></div>
@@ -76,6 +78,7 @@ function initialize(){
  <div id="discipline-days-list" class="quick-links"></div>
  <p class="muted small">Calculated from workouts and habits you log. It does not read activity trackers or verify workouts automatically.</p>
  <button class="secondary" type="button" data-command-page="goals">Set fitness goals</button>`);
+ fitness.insertBefore(fitnessCard,fitness.firstElementChild);
  const goals=el('section');goals.id='goals';goals.className='panel';goals.innerHTML=`
  <div class="command-grid"><div class="command-card"><div class="eyebrow">Goals & accountability</div><h2>Add a measurable goal</h2>
  <form id="goal-form" class="command-form"><label class="field-label" for="goal-name">What do you want to achieve?</label>
