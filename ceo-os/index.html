@@ -78,6 +78,12 @@ select{background:#0b1423;border:1px solid #34415a;border-radius:11px;color:var(
 
 /* Six sections need horizontal room in the iPhone navigation bar. */
 #finance .card{min-width:0;overflow-wrap:anywhere}
+#plaid-sandbox-card{min-width:0}
+#plaid-sandbox-card .finance-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
+#plaid-sandbox-card .entry{align-items:flex-start}
+#plaid-sandbox-card .entry>div{min-width:0;overflow-wrap:anywhere}
+#plaid-sandbox-card button:disabled{opacity:.5}
+
 #finance .finance-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:14px 0}
 #finance .finance-metrics>div{min-width:0}
 #finance .finance-metrics .metric{font-size:clamp(18px,3vw,27px)}
@@ -140,6 +146,14 @@ select{background:#0b1423;border:1px solid #34415a;border-radius:11px;color:var(
 </div></section>
 <section id="finance" class="panel">
 <div class="notice">Manual tracking only. This prototype is not yet security-audited; don't enter bank account numbers, credentials, or highly sensitive financial information.</div>
+<div class="card" id="plaid-sandbox-card" style="margin-bottom:14px">
+<div class="row" style="flex-wrap:wrap"><div><div class="eyebrow">Plaid Sandbox · test data only</div><h2 style="margin:4px 0 0">Automatic test-bank connection</h2></div><span class="pill" id="plaid-sandbox-badge">Not configured</span></div>
+<p class="muted small">Connect fictional test accounts to preview automatic balances and transaction imports. Your real bank accounts are not accessible through this test integration.</p>
+<div class="quick-links"><button class="primary" type="button" id="plaid-test-connect" disabled>Connect test bank</button><button class="secondary" type="button" id="plaid-test-refresh" disabled>Refresh sample data</button><button class="secondary" type="button" id="plaid-test-disconnect" disabled>Disconnect test accounts</button></div>
+<p class="muted small" id="plaid-sandbox-status" aria-live="polite">Checking test connection…</p>
+<div class="finance-metrics" id="plaid-demo-stats" style="display:none"><div><div class="muted small">Sample accounts</div><div class="metric" id="plaid-account-count">0</div></div><div><div class="muted small">Sample transactions</div><div class="metric" id="plaid-tx-count">0</div></div></div>
+<div id="plaid-demo-accounts"></div><div id="plaid-demo-transactions"></div>
+<p class="muted small">Sandbox information is separate from your manual finance totals and never represents live bank data.</p></div>
 <div class="grid" id="finance-grid">
 <div class="card full"><div class="eyebrow">Personal financial overview</div><h2>Monthly cash flow</h2>
 <label class="field-label" for="finance-month">Month</label><input id="finance-month" type="month" style="max-width:230px">
@@ -338,6 +352,86 @@ renderBrandPipeline();renderBrandCalendar();
 }
 
 
+
+let plaidSandboxReady=false,plaidLinkScript=null;
+const plaidFormat=n=>typeof n==='number'&&Number.isFinite(n)?new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(n):'Unavailable';
+function plaidStatus(text){$('plaid-sandbox-status').textContent=text;}
+async function plaidRequest(url,body){const response=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})});let result={};try{result=await response.json()}catch(e){}if(!response.ok)throw Error(result.error||'Test-bank request failed');return result;}
+async function loadPlaidScript(){
+  if(window.Plaid)return;
+  if(plaidLinkScript)return plaidLinkScript;
+  plaidLinkScript=new Promise((resolve,reject)=>{
+    const script=document.createElement('script');script.src='https://cdn.plaid.com/link/v2/stable/link-initialize.js';
+    script.onload=()=>window.Plaid?resolve():reject(new Error('Plaid Link is unavailable'));
+    script.onerror=()=>reject(new Error('Plaid Link could not load'));
+    document.head.append(script);
+  });
+  return plaidLinkScript;
+}
+async function plaidOverview(){
+  if(!plaidSandboxReady)return;
+  plaidStatus('Refreshing fictional test accounts…');
+  try{
+    const response=await fetch('/api/plaid/overview',{cache:'no-store'});
+    const result=await response.json();
+    if(!response.ok)throw Error(result.error||'Unable to load sandbox');
+    $('plaid-test-disconnect').disabled=result.status!=='connected';
+    const accounts=result.accounts||[],transactions=result.transactions||[];
+    $('plaid-demo-stats').style.display=result.status==='connected'?'grid':'none';
+    $('plaid-account-count').textContent=String(accounts.length);
+    $('plaid-tx-count').textContent=String(transactions.length);
+    const accountContainer=$('plaid-demo-accounts'),txContainer=$('plaid-demo-transactions');
+    accountContainer.replaceChildren();txContainer.replaceChildren();
+    if(result.status==='not_linked'){plaidStatus('Sandbox ready. Tap Connect test bank to try fictional data.');return;}
+    plaidStatus('Sample data refreshed. These are fictional bank accounts, not live balances.');
+    const heading=document.createElement('h3');heading.textContent='Fictional account balances';accountContainer.append(heading);
+    for(const account of accounts){const row=document.createElement('div');row.className='entry';
+      const left=document.createElement('div');const title=document.createElement('strong');title.textContent=account.name;
+      const meta=document.createElement('div');meta.className='muted small';meta.textContent=(account.subtype||account.type||'Account')+' · Sandbox';
+      left.append(title,meta);const number=document.createElement('strong');number.textContent=plaidFormat(account.current);row.append(left,number);accountContainer.append(row);}
+    const label=document.createElement('h3');label.textContent='Recent fictional transactions';txContainer.append(label);
+    if(!transactions.length){const p=document.createElement('p');p.className='muted small';p.textContent='Test transactions are not ready yet. Refresh again shortly.';txContainer.append(p);}
+    for(const transaction of transactions.slice(0,12)){const row=document.createElement('div');row.className='entry';
+      const left=document.createElement('div');const title=document.createElement('strong');title.textContent=transaction.name;
+      const meta=document.createElement('div');meta.className='muted small';meta.textContent=(transaction.date||'')+' · '+(transaction.pending?'Pending · ':'')+(transaction.category||'Other');left.append(title,meta);
+      const amount=document.createElement('strong');amount.textContent=plaidFormat(transaction.amount);
+      row.append(left,amount);txContainer.append(row);}
+  }catch(e){plaidStatus(e.message||'Sandbox temporarily unavailable');}
+}
+async function initPlaidSandbox(){
+  try{
+    const response=await fetch('/api/plaid/status',{cache:'no-store'});const result=await response.json();
+    plaidSandboxReady=response.ok&&result.status==='ready';
+    $('plaid-sandbox-badge').textContent=plaidSandboxReady?'Sandbox ready':'Setup needed';
+    $('plaid-test-connect').disabled=!plaidSandboxReady;
+    $('plaid-test-refresh').disabled=!plaidSandboxReady;
+    if(plaidSandboxReady)await plaidOverview();
+    else plaidStatus('To activate the test connection, add Plaid Sandbox variables in Railway. Live banks remain disabled.');
+  }catch(e){plaidStatus('Sandbox setup status unavailable.');}
+}
+$('plaid-test-connect').addEventListener('click',async()=>{
+  const button=$('plaid-test-connect');button.disabled=true;plaidStatus('Opening Plaid Sandbox test connection…');
+  try{
+    await loadPlaidScript();
+    const data=await plaidRequest('/api/plaid/link-token');
+    const link=window.Plaid.create({
+      token:data.link_token,
+      onSuccess:async(publicToken)=>{
+        try{await plaidRequest('/api/plaid/exchange',{public_token:publicToken});await plaidOverview();}
+        catch(e){plaidStatus(e.message||'Sandbox account could not be saved');}
+      },
+      onExit:(error)=>{if(error)plaidStatus('Test-bank connection closed: '+(error.display_message||'Try again'));},
+    });
+    link.open();
+  }catch(e){plaidStatus(e.message||'Plaid Sandbox unavailable');}
+  finally{button.disabled=false;}
+});
+$('plaid-test-refresh').addEventListener('click',plaidOverview);
+$('plaid-test-disconnect').addEventListener('click',async()=>{
+  if(!confirm('Disconnect all fictional Plaid Sandbox accounts?'))return;
+  try{await plaidRequest('/api/plaid/disconnect');await plaidOverview();}catch(e){plaidStatus(e.message||'Disconnect failed');}
+});
+
 const incomeCategories=['Paycheck','Business owner draw','Other income'];
 const expenseCategories=['Housing','Utilities','Transportation','Food','Insurance','Debt payment','Shopping','Entertainment','Health','Savings transfer','Other'];
 const assetCategories=['Cash','Bank','Investments','Vehicle','Property','Other'];
@@ -508,6 +602,6 @@ for(const t of tasks)checkRow(t,list,!!t.done,v=>{t.done=v;save();render();},t.p
 showCalendarEvents(selectedDay,$('calendar-selected-events'));
 }
 
-window.addEventListener('hashchange',()=>navigate(location.hash.slice(1)));render();navigate(location.hash.slice(1)||'home');initCloud();loadBusiness();loadGoogleCalendar();
+window.addEventListener('hashchange',()=>navigate(location.hash.slice(1)));render();navigate(location.hash.slice(1)||'home');initCloud();loadBusiness();loadGoogleCalendar();initPlaidSandbox();
 })();
 </script></body></html>
