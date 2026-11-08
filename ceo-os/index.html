@@ -745,7 +745,7 @@ async function loadGoogleCalendar(){const label=$('google-calendar-status');labe
 calendarConnection=payload.status;googleEvents=Array.isArray(payload.events)?payload.events:[];
 label.textContent=calendarConnection==='connected'?'Connected · read-only · '+googleEvents.length+' upcoming/recent appointments':'Not connected — add GOOGLE_CALENDAR_ICAL_URL in Railway Variables';
 }catch(error){calendarConnection='unavailable';googleEvents=[];label.textContent='Calendar unavailable — verify the Railway secret feed variable.';}
-showCalendarEvents(today(),$('google-calendar-today'));renderCalendar();renderHomePreview();}
+showCalendarEvents(today(),$('google-calendar-today'));renderCalendar();renderHomePreview();window.ceoOSMorning?.render?.();}
 $('google-calendar-refresh').addEventListener('click',loadGoogleCalendar);
 
 $('task-due').value=today();
