@@ -156,6 +156,16 @@ select{background:#0b1423;border:1px solid #34415a;border-radius:11px;color:var(
 
 
 
+/* Deliberate five-destination iPhone navigation; all other tabs remain in More. */
+.mobile-more-menu[hidden]{display:none!important}
+@media(max-width:750px){
+ .mobile-nav{display:grid!important;grid-template-columns:repeat(5,minmax(0,1fr))!important;overflow:visible!important;gap:3px!important;justify-content:initial!important}
+ .mobile-nav .tab{min-width:0!important;flex:auto!important;font-size:10px!important;min-height:46px}
+ .mobile-more-menu{display:grid;position:fixed;z-index:24;bottom:calc(75px + env(safe-area-inset-bottom));right:10px;left:10px;background:#172236;border:1px solid var(--line);border-radius:16px;padding:10px;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;box-shadow:0 12px 35px #0008}
+ .mobile-more-menu .tab{text-align:left;background:#111927;color:var(--fg);min-height:49px}
+ .mobile-more-menu .tab span{display:inline-block;margin:0 9px 0 0}
+ #home .command-card .command-item button{min-height:42px}
+}
 </style></head>
 <body><div class="app"><aside><div class="brand">CEO <b>OS</b></div><nav class="nav" id="desktop-nav"></nav></aside><main>
 <div class="row"><div class="eyebrow">Personal command center</div><span class="pill">Prototype</span></div>
@@ -254,7 +264,7 @@ select{background:#0b1423;border:1px solid #34415a;border-radius:11px;color:var(
 <div class="card"><h2>Monthly transactions</h2><div id="finance-entries" aria-live="polite"></div></div>
 <div class="card"><h2>Assets and debts</h2><div id="finance-balances" aria-live="polite"></div></div>
 </div></section>
-</main><nav class="mobile-nav" id="mobile-nav"></nav></div>
+</main><nav class="mobile-nav" id="mobile-nav" aria-label="Main navigation"></nav><div id="mobile-more-menu" class="mobile-more-menu" hidden></div></div>
 <script>
 (()=>{'use strict';
 const pages=[['home','⌂','Home','Your command center.','One place for daily execution and long-term progress.'],['business','▥','Business','Business performance.','Curb Appeal KPIs and operating decisions.'],['planner','✓','Today','Win the day.','Identify and finish your highest-impact priorities.'],['fitness','◉','Fitness','Build the athlete.','Keep training consistent and measurable.'],['brand','✦','Brand','Build your personal brand.','Capture the stories worth sharing.'],['finance','$','Finance','Personal finances.','Track cash flow and net worth.'],['goals','◎','Goals','Measure progress.','Clear targets and visible progress.'],['sales','◆','Sales','Grow the pipeline.','Estimates, follow-ups and opportunities.']];
@@ -293,8 +303,20 @@ state=Object.fromEntries(Object.keys(state).map(k=>[k,Array.isArray(server[k])?s
 cloudReady=true;localSave();render();syncStatus('Cloud synced');
 }catch(e){cloudReady=false;syncStatus('Cloud not connected — entries saved on this device only');}}
 
-function navigate(page){const meta=pages.find(p=>p[0]===page)||pages[0];document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('active',p.id===page));document.querySelectorAll('.tab').forEach(t=>{t.classList.toggle('active',t.dataset.page===page);t.setAttribute('aria-current',t.dataset.page===page?'page':'false');});$('page-title').textContent=meta[3];$('page-sub').textContent=meta[4];location.hash=page;window.scrollTo(0,0);}
-for(const id of ['desktop-nav','mobile-nav']){for(const p of pages){const b=document.createElement('button');b.type='button';b.className='tab';b.dataset.page=p[0];const ico=document.createElement('span');ico.textContent=p[1];b.append(ico,document.createTextNode(p[2]));b.addEventListener('click',()=>navigate(p[0]));$(id).append(b);}}
+function navigate(page){const meta=pages.find(p=>p[0]===page)||pages[0];document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('active',p.id===page));document.querySelectorAll('.tab').forEach(t=>{t.classList.toggle('active',t.dataset.page===page);t.setAttribute('aria-current',t.dataset.page===page?'page':'false');});$('page-title').textContent=meta[3];$('page-sub').textContent=meta[4];if(typeof closeMore==='function')closeMore();const secondary=!MOBILE_PRIMARY.includes(meta[0]);if($('mobile-more-toggle'))$('mobile-more-toggle').classList.toggle('active',secondary);location.hash=meta[0];window.scrollTo(0,0);}
+const MOBILE_PRIMARY=['home','planner','business','sales'];
+function makeTab(page){const b=document.createElement('button');b.type='button';b.className='tab';b.dataset.page=page[0];const ico=document.createElement('span');ico.textContent=page[1];b.append(ico,document.createTextNode(page[2]));b.addEventListener('click',()=>navigate(page[0]));return b;}
+for(const p of pages)$('desktop-nav').append(makeTab(p));
+for(const name of MOBILE_PRIMARY){const p=pages.find(x=>x[0]===name);$('mobile-nav').append(makeTab(p));}
+const moreButton=document.createElement('button');moreButton.type='button';moreButton.className='tab';moreButton.id='mobile-more-toggle';moreButton.setAttribute('aria-controls','mobile-more-menu');moreButton.setAttribute('aria-expanded','false');moreButton.append(Object.assign(document.createElement('span'),{textContent:'•••'}),document.createTextNode('More'));
+$('mobile-nav').append(moreButton);
+const moreMenu=$('mobile-more-menu');
+for(const p of pages.filter(x=>!MOBILE_PRIMARY.includes(x[0]))){const button=makeTab(p);moreMenu.append(button);}
+function closeMore(){moreMenu.hidden=true;moreButton.setAttribute('aria-expanded','false');}
+moreButton.addEventListener('click',()=>{const open=moreMenu.hidden;moreMenu.hidden=!open;moreButton.setAttribute('aria-expanded',String(open));});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeMore();});
+document.addEventListener('click',e=>{if(!moreButton.contains(e.target)&&!moreMenu.contains(e.target))closeMore();});
+
 document.querySelectorAll('[data-page]:not(.tab)').forEach(b=>b.addEventListener('click',()=>navigate(b.dataset.page)));
 function renderList(type,target){const container=$(target);container.replaceChildren();if(!state[type].length){const e=document.createElement('div');e.className='empty';e.textContent='Nothing added yet.';container.append(e);return;}state[type].forEach(item=>{const row=document.createElement('div');row.className='entry';const left=document.createElement('div');left.style.minWidth='0';if(type==='tasks'){const cb=document.createElement('input');cb.type='checkbox';cb.className='check';cb.checked=!!item.done;cb.setAttribute('aria-label','Mark task complete');cb.addEventListener('change',()=>{item.done=cb.checked;save();render();});row.append(cb);}const name=document.createElement('strong');name.textContent=item.text;name.style.overflowWrap='anywhere';if(item.done)name.style.textDecoration='line-through';left.append(name);if(type==='tasks'){const details=document.createElement('div');details.className='muted small';details.textContent=(item.priority==='top'?'★ Top priority · ':'')+(item.due?'Due '+item.due:'No deadline');left.append(details);}if(type==='workouts'){const details=document.createElement('div');details.className='muted small';details.textContent=(item.category||'Workout')+(item.duration?' · '+item.duration+' min':'');left.append(details);}const date=document.createElement('div');date.className='muted small';date.textContent=new Date(item.when).toLocaleDateString();left.append(date);row.append(left);const remove=document.createElement('button');remove.className='remove';remove.textContent='Remove';remove.setAttribute('aria-label','Remove entry');remove.addEventListener('click',()=>{state[type]=state[type].filter(x=>x.id!==item.id);save();render();});row.append(remove);container.append(row);});}
 function render(){renderList('tasks','task-list');renderList('workouts','workout-list');renderPlanner();renderHomePreview();renderFitness();renderBrand();renderFinance();window.ceoOSFeatures?.render?.();window.ceoOSMorning?.render?.();const weekAgo=Date.now()-7*86400000;$('home-workouts').textContent=state.workouts.filter(w=>w.when>=weekAgo).length;$('home-posts').textContent=state.posts.length;}
