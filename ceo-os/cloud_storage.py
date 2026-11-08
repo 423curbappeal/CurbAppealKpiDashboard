@@ -5,7 +5,7 @@ from contextlib import closing
 import psycopg
 
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
-KINDS = ("tasks", "workouts", "posts", "routines", "weigh_ins", "lifts", "fitness_goals")
+KINDS = ("tasks", "workouts", "posts", "routines", "weigh_ins", "lifts", "fitness_goals", "money_entries", "balance_items")
 
 def validate(body):
     if not isinstance(body, dict) or not set(("tasks", "workouts", "posts")).issubset(body) or set(body) - set(KINDS):
@@ -29,6 +29,34 @@ def validate(body):
                 raise ValueError("Invalid entry date")
             seen.add(item_id)
             clean_item={"id":item_id, "text":label.strip(), "when":when, "done":bool(item.get("done", False)) if kind == "tasks" else False}
+            if kind in ("money_entries","balance_items"):
+                from datetime import date
+                day=item.get("date")
+                amount=item.get("amount")
+                category=item.get("category","Other")
+                if not isinstance(day,str) or len(day)!=10:
+                    raise ValueError("Invalid financial entry date")
+                try:
+                    date.fromisoformat(day)
+                except ValueError:
+                    raise ValueError("Invalid financial entry date")
+                if type(amount) not in (int,float) or not 0<=amount<=1000000000:
+                    raise ValueError("Invalid financial entry amount")
+                if kind=="money_entries":
+                    direction=item.get("direction")
+                    if direction not in ("Income","Expense"):
+                        raise ValueError("Invalid income or expense type")
+                    if category not in ("Paycheck","Business owner draw","Other income","Housing","Utilities","Transportation","Food","Insurance","Debt payment","Shopping","Entertainment","Health","Savings transfer","Other"):
+                        raise ValueError("Invalid transaction category")
+                    clean_item.update({"direction":direction,"category":category})
+                else:
+                    direction=item.get("direction")
+                    if direction not in ("Asset","Debt"):
+                        raise ValueError("Invalid asset or liability type")
+                    if category not in ("Cash","Bank","Investments","Vehicle","Property","Credit card","Vehicle loan","Equipment loan","Personal loan","Mortgage","Other"):
+                        raise ValueError("Invalid balance category")
+                    clean_item.update({"direction":direction,"category":category})
+                clean_item.update({"date":day,"amount":round(amount,2)})
             if kind == "posts":
                 from datetime import date
                 platform=item.get("platform","Other")
