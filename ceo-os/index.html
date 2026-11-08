@@ -82,7 +82,15 @@ select{background:#0b1423;border:1px solid #34415a;border-radius:11px;color:var(
 #plaid-sandbox-card .finance-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
 #plaid-sandbox-card .entry{align-items:flex-start}
 #plaid-sandbox-card .entry>div{min-width:0;overflow-wrap:anywhere}
-#plaid-insights[hidden],#plaid-cashflow-panel[hidden]{display:none!important}
+#plaid-review-section[hidden],#plaid-insights[hidden],#plaid-cashflow-panel[hidden]{display:none!important}
+#plaid-review-section{margin-top:20px;border-top:1px solid var(--line);padding-top:10px}
+.plaid-review-row{padding:12px 0;border-bottom:1px solid var(--line);display:grid;gap:9px;min-width:0}
+.plaid-review-editor{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.plaid-review-editor select{min-width:130px;max-width:240px;flex:1 1 170px}
+.plaid-review-editor label{display:flex;align-items:center;white-space:normal;gap:4px}
+.plaid-review-editor .plaid-remember{display:inline-block!important;width:auto!important;min-height:0}
+.plaid-review-editor button{padding:10px;flex:0 0 auto}
+
 #plaid-insights{margin-top:20px;padding-top:14px;border-top:1px solid var(--line)}
 #plaid-insights h4{margin:16px 0 8px;font-size:14px}
 .plaid-trend-row{display:grid;grid-template-columns:72px minmax(0,1fr);gap:8px;align-items:center;margin:8px 0}
@@ -179,6 +187,11 @@ select{background:#0b1423;border:1px solid #34415a;border-radius:11px;color:var(
 <h4>Cash-flow trend</h4><div id="plaid-trend" aria-label="Monthly sample cash flow"></div>
 <h4>Biggest spending categories</h4><div id="plaid-top-categories"></div>
 <h4>Possible recurring expenses</h4><div id="plaid-recurring"></div>
+</div>
+<div id="plaid-review-section" hidden>
+<h3>Review uncategorized test transactions</h3>
+<p class="muted small">Choose a category and save. Select “Remember this merchant” only when future transactions from that same merchant should use the rule.</p>
+<div id="plaid-review-transactions"></div>
 </div>
 <div id="plaid-demo-accounts"></div><div id="plaid-demo-transactions"></div>
 <p class="muted small">Sandbox information is separate from your manual finance totals and never represents live bank data.</p></div>
@@ -441,6 +454,34 @@ const name=document.createElement('strong');name.textContent=category;const val=
 row.append(name,val);c.append(row);}
 }
 const plaidFormat=n=>typeof n==='number'&&Number.isFinite(n)?new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(n):'Unavailable';
+async function plaidCorrect(transaction,category,remember){
+  if(category==='Income'&&transaction.amount>=0){plaidStatus('Income must be money received.');return;}
+  try{
+    await plaidRequest('/api/plaid/correct',{transaction_id:transaction.id,category,remember_merchant:remember});
+    await plaidOverview();
+    plaidStatus('Category saved. Sample totals and spending insights updated.');
+  }catch(err){plaidStatus(err.message||'Unable to save correction');}
+}
+function plaidCorrectionRow(container,transaction){
+const row=document.createElement('div');row.className='plaid-review-row';
+const info=document.createElement('div');
+const title=document.createElement('strong');title.textContent=transaction.name;
+const description=document.createElement('div');description.className='muted small';
+description.textContent=(transaction.date||'')+' · '+plaidFormat(transaction.amount)+' · '+(transaction.display_category||'Needs review');
+info.append(title,description);
+const editor=document.createElement('div');editor.className='plaid-review-editor';
+const select=document.createElement('select');select.setAttribute('aria-label','Category for '+transaction.name);
+const choices=transaction.amount<0?['Income','Transfer','Needs review']:['Food & drink','Transportation','Housing & utilities','Shopping','Home improvement','Personal care','Entertainment','Travel','Health','Government & giving','Services','Bank fees','Transfer','Needs review'];
+for(const name of choices){const option=document.createElement('option');option.textContent=name;select.append(option);}
+const current=transaction.classification==='income'?'Income':transaction.classification==='transfer'?'Transfer':transaction.classification==='review'?'Needs review':transaction.display_category;
+if(choices.includes(current))select.value=current;
+const rememberLabel=document.createElement('label');rememberLabel.className='muted small';
+const remember=document.createElement('input');remember.type='checkbox';remember.className='plaid-remember';
+rememberLabel.append(remember,document.createTextNode(' Remember this merchant'));
+const saveButton=document.createElement('button');saveButton.type='button';saveButton.className='secondary';saveButton.textContent='Save category';
+saveButton.addEventListener('click',async()=>{saveButton.disabled=true;try{await plaidCorrect(transaction,select.value,remember.checked);}finally{saveButton.disabled=false;}});
+editor.append(select,rememberLabel,saveButton);row.append(info,editor);container.append(row);
+}
 function plaidStatus(text){$('plaid-sandbox-status').textContent=text;}
 async function plaidRequest(url,body){const response=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})});let result={};try{result=await response.json()}catch(e){}if(!response.ok)throw Error(result.error||'Test-bank request failed');return result;}
 async function loadPlaidScript(){
@@ -463,6 +504,11 @@ async function plaidOverview(){
     if(!response.ok)throw Error(result.error||'Unable to load sandbox');
     $('plaid-test-disconnect').disabled=result.status!=='connected';
     const accounts=result.accounts||[],transactions=result.transactions||[];
+    const reviewSection=$('plaid-review-section'),reviewContainer=$('plaid-review-transactions');
+    reviewContainer.replaceChildren();
+    const needsReview=transactions.filter(t=>t.classification==='review'&&!t.pending).slice(0,10);
+    reviewSection.hidden=result.status!=='connected'||!needsReview.length;
+    for(const tx of needsReview)plaidCorrectionRow(reviewContainer,tx);
     plaidMonthly=result.monthly||{};
     plaidInsights=result.insights||{};
     const monthSelect=$('plaid-cashflow-month'),previous=plaidSelectedMonth;
