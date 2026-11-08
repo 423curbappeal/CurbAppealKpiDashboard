@@ -156,24 +156,64 @@ def login_verify(host,token,credential):
                         (checked.new_sign_count,ident))
         conn.commit()
     expiry=int(time.time())+LIFETIME
-    nonce=secrets.token_urlsafe(16)
-    payload=f"v1.{expiry}.{nonce}"
-    ticket=b64(payload.encode())+"."+digest(payload)
-    return ticket
+    nonce=secrets.token_urlsafe(32)
+    # Sessions are stored so signing out invalidates the session server-side.
+    with closing(_db()) as conn:
+        with conn.cursor() as cur:
+            cur.execute("""CREATE TABLE IF NOT EXISTS ceo_sessions
+                         (token_hash TEXT PRIMARY KEY, expires_at BIGINT NOT NULL)""")
+            cur.execute("DELETE FROM ceo_sessions WHERE expires_at < %s",(int(time.time()),))
+            cur.execute("INSERT INTO ceo_sessions(token_hash,expires_at) VALUES (%s,%s)",
+                        (hashlib.sha256(nonce.encode()).hexdigest(),expiry))
+        conn.commit()
+    payload=f"v2.{expiry}.{nonce}"
+    return b64(payload.encode())+"."+digest(payload)
+
+def _session_payload(headers):
+    raw=headers.get("Cookie","")
+    cookie=SimpleCookie()
+    cookie.load(raw)
+    ticket=cookie["ceo_session"].value
+    encoded,mac=ticket.rsplit(".",1)
+    payload=base64.urlsafe_b64decode(encoded+"="*(-len(encoded)%4)).decode()
+    pieces=payload.split(".")
+    if (len(pieces)!=3 or pieces[0]!="v2" or
+        not hmac.compare_digest(mac,digest(payload)) or
+        int(pieces[1])<=int(time.time()) or
+        int(pieces[1])>int(time.time())+LIFETIME or
+        len(pieces[2])<30):
+        return None
+    return int(pieces[1]),hashlib.sha256(pieces[2].encode()).hexdigest()
 
 def session_valid(headers):
     if not ENABLED: return False
     try:
-        raw=headers.get("Cookie","")
-        cookie=SimpleCookie()
-        cookie.load(raw)
-        ticket=cookie["ceo_session"].value
-        encoded,mac=ticket.rsplit(".",1)
-        payload=base64.urlsafe_b64decode(encoded+"="*(-len(encoded)%4)).decode()
-        bits=payload.split(".")
-        return (len(bits)==3 and bits[0]=="v1" and int(time.time())<int(bits[1])<=int(time.time())+LIFETIME and hmac.compare_digest(mac,digest(payload)))
-    except (KeyError,ValueError,TypeError,UnicodeDecodeError):
+        record=_session_payload(headers)
+        if not record:return False
+        expiry,token_hash=record
+        with closing(_db()) as conn:
+            with conn.cursor() as cur:
+                cur.execute("""CREATE TABLE IF NOT EXISTS ceo_sessions
+                             (token_hash TEXT PRIMARY KEY, expires_at BIGINT NOT NULL)""")
+                cur.execute("SELECT expires_at FROM ceo_sessions WHERE token_hash=%s",(token_hash,))
+                row=cur.fetchone()
+            conn.commit()
+        return bool(row and row[0]==expiry)
+    except Exception:
         return False
+
+def revoke_session(headers):
+    if not ENABLED:return
+    try:
+        record=_session_payload(headers)
+        if record:
+            with closing(_db()) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("DELETE FROM ceo_sessions WHERE token_hash=%s",(record[1],))
+                conn.commit()
+    except Exception:
+        # Failing a logout must not report success.
+        raise
 
 def cookie_header(ticket):
     return f"ceo_session={ticket}; Path=/; Max-Age={LIFETIME}; Secure; HttpOnly; SameSite=Strict"
