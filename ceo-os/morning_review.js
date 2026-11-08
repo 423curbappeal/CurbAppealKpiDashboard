@@ -20,7 +20,7 @@ function upcomingBills(bills,day){
      const period=when.slice(0,7);
      if((bill.paid_months||[]).includes(period))continue;
      if(when<=plusDays(day,7) && (offset===0 || when>=day)){
-       results.push({bill,when,overdue:when<day});break;
+       results.push({bill,when,overdue:when<day});
      }
    }
  }
