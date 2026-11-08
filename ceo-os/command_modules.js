@@ -7,15 +7,17 @@ const dateCheck=d=>d?new Date(d+'T12:00:00').toLocaleDateString(undefined,{month
 const opt=(values)=>values.map(x=>'<option>'+x+'</option>').join('');
 const state=()=>api.getState();
 const uid=()=>String(Date.now())+'-'+Math.random().toString(36).slice(2);
-const add=(key,entry)=>{const a=state()[key];if(a.length>=250)throw Error('250-entry limit reached');a.unshift({id:uid(),when:now(),text:entry.text,done:false,...entry});api.save();api.render();};
-const remove=(key,id)=>{state()[key]=state()[key].filter(x=>x.id!==id);api.save();api.render();};
+const privateKinds=new Set(['leads','bills','budgets','goals']);
+const requireCloud=()=>{if(!api.cloudReady())throw Error('Cloud disconnected. Reconnect before changing private records.');};
+const add=(key,entry)=>{if(privateKinds.has(key))requireCloud();const a=state()[key];if(a.length>=250)throw Error('250-entry limit reached');a.unshift({id:uid(),when:now(),text:entry.text,done:false,...entry});api.save();api.render();};
+const remove=(key,id)=>{if(privateKinds.has(key)){try{requireCloud()}catch(err){alert(err.message);return;}}state()[key]=state()[key].filter(x=>x.id!==id);api.save();api.render();};
 const el=(tag,text,className)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=String(text);if(className)n.className=className;return n;};
 const empty=(target,text)=>target.append(el('p',text,'muted small'));
 const action=(label,onClick,style='secondary')=>{const btn=el('button',label,style);btn.type='button';btn.addEventListener('click',onClick);return btn;};
 const itemRow=(target,title,detail,actions=[])=>{const row=el('div',undefined,'command-item'),left=el('div');left.append(el('strong',title),el('div',detail,'command-muted'));const right=el('div',undefined,'command-actions');for(const a of actions)right.append(a);row.append(left,right);target.append(row);};
 const pct=(a,b)=>b>0?Math.min(100,Math.max(0,Math.round(a/b*100))):0;
 const progress=(target,value)=>{const track=el('div',undefined,'command-progress'),fill=el('div');fill.style.width=Math.min(100,value)+'%';track.append(fill);target.append(track);};
-const fnum=(field)=>{const n=Number($(field).value);if(!Number.isFinite(n)||n<0||n>1e9)throw Error('Enter a valid amount');return Math.round(n*100)/100;};
+const fnum=(field)=>{if($(field).value.trim()==='')throw Error('Enter an amount');const n=Number($(field).value);if(!Number.isFinite(n)||n<0||n>1e9)throw Error('Enter a valid amount');return Math.round(n*100)/100;};
 const showError=(target,err)=>{$(target).textContent=err?.message||'Unable to save. Check your entries.';};
 function card(container,html){const node=el('div');node.className='command-card';node.innerHTML=html;container.append(node);return node;}
 function initialize(){
@@ -66,7 +68,7 @@ function initialize(){
  }catch(err){showError('freedom-error',err);}});
  $('budget-form').addEventListener('submit',e=>{e.preventDefault();try{
   const cat=$('budget-category').value,limit=fnum('budget-limit'),existing=state().budgets.find(b=>b.category===cat);
-  if(existing){existing.limit=limit;api.save();api.render();}
+  if(existing){requireCloud();existing.limit=limit;api.save();api.render();}
   else add('budgets',{text:cat+' spending limit',category:cat,limit});
   $('freedom-error').textContent='';
  }catch(err){showError('freedom-error',err);}});
@@ -144,7 +146,7 @@ function renderGoals(){
   body.append(el('strong',g.text),el('div',g.area+' · '+number(g.current)+' of '+number(g.target)+(g.deadline?' · Due '+dateCheck(g.deadline):''),'command-muted'));
   progress(body,pct(g.current,g.target));
   const controls=el('div',undefined,'command-actions');
-  controls.append(action('Update',()=>{const val=window.prompt('Current progress for '+g.text+' ('+g.unit+')',String(g.current));
+  controls.append(action('Update',()=>{try{requireCloud()}catch(err){alert(err.message);return;}const val=window.prompt('Current progress for '+g.text+' ('+g.unit+')',String(g.current));
     if(val===null)return;const n=Number(val);if(!Number.isFinite(n)||n<0||n>1e9||(g.unit==='Percent'&&n>100))return window.alert('Enter a valid number.');
     g.current=Math.round(n*100)/100;api.save();api.render();}),action('Remove',()=>{if(confirm('Remove this goal?'))remove('goals',g.id);}));
   row.append(body,controls);target.append(row);
@@ -156,7 +158,7 @@ function renderGoals(){
  else progressContainer.append(el('span','No business revenue goal entered yet. Create one in Goals.','muted small'));
 }
 
-function editLead(l){const date=prompt('New follow-up date (YYYY-MM-DD, or blank)',l.follow_up||'');
+function editLead(l){try{requireCloud()}catch(err){alert(err.message);return;}const date=prompt('New follow-up date (YYYY-MM-DD, or blank)',l.follow_up||'');
    if(date===null)return;
    if(date&&!/^\d{4}-\d{2}-\d{2}$/.test(date))return alert('Enter YYYY-MM-DD');
    if(date&&Number.isNaN(new Date(date+'T12:00:00').getTime()))return alert('Enter a valid date');
@@ -185,7 +187,7 @@ function renderSales(){
  if(!view.length)empty(list,'No opportunities in this stage.');
  for(const l of view){
   const actions=[];
-  if(!['Won','Lost'].includes(l.stage))actions.push(action('Next stage',()=>{
+  if(!['Won','Lost'].includes(l.stage))actions.push(action('Next stage',()=>{try{requireCloud()}catch(err){alert(err.message);return;}
    const stages=['New','Contacted','Quoted','Won'];const i=stages.indexOf(l.stage);l.stage=stages[Math.min(stages.length-1,i+1)];api.save();api.render();
   }));
   actions.push(action('Edit',()=>editLead(l)));
@@ -205,7 +207,7 @@ function renderFinanceFreedom(){
  for(const b of bills.slice().sort((a,z)=>a.due_day-z.due_day)){
   const isPaid=(b.paid_months||[]).includes(period);
   itemRow(billList,b.text+' · '+money(b.amount),'Monthly due day '+b.due_day+' · '+(isPaid?'Paid this month':'Not marked paid'),
-  [action(isPaid?'Undo paid':'Mark paid',()=>{const months=new Set(b.paid_months||[]);
+  [action(isPaid?'Undo paid':'Mark paid',()=>{try{requireCloud()}catch(err){alert(err.message);return;}const months=new Set(b.paid_months||[]);
    if(isPaid)months.delete(period);else months.add(period);
    b.paid_months=Array.from(months).sort().slice(-24);api.save();api.render();
   }),action('Remove',()=>remove('bills',b.id))]);}
