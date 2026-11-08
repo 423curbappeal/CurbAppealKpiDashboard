@@ -124,7 +124,7 @@ const librarySummary=document.createElement('summary');librarySummary.textConten
 library.append(librarySummary);
 home.append(library);
 const legacyGrid=home.querySelector(':scope > .grid');
-if(legacyGrid){let current=legacyGrid;while(current){const next=current.nextSibling;library.append(current);current=next;}}
+if(legacyGrid){let current=legacyGrid;while(current&&current!==library){const next=current.nextSibling;library.append(current);current=next;}}
 
 const focusDate=()=>today();
 const reviewWeek=()=>weekStart();
