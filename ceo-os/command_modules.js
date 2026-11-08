@@ -176,7 +176,7 @@ function renderSales(){
   }));
   actions.push(action('Edit',()=>{const date=prompt('New follow-up date (YYYY-MM-DD, or blank)',l.follow_up||'');
    if(date===null)return;
-   if(date&&!/^\\d{4}-\\d{2}-\\d{2}$/.test(date))return alert('Enter YYYY-MM-DD');
+   if(date&&!/^\d{4}-\d{2}-\d{2}$/.test(date))return alert('Enter YYYY-MM-DD');
    if(date&&Number.isNaN(new Date(date+'T12:00:00').getTime()))return alert('Enter a valid date');
    const stage=prompt('Stage: New, Contacted, Quoted, Won, Lost',l.stage);
    if(stage===null)return;
