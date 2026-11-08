@@ -6,6 +6,8 @@ negative amounts are credits. All totals exclude pending items.
 """
 from collections import defaultdict
 from datetime import date
+from statistics import median
+import re
 import math
 
 TRANSFER_PRIMARY = {"TRANSFER_IN","TRANSFER_OUT","LOAN_PAYMENTS"}
@@ -104,3 +106,69 @@ def summarize(transactions):
                                    key=lambda x:-x[1]))
         }
     return enriched,report
+
+
+def insights(enriched, monthly):
+    """Conservative insights from already classified *posted* sample entries.
+
+    A recurring item is a historical pattern, never a guaranteed subscription,
+    next charge date, or an upcoming bill. Partial history limits conclusions.
+    """
+    trend=[
+        {"month":month,"income":data["income"],"expenses":data["expenses"],
+         "net":data["net"],"review_count":data["review_count"]}
+        for month,data in sorted(monthly.items())[-6:]
+    ]
+    by_month={}
+    for month,data in monthly.items():
+        if not isinstance(data,dict):
+            continue
+        by_month[month]=[
+            {"category":name,"amount":round(value,2),
+             "share_percent":round(value/data["expenses"]*100,1) if data["expenses"]>0 else 0}
+            for name,value in sorted(data.get("categories",{}).items(),key=lambda p:-p[1])[:5]
+        ]
+    groups=defaultdict(list)
+    for tx in enriched:
+        if tx.get("classification")!="expense":continue
+        amount=tx.get("amount")
+        if type(amount) not in (int,float) or not math.isfinite(amount) or amount<=0:continue
+        name=str(tx.get("name") or "").strip()
+        # Normalize bank-generated IDs/dates without merging unrelated merchants.
+        canonical=re.sub(r"\\s+"," ",re.sub(r"\\b\\d{3,}\\b","",name.upper())).strip(" -#")
+        if len(canonical)<3:continue
+        try:day=date.fromisoformat(tx["date"])
+        except (KeyError,TypeError,ValueError):continue
+        account=str(tx.get("account_id") or "unknown")
+        groups[(account,canonical)].append((day,float(amount),name))
+    candidates=[]
+    for (_,canonical),records in groups.items():
+        records.sort(key=lambda r:r[0])
+        # Repeated same-date entries are not evidence of a recurring bill.
+        distinct=[]
+        for record in records:
+            if not distinct or distinct[-1][0]!=record[0]:
+                distinct.append(record)
+        if len(distinct)<2:continue
+        amounts=[r[1] for r in distinct]
+        typical=median(amounts)
+        if typical<=0 or max(abs(a-typical)/typical for a in amounts)>.2:
+            continue
+        gaps=[(later[0]-prior[0]).days for prior,later in zip(distinct,distinct[1:])]
+        if all(25<=gap<=40 for gap in gaps) and len({r[0].strftime("%Y-%m") for r in distinct})>=2:
+            cadence="Monthly-looking"
+        elif len(distinct)>=3 and all(6<=gap<=8 for gap in gaps):
+            cadence="Weekly-looking"
+        else:
+            continue
+        candidates.append({
+            "merchant":distinct[-1][2][:80],
+            "typical_amount":round(typical,2),
+            "cadence":cadence,
+            "observations":len(distinct),
+            "last_seen":distinct[-1][0].isoformat()
+        })
+    candidates.sort(key=lambda c:(-c["observations"],-c["typical_amount"],c["merchant"]))
+    return {"trend":trend,"top_categories_by_month":by_month,
+            "recurring_candidates":candidates[:10],
+            "note":"Historical Sandbox patterns only. Not a complete list of bills or future charges. Incomplete bank history and uncertain categories can change totals."}
