@@ -51,6 +51,28 @@ select{background:#0b1423;border:1px solid #34415a;border-radius:11px;color:var(
 #fitness input[type="date"]::-webkit-date-and-time-value{text-align:left;min-width:0}
 #fitness input[type="date"]::-webkit-datetime-edit{min-width:0}
 
+
+#brand .card{min-width:0;overflow-wrap:anywhere}
+#brand .brand-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:12px 0}
+#brand .brand-stats>div{min-width:0}
+#brand .brand-stats .metric{font-size:clamp(20px,3vw,29px)}
+#brand .brand-form-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+#brand .brand-form-fields>div{min-width:0}
+#brand input,#brand select,#brand textarea{min-width:0;max-width:100%;width:100%;font-size:16px}
+#brand input[type="date"]{-webkit-appearance:none;appearance:none;min-height:49px}
+#brand input[type="date"]::-webkit-date-and-time-value{text-align:left;min-width:0}
+#brand .post-item{padding:15px 0;border-top:1px solid var(--line);display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:start}
+#brand .post-item:first-child{border-top:0}
+#brand .post-details{min-width:0;overflow-wrap:anywhere}
+#brand .post-details strong{display:block;font-size:14px;margin-bottom:6px}
+#brand .post-meta{font-size:12px;color:var(--muted);margin:4px 0}
+#brand .post-actions{display:flex;gap:5px;align-items:center}
+#brand .post-actions button{flex:0 0 auto}
+#brand .post-delete{color:#f2a8ac}
+#brand .calendar-day.has-post{box-shadow:inset 0 -3px 0 var(--blue)}
+@media(max-width:750px){#brand-grid{grid-template-columns:minmax(0,1fr)}#brand-grid>.card{grid-column:1}#brand .calendar-head{flex-wrap:wrap}#brand .brand-stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:440px){#brand .brand-form-fields{grid-template-columns:minmax(0,1fr)}#brand .post-item{grid-template-columns:minmax(0,1fr)}#brand .post-actions{justify-content:flex-start}}
+
 </style></head>
 <body><div class="app"><aside><div class="brand">CEO <b>OS</b></div><nav class="nav" id="desktop-nav"></nav></aside><main>
 <div class="row"><div class="eyebrow">Personal command center</div><span class="pill">Prototype</span></div>
@@ -89,7 +111,14 @@ select{background:#0b1423;border:1px solid #34415a;border-radius:11px;color:var(
 <div class="card"><h2>Log a strength set</h2><form class="form" id="lift-form"><input id="lift-exercise" maxlength="100" placeholder="Exercise, e.g. Bench Press" aria-label="Exercise name" required><div class="field-grid"><div><label for="lift-weight" class="field-label">Weight (lb)</label><input id="lift-weight" type="number" min="0" max="1500" step=".5" required></div><div><label for="lift-reps" class="field-label">Repetitions</label><input id="lift-reps" type="number" min="1" max="100" step="1" required></div></div><label for="lift-date" class="field-label">Date</label><input id="lift-date" type="date" required><button class="primary">Save set</button></form></div>
 <div class="card"><h2>Strength progress</h2><label for="lift-filter" class="field-label">Exercise</label><select id="lift-filter"><option value="">Choose an exercise</option></select><div id="fitness-lift-chart" class="fitness-chart" role="img" aria-label="Strength trend chart"></div><div id="lift-history" aria-live="polite"></div></div>
 </div><p class="muted small" style="margin-top:16px">Training and body measurements are personal data. CEO OS is still a staging app; configure database backups and complete a security review before relying on it for sensitive information.</p></section>
-<section id="brand" class="panel"><div class="grid"><div class="card"><h2>Capture a content idea</h2><form class="form" id="post-form"><textarea id="post-input" rows="3" maxlength="350" required placeholder="What story or lesson should you share?" aria-label="Content idea"></textarea><button class="primary">Save idea</button></form></div><div class="card"><h2>Content pipeline</h2><div id="post-list" aria-live="polite"></div></div></div></section>
+<section id="brand" class="panel">
+<div class="grid" id="brand-grid">
+<div class="card full"><div class="eyebrow">Build in public</div><h2>Content performance</h2><div class="brand-stats"><div><div class="muted small">In pipeline</div><div class="metric" id="brand-pipeline-count">0</div></div><div><div class="muted small">Published</div><div class="metric" id="brand-published-count">0</div></div><div><div class="muted small">Logged views</div><div class="metric" id="brand-total-views">0</div></div><div><div class="muted small">Follower gains</div><div class="metric" id="brand-follower-gains">0</div></div></div><p class="muted small">Metrics are entered manually. No social media accounts are connected.</p></div>
+<div class="card"><h2>Capture a content idea</h2><form class="form" id="post-form"><label for="post-input" class="field-label">Hook or content idea</label><textarea id="post-input" rows="3" maxlength="350" required placeholder="e.g. What running a cleaning business taught me at 18" aria-label="Content idea"></textarea><label for="post-platform" class="field-label">Platform</label><select id="post-platform"><option>Instagram</option><option>Facebook</option><option>TikTok</option><option>YouTube</option><option>LinkedIn</option><option>Other</option></select><div class="brand-form-fields"><div><label for="post-stage" class="field-label">Stage</label><select id="post-stage"><option>Idea</option><option>Draft</option><option>Ready</option><option>Scheduled</option><option>Published</option></select></div><div><label for="post-date" class="field-label">Planned date (optional)</label><input id="post-date" type="date"></div></div><button class="primary">Save content</button></form></div>
+<div class="card"><h2>Edit content &amp; record results</h2><p class="muted small" id="brand-edit-hint">Select Edit on a post to update its stage, date, or analytics.</p><form class="form" id="brand-edit-form" hidden><label for="brand-edit-text" class="field-label">Content idea</label><textarea id="brand-edit-text" maxlength="350" rows="3" required></textarea><div class="brand-form-fields"><div><label for="brand-edit-platform" class="field-label">Platform</label><select id="brand-edit-platform"><option>Instagram</option><option>Facebook</option><option>TikTok</option><option>YouTube</option><option>LinkedIn</option><option>Other</option></select></div><div><label for="brand-edit-stage" class="field-label">Stage</label><select id="brand-edit-stage"><option>Idea</option><option>Draft</option><option>Ready</option><option>Scheduled</option><option>Published</option></select></div><div><label for="brand-edit-date" class="field-label">Planned date</label><input id="brand-edit-date" type="date"></div><div><label for="brand-edit-published" class="field-label">Published date</label><input id="brand-edit-published" type="date"></div></div><h2>Post results</h2><div class="brand-form-fields"><div><label for="brand-views" class="field-label">Views</label><input id="brand-views" type="number" min="0" max="1000000000" step="1"></div><div><label for="brand-likes" class="field-label">Likes</label><input id="brand-likes" type="number" min="0" max="1000000000" step="1"></div><div><label for="brand-comments" class="field-label">Comments</label><input id="brand-comments" type="number" min="0" max="1000000000" step="1"></div><div><label for="brand-shares" class="field-label">Shares</label><input id="brand-shares" type="number" min="0" max="1000000000" step="1"></div><div><label for="brand-followers" class="field-label">New followers attributed</label><input id="brand-followers" type="number" min="0" max="1000000000" step="1"></div></div><div class="row"><button class="primary" type="submit">Save changes</button><button type="button" id="brand-edit-cancel" class="secondary">Cancel</button></div></form></div>
+<div class="card full"><div class="row" style="flex-wrap:wrap"><h2 style="margin:0">Content pipeline</h2><select id="brand-filter" aria-label="Filter content by stage" style="max-width:190px"><option value="All">All stages</option><option>Idea</option><option>Draft</option><option>Ready</option><option>Scheduled</option><option>Published</option></select></div><div id="brand-pipeline-list" aria-live="polite"></div></div>
+<div class="card full"><div class="calendar-head"><h2 style="margin:0">Content calendar</h2><div class="row"><button class="secondary" type="button" id="brand-month-prev" aria-label="Previous month">‹</button><strong id="brand-month-label"></strong><button class="secondary" type="button" id="brand-month-next" aria-label="Next month">›</button></div></div><div class="calendar-grid" id="brand-calendar-grid"></div><h2 class="section" id="brand-selected-label">Selected date</h2><div id="brand-selected-posts"></div><p class="muted small">Dates are planned or published dates you enter. Posting to social platforms is not automated.</p></div>
+</div></section>
 </main><nav class="mobile-nav" id="mobile-nav"></nav></div>
 <script>
 (()=>{'use strict';
@@ -133,8 +162,8 @@ function navigate(page){const meta=pages.find(p=>p[0]===page)||pages[0];document
 for(const id of ['desktop-nav','mobile-nav']){for(const p of pages){const b=document.createElement('button');b.type='button';b.className='tab';b.dataset.page=p[0];const ico=document.createElement('span');ico.textContent=p[1];b.append(ico,document.createTextNode(p[2]));b.addEventListener('click',()=>navigate(p[0]));$(id).append(b);}}
 document.querySelectorAll('[data-page]:not(.tab)').forEach(b=>b.addEventListener('click',()=>navigate(b.dataset.page)));
 function renderList(type,target){const container=$(target);container.replaceChildren();if(!state[type].length){const e=document.createElement('div');e.className='empty';e.textContent='Nothing added yet.';container.append(e);return;}state[type].forEach(item=>{const row=document.createElement('div');row.className='entry';const left=document.createElement('div');left.style.minWidth='0';if(type==='tasks'){const cb=document.createElement('input');cb.type='checkbox';cb.className='check';cb.checked=!!item.done;cb.setAttribute('aria-label','Mark task complete');cb.addEventListener('change',()=>{item.done=cb.checked;save();render();});row.append(cb);}const name=document.createElement('strong');name.textContent=item.text;name.style.overflowWrap='anywhere';if(item.done)name.style.textDecoration='line-through';left.append(name);if(type==='tasks'){const details=document.createElement('div');details.className='muted small';details.textContent=(item.priority==='top'?'★ Top priority · ':'')+(item.due?'Due '+item.due:'No deadline');left.append(details);}if(type==='workouts'){const details=document.createElement('div');details.className='muted small';details.textContent=(item.category||'Workout')+(item.duration?' · '+item.duration+' min':'');left.append(details);}const date=document.createElement('div');date.className='muted small';date.textContent=new Date(item.when).toLocaleDateString();left.append(date);row.append(left);const remove=document.createElement('button');remove.className='remove';remove.textContent='Remove';remove.setAttribute('aria-label','Remove entry');remove.addEventListener('click',()=>{state[type]=state[type].filter(x=>x.id!==item.id);save();render();});row.append(remove);container.append(row);});}
-function render(){renderList('tasks','task-list');renderList('workouts','workout-list');renderList('posts','post-list');renderPlanner();renderHomePreview();renderFitness();const weekAgo=Date.now()-7*86400000;$('home-workouts').textContent=state.workouts.filter(w=>w.when>=weekAgo).length;$('home-posts').textContent=state.posts.length;}
-[['post-form','post-input','posts']].forEach(([form,input,type])=>{$(form).addEventListener('submit',e=>{e.preventDefault();const text=$(input).value.trim();if(!text)return;state[type].unshift({id:Date.now()+'-'+Math.random(),text,done:false,when:Date.now()});state[type]=state[type].slice(0,250);$(input).value='';save();render();});});
+function render(){renderList('tasks','task-list');renderList('workouts','workout-list');renderPlanner();renderHomePreview();renderFitness();renderBrand();const weekAgo=Date.now()-7*86400000;$('home-workouts').textContent=state.workouts.filter(w=>w.when>=weekAgo).length;$('home-posts').textContent=state.posts.length;}
+
 
 
 function fitnessGoal(delta){
@@ -184,6 +213,90 @@ fitnessHistory($('weight-history'),weights,x=>x.pounds.toFixed(1)+' lb','weigh_i
 const select=$('lift-filter'),current=select.value,exercises=[...new Set(state.lifts.map(x=>x.text))].sort((a,b)=>a.localeCompare(b));
 select.replaceChildren();if(!exercises.length){const op=document.createElement('option');op.value='';op.textContent='Log a strength set first';select.append(op);}else{for(const ex of exercises){const op=document.createElement('option');op.value=ex;op.textContent=ex;select.append(op);}select.value=exercises.includes(current)?current:exercises[0];}
 renderFitnessLifts();
+}
+
+
+const brandStages=["Idea","Draft","Ready","Scheduled","Published"];
+const blankPostStats=()=>({views:0,likes:0,comments:0,shares:0,followers:0});
+const brandValue=id=>$(id).value;
+let editingPostId=null;
+let brandMonth=new Date().getMonth(),brandYear=new Date().getFullYear(),brandDay=new Date().toLocaleDateString('sv-SE');
+const brandDate=(d)=>[d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');
+const postStats=p=>({...blankPostStats(),...(p.stats||{})});
+const postStage=p=>brandStages.includes(p.stage)?p.stage:"Idea";
+const postDay=p=>p.stage==="Published"?(p.published||p.scheduled||""):(p.scheduled||"");
+const postNumber=n=>new Intl.NumberFormat('en-US').format(n||0);
+$('post-form').addEventListener('submit',e=>{
+e.preventDefault();
+const text=brandValue('post-input').trim(),platform=brandValue('post-platform'),stage=brandValue('post-stage'),scheduled=brandValue('post-date');
+if(!text)return;
+if(stage==='Scheduled'&&!scheduled){alert('Choose a planned date before scheduling a post.');return;}
+const published=stage==='Published'?(scheduled||new Date().toLocaleDateString('sv-SE')):'';
+state.posts.unshift({id:Date.now()+'-'+Math.random(),text,done:false,when:Date.now(),platform,stage,scheduled,published,stats:blankPostStats()});
+state.posts=state.posts.slice(0,250);$('post-input').value='';$('post-date').value='';$('post-stage').value='Idea';save();render();
+});
+function clearBrandEdit(){editingPostId=null;$('brand-edit-form').hidden=true;$('brand-edit-hint').hidden=false;}
+$('brand-edit-cancel').addEventListener('click',clearBrandEdit);
+function editBrandPost(id){
+const p=state.posts.find(post=>post.id===id);if(!p)return;
+editingPostId=id;$('brand-edit-form').hidden=false;$('brand-edit-hint').hidden=true;
+$('brand-edit-text').value=p.text;$('brand-edit-platform').value=p.platform||'Other';$('brand-edit-stage').value=postStage(p);
+$('brand-edit-date').value=p.scheduled||'';$('brand-edit-published').value=p.published||'';
+const stats=postStats(p);
+for(const k of ['views','likes','comments','shares','followers'])$('brand-'+k).value=stats[k]||0;
+$('brand-edit-form').scrollIntoView({block:'nearest',behavior:'smooth'});
+}
+$('brand-edit-form').addEventListener('submit',e=>{
+e.preventDefault();const p=state.posts.find(x=>x.id===editingPostId);if(!p){clearBrandEdit();return;}
+const text=brandValue('brand-edit-text').trim(),stage=brandValue('brand-edit-stage'),scheduled=brandValue('brand-edit-date'),published=brandValue('brand-edit-published');
+if(!text)return;if(stage==='Scheduled'&&!scheduled){alert('A scheduled post needs a date.');return;}
+const stats={};
+for(const k of ['views','likes','comments','shares','followers']){const number=Number(brandValue('brand-'+k)||0);if(!Number.isInteger(number)||number<0||number>1000000000){alert('Enter a valid non-negative whole number for '+k);return;}stats[k]=number;}
+p.text=text;p.platform=brandValue('brand-edit-platform');p.stage=stage;p.scheduled=scheduled;p.published=stage==='Published'?(published||new Date().toLocaleDateString('sv-SE')):published;p.stats=stats;
+clearBrandEdit();save();render();
+});
+$('brand-filter').addEventListener('change',renderBrandPipeline);
+function brandPostRow(post,container){
+const row=document.createElement('div');row.className='post-item';
+const info=document.createElement('div');info.className='post-details';
+const title=document.createElement('strong');title.textContent=post.text;info.append(title);
+const meta=document.createElement('div');meta.className='post-meta';meta.textContent=(post.platform||'Other')+' · '+postStage(post)+(postDay(post)?' · '+postDay(post):'');info.append(meta);
+const stats=postStats(post);if(postStage(post)==='Published'){const detail=document.createElement('div');detail.className='post-meta';detail.textContent=postNumber(stats.views)+' views · '+postNumber(stats.likes)+' likes · '+postNumber(stats.comments)+' comments · '+postNumber(stats.shares)+' shares';info.append(detail);}
+const buttons=document.createElement('div');buttons.className='post-actions';
+const edit=document.createElement('button');edit.className='secondary';edit.type='button';edit.textContent='Edit';edit.addEventListener('click',()=>editBrandPost(post.id));
+const remove=document.createElement('button');remove.className='secondary post-delete';remove.type='button';remove.textContent='Delete';remove.addEventListener('click',()=>{if(!confirm('Delete this content item?'))return;state.posts=state.posts.filter(x=>x.id!==post.id);if(editingPostId===post.id)clearBrandEdit();save();render();});
+buttons.append(edit,remove);row.append(info,buttons);container.append(row);
+}
+function renderBrandPipeline(){const el=$('brand-pipeline-list');el.replaceChildren();const filter=$('brand-filter').value;
+const rows=state.posts.filter(p=>filter==='All'||postStage(p)===filter).slice().sort((a,b)=>{const order=brandStages.indexOf(postStage(b))-brandStages.indexOf(postStage(a));return order||(b.when-a.when);});
+if(!rows.length){placeholder(el,'No content in this stage yet.');return;}
+rows.forEach(p=>brandPostRow(p,el));
+}
+function renderBrandCalendar(){
+$('brand-month-label').textContent=new Date(brandYear,brandMonth,1).toLocaleDateString(undefined,{month:'short',year:'numeric'});
+const grid=$('brand-calendar-grid');grid.replaceChildren();
+for(const symbol of ['S','M','T','W','T','F','S']){const d=document.createElement('div');d.className='day-label';d.textContent=symbol;grid.append(d);}
+const first=new Date(brandYear,brandMonth,1).getDay(),days=new Date(brandYear,brandMonth+1,0).getDate();
+for(let i=0;i<first;i++)grid.append(document.createElement('div'));
+for(let day=1;day<=days;day++){
+const value=brandDate(new Date(brandYear,brandMonth,day));const button=document.createElement('button');button.type='button';button.className='calendar-day';button.textContent=String(day);
+if(value===brandDate(new Date()))button.classList.add('today');
+if(value===brandDay)button.classList.add('chosen');
+if(state.posts.some(p=>postDay(p)===value))button.classList.add('has-post');
+button.addEventListener('click',()=>{brandDay=value;renderBrandCalendar()});grid.append(button);
+}
+$('brand-selected-label').textContent='Content · '+brandDay;
+const list=$('brand-selected-posts');list.replaceChildren();const rows=state.posts.filter(p=>postDay(p)===brandDay);
+if(!rows.length)placeholder(list,'No planned or published content for this date.');else rows.forEach(p=>brandPostRow(p,list));
+}
+function shiftBrandMonth(offset){const d=new Date(brandYear,brandMonth+offset,1);brandYear=d.getFullYear();brandMonth=d.getMonth();brandDay=brandDate(d);renderBrandCalendar();}
+$('brand-month-prev').addEventListener('click',()=>shiftBrandMonth(-1));$('brand-month-next').addEventListener('click',()=>shiftBrandMonth(1));
+function renderBrand(){
+const published=state.posts.filter(p=>postStage(p)==='Published'),pipeline=state.posts.length-published.length;
+const totals=published.reduce((sum,p)=>{const stats=postStats(p);sum.views+=stats.views;sum.followers+=stats.followers;return sum;},{views:0,followers:0});
+$('brand-pipeline-count').textContent=postNumber(pipeline);$('brand-published-count').textContent=postNumber(published.length);
+$('brand-total-views').textContent=postNumber(totals.views);$('brand-follower-gains').textContent=postNumber(totals.followers);
+renderBrandPipeline();renderBrandCalendar();
 }
 
 const localDate=(d=new Date())=>[d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');
