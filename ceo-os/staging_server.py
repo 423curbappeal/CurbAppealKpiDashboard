@@ -8,6 +8,7 @@ import cloud_storage
 import business_kpi
 import google_calendar_feed
 import passkey_auth
+import plaid_sandbox
 
 USERNAME = os.getenv("CEO_OS_USERNAME", "")
 PASSWORD = os.getenv("CEO_OS_PASSWORD", "")
@@ -20,7 +21,7 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("X-Frame-Options", "DENY")
-        self.send_header("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'")
+        self.send_header("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' https://cdn.plaid.com; frame-src https://*.plaid.com; connect-src 'self' https://*.plaid.com; base-uri 'none'; frame-ancestors 'none'")
 
     def respond_json(self, code, obj, extra_headers=None):
         body = json.dumps(obj).encode()
@@ -87,6 +88,22 @@ class Handler(SimpleHTTPRequestHandler):
         if route == "/api/auth-status":
             self.respond_json(200, {"session":"passkey" if passkey_auth.session_valid(self.headers) else "password"})
             return
+        if route == "/api/plaid/status":
+            if not passkey_auth.session_valid(self.headers):
+                self.respond_json(403,{"error":"Face ID session required for test-bank access"})
+                return
+            self.respond_json(200,{"status":"ready" if plaid_sandbox.configured() else "not_configured",
+                                   "environment":"sandbox","live_banking":False})
+            return
+        if route == "/api/plaid/overview":
+            if not passkey_auth.session_valid(self.headers):
+                self.respond_json(403,{"error":"Face ID session required for test-bank access"})
+                return
+            try:
+                self.respond_json(200,plaid_sandbox.overview(refresh=True))
+            except Exception:
+                self.respond_json(503,{"error":"Sandbox test data temporarily unavailable"})
+            return
         if route == "/api/state":
             if not cloud_storage.DATABASE_URL:
                 self.respond_json(503, {"error":"Cloud storage not configured"})
@@ -119,6 +136,41 @@ class Handler(SimpleHTTPRequestHandler):
                 return
             # Browser-cached HTTP Basic credentials still need migration to a proper recovery login.
             self.respond_json(200,{"ok":True},[("Set-Cookie",passkey_auth.expired_cookie())])
+            return
+        if route.startswith("/api/plaid/"):
+            if not passkey_auth.session_valid(self.headers):
+                self.respond_json(403,{"error":"Face ID session required for test-bank access"})
+                return
+            try:
+                if not passkey_auth.secure_request(self.headers):
+                    self.respond_json(403,{"error":"Invalid origin"})
+                    return
+            except ValueError:
+                self.respond_json(403,{"error":"Invalid origin"})
+                return
+            if not plaid_sandbox.configured():
+                self.respond_json(503,{"error":"Plaid Sandbox variables are not configured"})
+                return
+            if self.headers.get("Content-Type","").split(";",1)[0].strip()!="application/json":
+                self.respond_json(415,{"error":"JSON required"})
+                return
+            try:
+                length=int(self.headers.get("Content-Length","0"))
+                if length<2 or length>2000:raise ValueError("Invalid size")
+                body=json.loads(self.rfile.read(length))
+                if not isinstance(body,dict):raise ValueError("Invalid input")
+                if route=="/api/plaid/link-token":
+                    self.respond_json(200,plaid_sandbox.link_token())
+                elif route=="/api/plaid/exchange":
+                    self.respond_json(200,plaid_sandbox.exchange(body.get("public_token")))
+                elif route=="/api/plaid/disconnect":
+                    self.respond_json(200,plaid_sandbox.disconnect_all())
+                else:
+                    self.send_error(404)
+            except ValueError as exc:
+                self.respond_json(400,{"error":str(exc)})
+            except Exception:
+                self.respond_json(503,{"error":"Plaid Sandbox is temporarily unavailable"})
             return
         if route not in ("/api/passkeys/register/options","/api/passkeys/register/verify",
                          "/api/passkeys/login/options","/api/passkeys/login/verify"):
