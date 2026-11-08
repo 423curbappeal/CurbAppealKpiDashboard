@@ -156,6 +156,12 @@ select{background:#0b1423;border:1px solid #34415a;border-radius:11px;color:var(
 
 
 
+/* Keep cloud status visible without a large warning banner on every visit. */
+#cloud-sync-notice{background:transparent;border:0;border-bottom:1px solid var(--line);border-radius:0;color:var(--muted);margin:0 0 14px;padding:7px 0 10px;font-size:12px}
+#cloud-sync-notice strong{font-weight:650}
+#cloud-sync-notice details{margin-top:2px}
+#cloud-sync-notice summary{color:var(--muted);font-size:11px;cursor:pointer;max-width:max-content}
+#cloud-sync-notice details[open] span{display:block;padding:8px 0}
 /* Simple, tap-first daily view: optional detail does not crowd the Home screen. */
 .daily-action-card{margin:0 0 12px!important}
 .daily-action-card>.row{align-items:center}
@@ -219,7 +225,7 @@ select{background:#0b1423;border:1px solid #34415a;border-radius:11px;color:var(
 <body><div class="app"><aside><div class="brand">CEO <b>OS</b></div><nav class="nav" id="desktop-nav"></nav></aside><main>
 <div class="row"><div class="eyebrow">Personal command center</div><span class="pill">Prototype</span></div>
 <h1 class="heading" id="page-title">Your command center.</h1><p class="sub" id="page-sub">One place for daily execution and long-term progress.</p>
-<div class="notice"><strong id="sync-label">Checking cloud storage…</strong> <span id="sync-help">Do not enter sensitive financial or medical details yet. Saved tasks and routines sync when cloud is connected.</span></div>
+<div class="notice" id="cloud-sync-notice" role="status"><strong id="sync-label">Checking cloud storage…</strong><details><summary>Storage &amp; privacy details</summary><span id="sync-help">Do not enter sensitive financial or medical details yet. Saved tasks and routines sync when cloud is connected.</span></details></div>
 <section id="home" class="panel active"><div class="grid">
 <div class="card"><div class="muted small">Today's priorities</div><div class="metric" id="home-tasks">0 / 0</div><div class="small muted">Tasks completed</div><div class="progress"><span id="task-bar"></span></div></div>
 <div class="card"><div class="muted small">Workout logs</div><div class="metric" id="home-workouts">0</div><div class="small muted">Entries this week</div></div>
