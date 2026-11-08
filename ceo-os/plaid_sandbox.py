@@ -72,7 +72,6 @@ def _items():
             return cur.fetchall()
 def _sync(item_id,token,cursor,existing):
     transactions=dict(existing or {})
-    original=cursor
     next_cursor=cursor
     # Bounded sync; do not commit partial pagination.
     for _ in range(20):
@@ -83,7 +82,7 @@ def _sync(item_id,token,cursor,existing):
             transactions.pop(change.get("transaction_id",""),None)
         for change in result.get("added",[])+result.get("modified",[]):
             tid=change.get("transaction_id")
-            if tid and len(transactions)<2500 or tid in transactions:
+            if tid and (len(transactions)<2500 or tid in transactions):
                 transactions[tid]={
                     "id":tid,"account_id":change.get("account_id"),
                     "name":str(change.get("merchant_name") or change.get("name") or "Transaction")[:120],
