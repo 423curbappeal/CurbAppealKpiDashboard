@@ -190,3 +190,18 @@ Plaid Sandbox uses fictional bank credentials (typically `user_good` and `pass_g
 - On each Finance load it fetches sample balances and synchronizes sample transactions; data depends on Plaid's upstream refresh and may not be real-time. A true scheduled sync/webhook architecture and bank-feed reconciliation are not yet implemented.
 - A **real bank connection must not be turned on** before full replacement of cached HTTP Basic recovery, multi-factor session and rate-limit testing, encrypted backups and restore drill, disclosure/consent UX, token rotation and removal workflows, account-category reconciliation, privacy and security audit.
 - This is developer-preview code; compilation, live Sandbox linking and Railway deployment require testing before using the connector. Never enter actual institution usernames/passwords in CEO OS or share Plaid secrets in chat.
+
+## Opt-in replacement for browser-cached HTTP Basic recovery (November 2026)
+
+A new password **recovery form** is available without altering the existing Railway username/password. When used, it checks credentials with a constant-time digest comparison and PostgreSQL-backed per-peer/account attempt limit (6 failures / 15 minutes), then issues a revocable **7-day password session**. Password sessions work with the CEO OS planner, business, fitness, brand and manually entered finance, but **Plaid Sandbox requires a genuine Face ID/passkey session**. Logging out deletes either session type in PostgreSQL.
+
+### Safe upgrade and rollback
+
+1. Let Railway deploy the newest `feature/ceo-os-mobile` staging code. **Do not change any existing secrets.**
+2. Before activating, open `https://<CEO-OS-HOST>/recovery-preview` in Safari Private Browsing, enter the **existing** CEO OS credentials, verify the dashboard opens, then use Home → Log out. Do not send credentials or screenshots of them in chat.
+3. Separately verify Face ID login. Your registered passkey is not deleted by this change.
+4. Only after **both** recovery and Face ID sign-in work, add the optional Railway service variable `CEO_OS_RECOVERY_MODE=form`. This disables acceptance of Basic credentials on normal dashboard routes and changes the `/password-login` link to the form.
+5. Retest Face ID, `/password-login`, logout, and the browser's private mode. A password recovery session will not authorize Plaid Sandbox; log in with Face ID for the test-bank connector.
+6. **Rollback:** delete the optional `CEO_OS_RECOVERY_MODE` variable and redeploy; old Basic Auth works again. Keep `CEO_OS_USERNAME`, `CEO_OS_PASSWORD`, `CEO_OS_SESSION_SECRET` and `DATABASE_URL` untouched.
+
+The new form is tested by code checks only until the operator verifies it on a device. HTTP Basic is still available **until** the optional Railway flag is enabled; do not claim that the old authentication is retired before then. Rate limits are simple protection, not a substitute for a security audit. Database backup restoration and deeper financial-data protection remain incomplete, so live bank production is still disabled.
