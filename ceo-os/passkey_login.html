@@ -1,0 +1,24 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#080c14"><title>CEO OS | Face ID</title><style>
+:root{color-scheme:dark;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}*{box-sizing:border-box}body{min-height:100dvh;margin:0;background:#080c14;color:#f5f8ff;display:grid;place-items:center;padding:20px}.card{width:100%;max-width:420px;border:1px solid #263248;background:#111927;border-radius:22px;padding:28px;box-shadow:0 12px 40px #0005}h1{font-size:30px;margin:8px 0 6px}p{color:#91a1b8;line-height:1.5}.eyebrow{font-size:11px;color:#5e99ff;font-weight:800;letter-spacing:2px}.primary{background:#5e99ff;color:#071020;border:0;border-radius:12px;width:100%;padding:15px;font-size:16px;font-weight:800;cursor:pointer}.secondary{display:block;text-align:center;padding:14px;color:#a9c6ff;text-decoration:none;margin-top:8px}#status{font-size:13px;min-height:24px}button:disabled{opacity:.5}
+</style></head><body><div class="card"><div class="eyebrow">PRIVATE COMMAND CENTER</div><h1>CEO OS</h1><p>Sign in securely with your iPhone passkey and Face ID.</p><button id="sign-in" class="primary" type="button">Sign in with Face ID</button><a href="/password-login" class="secondary">Use username and password instead</a><p id="status" aria-live="polite"></p></div>
+<script>
+(()=>{'use strict';
+const $=id=>document.getElementById(id);
+const decode=s=>{const b64=s.replace(/-/g,'+').replace(/_/g,'/');const bytes=atob(b64+'='.repeat((4-b64.length%4)%4));return Uint8Array.from(bytes,c=>c.charCodeAt(0));};
+const encode=v=>{const bytes=new Uint8Array(v),parts=[];for(let i=0;i<bytes.length;i+=8192)parts.push(String.fromCharCode(...bytes.slice(i,i+8192)));return btoa(parts.join('')).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');};
+async function json(url,body){const response=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})});const data=await response.json();if(!response.ok)throw Error(data.error||'Sign-in request failed');return data;}
+$('sign-in').addEventListener('click',async()=>{
+$('sign-in').disabled=true;$('status').textContent='Opening secure passkey sign-in…';
+try{
+if(!window.PublicKeyCredential||!navigator.credentials)throw Error('Passkeys are not supported in this browser');
+const start=await json('/api/passkeys/login/options');
+const opts=start.options;opts.challenge=decode(opts.challenge);
+if(opts.allowCredentials)opts.allowCredentials=opts.allowCredentials.map(x=>({...x,id:decode(x.id)}));
+const c=await navigator.credentials.get({publicKey:opts});
+const credential={id:c.id,rawId:encode(c.rawId),type:c.type,response:{authenticatorData:encode(c.response.authenticatorData),clientDataJSON:encode(c.response.clientDataJSON),signature:encode(c.response.signature),userHandle:c.response.userHandle?encode(c.response.userHandle):null},clientExtensionResults:c.getClientExtensionResults()};
+await json('/api/passkeys/login/verify',{token:start.token,credential});
+$('status').textContent='Signed in. Opening dashboard…';location.replace('/');
+}catch(err){$('status').textContent=err.message||'Sign-in failed. Use your password to recover.';}finally{$('sign-in').disabled=false;}
+});
+})();
+</script></body></html>
