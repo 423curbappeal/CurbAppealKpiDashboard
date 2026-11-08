@@ -144,8 +144,8 @@ class Handler(SimpleHTTPRequestHandler):
             except Exception:
                 self.respond_json(503, {"error":"Cloud storage temporarily unavailable"})
             return
-        if route == "/command_modules.js":
-            self.path="/command_modules.js"
+        if route in ("/command_modules.js","/morning_review.js"):
+            self.path=route
             super().do_GET()
             return
         if route not in ("/", "/index.html"):
