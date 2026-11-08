@@ -6,6 +6,7 @@ import os
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 import cloud_storage
 import business_kpi
+import google_calendar_feed
 
 USERNAME = os.getenv("CEO_OS_USERNAME", "")
 PASSWORD = os.getenv("CEO_OS_PASSWORD", "")
@@ -40,6 +41,12 @@ class Handler(SimpleHTTPRequestHandler):
         if not self.require_login():
             return
         route = self.path.split("?", 1)[0]
+        if route == "/api/google-calendar":
+            try:
+                self.respond_json(200,google_calendar_feed.load())
+            except Exception:
+                self.respond_json(503,{"status":"unavailable","error":"Calendar feed unavailable. Check the private iCal variable."})
+            return
         if route == "/api/business-summary":
             try:
                 self.respond_json(200,business_kpi.load())
