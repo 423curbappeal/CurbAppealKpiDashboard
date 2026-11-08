@@ -168,6 +168,12 @@ select{background:#0b1423;border:1px solid #34415a;border-radius:11px;color:var(
 </div></section>
 <section id="finance" class="panel">
 <div class="notice">Manual tracking only. This prototype is not yet security-audited; don't enter bank account numbers, credentials, or highly sensitive financial information.</div>
+<div class="card" id="plaid-live-card" style="margin-bottom:14px">
+<div class="row" style="flex-wrap:wrap"><div><div class="eyebrow">Real banking · Separate from Sandbox</div><h2 style="margin:4px 0 0">Personal bank connection</h2></div><span class="pill" id="plaid-live-badge">Locked</span></div>
+<p class="muted small">Live banking stays locked until production access, secure recovery login, and a separate approval are configured. Your existing test accounts are unaffected.</p>
+<div class="quick-links"><button class="primary" type="button" id="plaid-live-connect" disabled>Connect real bank</button><button class="secondary" type="button" id="plaid-live-refresh" disabled>Refresh live data</button><button class="secondary" type="button" id="plaid-live-disconnect" disabled>Disconnect live banks</button></div>
+<p class="muted small" id="plaid-live-status" aria-live="polite">Checking readiness…</p>
+<div id="plaid-live-content"></div></div>
 <div class="card" id="plaid-sandbox-card" style="margin-bottom:14px">
 <div class="row" style="flex-wrap:wrap"><div><div class="eyebrow">Plaid Sandbox · test data only</div><h2 style="margin:4px 0 0">Automatic test-bank connection</h2></div><span class="pill" id="plaid-sandbox-badge">Not configured</span></div>
 <p class="muted small">Connect fictional test accounts to preview automatic balances and transaction imports. Your real bank accounts are not accessible through this test integration.</p>
@@ -395,6 +401,66 @@ renderBrandPipeline();renderBrandCalendar();
 
 
 let plaidSandboxReady=false,plaidLinkScript=null,plaidMonthly={},plaidSelectedMonth='',plaidInsights={};
+let plaidLiveReady=false;
+async function loadPlaidLive(){
+ if(!plaidLiveReady)return;
+ const status=$('plaid-live-status'),container=$('plaid-live-content');
+ status.textContent='Refreshing live account data…';
+ try{
+  const response=await fetch('/api/plaid-live/overview',{cache:'no-store'});
+  const result=await response.json();
+  if(!response.ok)throw Error(result.error||'Live bank request failed');
+  container.replaceChildren();
+  const accounts=result.accounts||[],months=result.monthly||{};
+  $('plaid-live-disconnect').disabled=result.status!=='connected';
+  if(result.status!=='connected'){status.textContent='Ready. Connect a real bank only if you want to authorize account access.';return;}
+  const warnings=Array.isArray(result.warnings)?result.warnings:[];
+  status.textContent=warnings.length?'Live data has warnings: '+warnings.join(' '):'Live bank information loaded. Transactions may lag behind your bank.';
+  const heading=document.createElement('h3');heading.textContent='Linked real accounts';container.append(heading);
+  for(const account of accounts){
+   const row=document.createElement('div');row.className='entry';const name=document.createElement('strong');name.textContent=account.name||'Account';
+   const balance=document.createElement('strong');balance.textContent=plaidFormat(account.current);
+   row.append(name,balance);container.append(row);
+  }
+  const title=document.createElement('h3');title.textContent='Classified monthly cash flow';container.append(title);
+  for(const [month,entry] of Object.entries(months).sort().reverse().slice(0,6)){
+   plaidInsightRow(container,month,'Income '+plaidFormat(entry.income)+' · Spending '+plaidFormat(entry.expenses)+' · Review '+(entry.review_count||0),'Net '+plaidFormat(entry.net));
+  }
+  const disclaimer=document.createElement('p');disclaimer.className='muted small';
+  disclaimer.textContent='Live bank figures are separate from manually entered finance totals and Sandbox data. Not all transactions may be available.';
+  container.append(disclaimer);
+ }catch(e){status.textContent=e.message||'Live data temporarily unavailable';}
+}
+async function initPlaidLive(){
+ try{
+  const response=await fetch('/api/plaid-live/status',{cache:'no-store'});const result=await response.json();
+  plaidLiveReady=response.ok&&result.status==='ready';
+  $('plaid-live-badge').textContent=plaidLiveReady?'Ready':'Locked';
+  $('plaid-live-connect').disabled=!plaidLiveReady;
+  $('plaid-live-refresh').disabled=!plaidLiveReady;
+  $('plaid-live-status').textContent=plaidLiveReady?'Live connection available. You decide which bank to authorize.':'Live banking is securely disabled until Plaid production access and launch review are complete.';
+  if(plaidLiveReady)await loadPlaidLive();
+ }catch(e){$('plaid-live-status').textContent='Live banking is not enabled.';}
+}
+$('plaid-live-connect').addEventListener('click',async()=>{
+ const button=$('plaid-live-connect');button.disabled=true;
+ try{
+  await loadPlaidScript();
+  const data=await plaidRequest('/api/plaid-live/link-token');
+  const link=window.Plaid.create({token:data.link_token,
+   onSuccess:async publicToken=>{try{await plaidRequest('/api/plaid-live/exchange',{public_token:publicToken});await loadPlaidLive();}
+     catch(e){$('plaid-live-status').textContent=e.message||'Unable to save bank connection';}},
+   onExit:err=>{if(err)$('plaid-live-status').textContent='Bank connection closed. No data was added.';}
+  });link.open();
+ }catch(e){$('plaid-live-status').textContent=e.message||'Unable to connect bank';}
+ finally{button.disabled=false;}
+});
+$('plaid-live-refresh').addEventListener('click',loadPlaidLive);
+$('plaid-live-disconnect').addEventListener('click',async()=>{
+ if(!confirm('Disconnect all real banks from CEO OS and erase their imported transactions and category rules?'))return;
+ try{await plaidRequest('/api/plaid-live/disconnect');await loadPlaidLive();}
+ catch(e){$('plaid-live-status').textContent=e.message||'Disconnect failed';}
+});
 function plaidEmpty(container,message){container.replaceChildren();const p=document.createElement('p');p.className='muted small';p.textContent=message;container.append(p);}
 function plaidInsightRow(container,titleText,subtitleText,valueText){
 const row=document.createElement('div');row.className='entry';
