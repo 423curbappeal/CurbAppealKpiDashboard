@@ -49,6 +49,15 @@ const briefing=panel(home,`<div class="row"><div><div class="eyebrow">CEO mornin
  <div class="row" style="margin-top:12px"><button type="button" class="secondary" id="morning-open-review">Weekly CEO review</button>
  <span class="muted small">Calendar read-only · Bill and lead data manually entered</span></div>`);
 home.insertBefore(briefing,home.firstElementChild);
+// Existing Home content remains available on demand instead of repeating the briefing.
+const extra=document.createElement('details');extra.className='command-card';extra.id='home-extra-details';
+const summary=document.createElement('summary');summary.textContent='More: full daily overview and calendar';extra.append(summary);
+const existing=$('home-day-preview');
+const oldHeading=existing.previousElementSibling;
+if(oldHeading&&oldHeading.textContent.includes('Today at a glance'))extra.append(oldHeading);
+extra.append(existing);
+home.insertBefore(extra,briefing.nextSibling);
+
 const review=panel(home,`<div class="eyebrow">Weekly CEO review</div><div class="row"><h2 style="margin:5px 0">Review, learn, plan</h2><span class="muted small" id="review-dates"></span></div>
  <p class="muted small">A Sunday review for the Monday–Sunday week. Historical KPI figures are labeled by their saved week; they're not automatically today's revenue.</p>
  <div class="command-grid">
@@ -70,7 +79,10 @@ const review=panel(home,`<div class="eyebrow">Weekly CEO review</div><div class=
  <button type="submit" class="primary">Save weekly review</button>
  <p id="review-save-status" class="command-note" aria-live="polite"></p></form>
  <div id="review-last-save" class="muted small"></div>`);
-home.insertBefore(review,briefing.nextSibling);
+home.insertBefore(review,extra.nextSibling);
+const reviewDetails=document.createElement('details');reviewDetails.className='weekly-review-collapse';
+const reviewHeading=document.createElement('summary');reviewHeading.textContent='Weekly CEO review · planning and results';
+reviewDetails.append(reviewHeading);home.insertBefore(reviewDetails,review);reviewDetails.append(review);
 const focusDate=()=>today();
 const reviewWeek=()=>weekStart();
 function renderMorning(){
@@ -86,13 +98,17 @@ function renderMorning(){
  metric('morning-workouts',workouts+' / '+(s.fitness_goals[0]?.target||4));
  const p=$('morning-priorities');p.replaceChildren();
  if(!priorities.length)empty(p,'Nothing due. Add a priority in Today.');
- for(const t of priorities.slice(0,4))row(p,t.text,(t.priority==='top'?'Top priority · ':'')+(t.due?'Due '+compact(t.due):'No deadline'),'Today',()=>api.navigate('planner'));
+ for(const t of priorities.slice(0,4))row(p,t.text,(t.priority==='top'?'Top priority · ':'')+(t.due?'Due '+compact(t.due):'No deadline'),'Done',()=>{t.done=true;api.save();api.render();});
  const l=$('morning-leads');l.replaceChildren();
  if(!leads.length)empty(l,'No overdue or due-today sales follow-ups.');
  for(const lead of leads.slice(0,4))row(l,lead.text,lead.stage+' · Due '+compact(lead.follow_up),'Sales',()=>api.navigate('sales'));
  const b=$('morning-bills');b.replaceChildren();
  if(!bills.length)empty(b,'No unpaid bills due in the next seven days.');
- for(const {bill,when} of bills.slice(0,4))row(b,bill.text,money(bill.amount)+' · Due '+compact(when),'Finance',()=>api.navigate('finance'));
+ for(const {bill,when} of bills.slice(0,4))row(b,bill.text,money(bill.amount)+' · Due '+compact(when),'Mark paid',()=>{
+  if(!api.cloudReady()){window.alert('Cloud connection required to mark bills paid.');return;}
+  bill.paid_months=Array.from(new Set([...(bill.paid_months||[]),when.slice(0,7)])).sort().slice(-24);
+  api.save();api.render();
+ });
  const a=$('morning-schedule');a.replaceChildren();
  const blocks=s.time_blocks.filter(x=>x.date===date).sort((x,y)=>x.start.localeCompare(y.start));
  const cal=api.getCalendar(),events=cal.events.filter(e=>e.start&&e.end&&e.start.slice(0,10)<=date&&(e.end.slice(0,10)>date||(!e.all_day&&e.end.slice(0,10)===date)));
@@ -126,7 +142,7 @@ function renderReview(){
  if(!dirtyReview)populateReview();
 }
 function render(){renderMorning();renderReview();}
-$('morning-open-review').addEventListener('click',()=>review.scrollIntoView({behavior:'smooth',block:'start'}));
+$('morning-open-review').addEventListener('click',()=>{reviewDetails.open=true;reviewDetails.scrollIntoView({behavior:'smooth',block:'start'});});
 for(const id of ['review-wins','review-improve','review-focus','review-revenue-target','review-outreach-target','review-workouts-target'])
  $(id).addEventListener('input',()=>{dirtyReview=true;});
 $('weekly-review-form').addEventListener('submit',e=>{
