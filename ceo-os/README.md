@@ -146,3 +146,24 @@ Original Curb Appeal KPI production code is untouched. Database backups, access 
 Face ID/passkey sessions now expire after **7 days** instead of 30; previously issued 30-day session cookies will be rejected and a new Face ID sign-in may be required after deploying this update. Home shows a **Log out** button **only if a valid passkey session is active**. It calls same-origin `POST /api/logout`, clears the HttpOnly session cookie and redirects to the passkey sign-in page. `GET /api/auth-status` reports whether the currently authorized session is a passkey session or HTTP Basic login.
 
 **Limitation:** Browsers may retain HTTP Basic authentication credentials. Clearing the passkey cookie does **not** revoke cached HTTP Basic credentials, and a previously copied signed passkey cookie remains cryptographically valid until it expires because there is not yet a server-side revocation list. Therefore do not treat Log out as a guaranteed sign-out on browsers that have used password recovery. For a fully revocable session model, replace HTTP Basic recovery with a dedicated recovery form and persist sessions and revocations in PostgreSQL. Keep the current recovery variables until a replacement has been deployed and tested.
+
+## Server-side session revocation + manual Personal Finance tab (November 2026)
+
+**Passkey sessions:** New Face ID sessions now use version 2 signed cookies with random session IDs, and PostgreSQL stores the session token hash and expiry in `ceo_sessions`. Each authenticated passkey request checks for an active session record. `POST /api/logout` deletes that record, then clears the browser cookie. Older version 1 cookies are no longer valid and the next visit may require a fresh Face ID sign-in. Password recovery and existing registered passkeys are preserved.
+
+**Security limitations before treating the app as a financial vault:** HTTP Basic password-recovery remains accepted by existing authenticated endpoints and browsers may cache those credentials. Recovery/login rate limiting, audit logging, a complete security audit, database restore testing, and independently stored backups remain outstanding. Do not describe the prototype as bank-grade or financial-data-ready. Never disclose Railway secrets, database URLs, or full account numbers in chat or the dashboard.
+
+**Finance prototype:** A sixth tab tracks manually entered personal income and expenses by month, category, and date; current assets and debts; and a calculated net-worth snapshot. It does **not** connect banking institutions or import balances. The business KPI dashboard remains read-only and separate. Financial entries are validated in `cloud_storage.py` using the existing PostgreSQL state JSON; no schema migration is required. New fields: `money_entries`, `balance_items`. Browser `localStorage` snapshots intentionally omit the financial arrays, and the finance form refuses new writes when cloud sync is disconnected. Balance re-entry with the same name and type updates the existing balance rather than doubling it. Counts are capped at 250 per category; review before using long-term.
+
+### Manual staging verification
+
+1. Check Railway **CEO OS app** deployment is active and PostgreSQL attached. Test Face ID sign-in. Existing passkeys remain registered, but version 1 sessions are invalidated.
+2. Click **Log out**, then try the old Face ID cookie from another tab on the same device; the app should demand sign-in. Note HTTP Basic may still auto-authorize if cached.
+3. On Finance, enter **sample numbers only**, record sample income and expenses in the current month, add an asset and a debt, and verify the income minus expenses and asset minus debt calculations.
+4. Re-enter the same named balance with a changed amount to verify it updates rather than duplicates.
+5. Check cloud sync and refresh on another device; confirm sample data persists. Delete test entries.
+6. Test Railway backups by restoring a copy to a disposable database only; do not restore directly over the live database.
+
+### Accounting limitations
+
+Cash-flow totals only represent manually entered records. Net worth uses each currently recorded balance, not historical valuations. Enter each actual account once; create an owner-draw entry only on the personal side to avoid counting transfers as income twice. Categorizing transfers or credit card payments as expenses can double-count spending. The dashboard does not provide bank reconciliation, automated finance feeds, investment pricing, tax analysis, or financial advice.
