@@ -65,7 +65,30 @@ def classify(transaction):
         return {"kind":"expense","category":SPENDING_LABELS[primary],"reason":"Plaid category"}
     return {"kind":"review","category":"Needs review","reason":"Unknown category"}
 
-def summarize(transactions):
+USER_CATEGORIES = tuple(sorted(set(SPENDING_LABELS.values()))) + ("Income","Transfer","Needs review")
+
+def merchant_key(transaction):
+    name=str(transaction.get("name") or "").upper()
+    cleaned=re.sub(r"\\s+"," ",re.sub(r"\\b\\d{3,}\\b","",name)).strip(" -#")
+    return cleaned[:120] if len(cleaned)>=3 else ""
+
+def selected_classification(tx, choice):
+    amount=tx.get("amount")
+    if tx.get("pending") or type(amount) not in (int,float) or not math.isfinite(amount) or amount==0:
+        return None
+    if choice=="Income" and amount<0:
+        return {"kind":"income","category":"Income","reason":"User correction"}
+    if choice=="Transfer":
+        return {"kind":"transfer","category":"Transfer or debt payment","reason":"User correction"}
+    if choice=="Needs review":
+        return {"kind":"review","category":"Needs review","reason":"User correction"}
+    if choice in SPENDING_LABELS.values() and amount>0:
+        return {"kind":"expense","category":choice,"reason":"User correction"}
+    return None
+
+def summarize(transactions, transaction_rules=None, merchant_rules=None):
+    transaction_rules=transaction_rules or {}
+    merchant_rules=merchant_rules or {}
     months=defaultdict(lambda:{
         "income":0.0,"expenses":0.0,"transfers":0.0,"review":0,"pending":0,
         "count":0,"categories":defaultdict(float)
@@ -79,6 +102,12 @@ def summarize(transactions):
         except ValueError:
             continue
         category=classify(tx)
+        own=transaction_rules.get(str(tx.get("id") or ""))
+        key=merchant_key(tx)
+        merchant_choice=merchant_rules.get(str(tx.get("account_id") or "")+"|"+key) if key else None
+        choice=own or merchant_choice
+        override=selected_classification(tx,choice) if choice else None
+        if override:category=override
         tagged={**tx,"classification":category["kind"],
                 "display_category":category["category"],
                 "classification_reason":category["reason"]}
