@@ -37,6 +37,26 @@ function empty(target,message){target.append(node('p',message,'muted small'));}
 function metric(target,value){$(target).textContent=String(value);}
 function panel(container,markup){const div=node('div');div.className='command-card';div.innerHTML=markup;container.append(div);return div;}
 const home=$('home');
+// Action-first daily workflow. All actions operate on existing CEO OS records.
+const daily=document.createElement('div');
+daily.className='command-card daily-action-card';
+daily.innerHTML=`<div class="row"><div><div class="eyebrow">Daily command center</div><h2 style="margin:5px 0">Just do these next</h2></div><span class="pill" id="daily-progress">0 / 0 done</span></div>
+ <p class="muted small">Nothing to fill out. Tap to finish actions that already exist in CEO OS.</p>
+ <div id="daily-actions" aria-live="polite"></div>
+ <div class="row" style="margin-top:12px"><strong style="font-size:13px">Quick workout check-in</strong><span class="muted small">One tap logs a 45-minute session</span></div>
+ <div class="quick-links" id="daily-workout-buttons">
+ <button type="button" class="secondary" data-quick-workout="Push">Push</button>
+ <button type="button" class="secondary" data-quick-workout="Pull">Pull</button>
+ <button type="button" class="secondary" data-quick-workout="Legs">Legs</button>
+ <button type="button" class="secondary" data-quick-workout="Cardio">Cardio</button></div>
+ <p class="muted small" id="daily-workout-note" aria-live="polite"></p>
+ <details class="daily-add-details"><summary>Add something not already listed</summary>
+ <form id="daily-quick-form" class="morning-quick-form">
+ <label class="field-label" for="daily-quick-input">New priority</label><div class="morning-quick-row">
+ <input id="daily-quick-input" maxlength="150" placeholder="One thing to accomplish" required>
+ <button class="primary">Add</button></div></form><p id="daily-quick-status" class="command-note" aria-live="polite"></p></details>`;
+home.insertBefore(daily,home.firstElementChild);
+
 const briefing=panel(home,`<div class="row"><div><div class="eyebrow">CEO morning briefing</div><h2 style="margin:5px 0">Your next moves</h2></div><span class="muted small" id="morning-date"></span></div>
  <form id="morning-quick-form" class="morning-quick-form">
  <label for="morning-quick-input" class="field-label">Quick priority</label>
@@ -94,6 +114,41 @@ const reviewHeading=document.createElement('summary');reviewHeading.textContent=
 reviewDetails.append(reviewHeading);home.insertBefore(reviewDetails,review);reviewDetails.append(review);
 const focusDate=()=>today();
 const reviewWeek=()=>weekStart();
+function routineToday(r,day){return Array.isArray(r.days)&&r.days.includes(new Date(day+'T12:00:00').getDay());}
+function renderDailyActions(){
+ const s=state(),day=today(),target=$('daily-actions');target.replaceChildren();
+ const dueTasks=s.tasks.filter(t=>!t.done&&(!t.due||t.due<=day))
+  .sort((a,b)=>(a.priority==='top'?0:1)-(b.priority==='top'?0:1)||(a.due||'9999').localeCompare(b.due||'9999'));
+ const routines=s.routines.filter(r=>routineToday(r,day));
+ const remaining=routines.filter(r=>!(r.completed||[]).includes(day));
+ const openLeads=s.leads.filter(l=>!['Won','Lost'].includes(l.stage)&&l.follow_up&&l.follow_up<=day).sort((a,b)=>a.follow_up.localeCompare(b.follow_up));
+ const todos=[
+ ...dueTasks.slice(0,3).map(t=>({title:t.text,detail:'Priority'+(t.due&&t.due<day?' · overdue':''),run:()=>{t.done=true;api.save();api.render();}})),
+ ...remaining.slice(0,3).map(r=>({title:r.text,detail:'Today’s routine',run:()=>{r.completed=Array.from(new Set([...(r.completed||[]),day])).sort().slice(-180);api.save();api.render();}})),
+ ...openLeads.slice(0,2).map(l=>({title:'Follow up: '+l.text,detail:l.stage+' · '+(l.follow_up<day?'Overdue':'Due today'),run:()=>{
+   if(!api.cloudReady()){alert('Reconnect cloud to update sales follow-ups.');return;}
+   if(!confirm('Have you contacted '+l.text+'?'))return;
+   if(l.stage==='New')l.stage='Contacted';
+   l.follow_up=plusDays(day,2);
+   api.save();api.render();
+ }}))
+ ];
+ const completed=routines.length-remaining.length;
+ $('daily-progress').textContent=completed+' routines done · '+(dueTasks.length+remaining.length+openLeads.length)+' open';
+ if(!todos.length){empty(target,'You’re caught up. Check today’s calendar below.');}
+ for(const t of todos)row(target,t.title,t.detail,'Done',t.run);
+ if(dueTasks.length>3||remaining.length>3||openLeads.length>2){
+  const extra=node('button','See remaining items','secondary');extra.type='button';extra.addEventListener('click',()=>{briefing.open=true;briefing.scrollIntoView({behavior:'smooth'});});
+  target.append(extra);
+ }
+}
+function recordQuickWorkout(category){
+ if(state().workouts.length>=250){$('daily-workout-note').textContent='Workout history is full. Remove older entries in Fitness.';return;}
+ const stamp=Date.now();
+ state().workouts.unshift({id:stamp+'-'+Math.random().toString(36).slice(2),when:stamp,text:category+' session',category,duration:45,done:false});
+ api.save();api.render();
+ $('daily-workout-note').textContent=category+' session logged. Edit details in Fitness if needed.';
+}
 function renderMorning(){
  const date=focusDate(),s=state(),d=new Date(date+'T12:00:00');
  metric('morning-date',d.toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'}));
@@ -165,8 +220,17 @@ function renderReview(){
  metric('review-revenue-date',latest?.week_ending?'Saved KPI week ending '+latest.week_ending:'KPI source unavailable');
  if(!dirtyReview)populateReview();
 }
-function render(){renderMorning();renderReview();}
+function render(){renderDailyActions();renderMorning();renderReview();}
 $('morning-open-review').addEventListener('click',()=>{reviewDetails.open=true;reviewDetails.scrollIntoView({behavior:'smooth',block:'start'});});
+document.querySelectorAll('[data-quick-workout]').forEach(button=>button.addEventListener('click',()=>recordQuickWorkout(button.dataset.quickWorkout)));
+$('daily-quick-form').addEventListener('submit',e=>{
+ e.preventDefault();const field=$('daily-quick-input'),status=$('daily-quick-status'),text=field.value.trim();
+ if(!text)return;
+ if(state().tasks.length>=250){status.textContent='Task limit reached.';return;}
+ const day=today(),top=state().tasks.filter(t=>!t.done&&t.priority==='top'&&(!t.due||t.due===day)).length;
+ state().tasks.unshift({id:Date.now()+'-'+Math.random().toString(36).slice(2),when:Date.now(),text,done:false,due:day,priority:top<3?'top':'normal'});
+ api.save();api.render();field.value='';status.textContent='';
+});
 for(const id of ['review-wins','review-improve','review-focus','review-revenue-target','review-outreach-target','review-workouts-target'])
  $(id).addEventListener('input',()=>{dirtyReview=true;});
 $('weekly-review-form').addEventListener('submit',e=>{
