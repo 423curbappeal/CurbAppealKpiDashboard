@@ -9,10 +9,13 @@ import business_kpi
 import google_calendar_feed
 import passkey_auth
 import plaid_sandbox
+import recovery_auth
 
 USERNAME = os.getenv("CEO_OS_USERNAME", "")
 PASSWORD = os.getenv("CEO_OS_PASSWORD", "")
 PORT = int(os.getenv("PORT", "8080"))
+# Opt-in after testing recovery form: remove browser Basic auth from regular endpoints.
+FORM_RECOVERY = os.getenv("CEO_OS_RECOVERY_MODE","").strip().lower()=="form"
 
 class Handler(SimpleHTTPRequestHandler):
     def send_response(self, code, message=None):
@@ -44,6 +47,9 @@ class Handler(SimpleHTTPRequestHandler):
     def require_login(self):
         if self.authorized():
             return True
+        if FORM_RECOVERY:
+            self.respond_json(401,{"error":"Session expired. Sign in using Face ID or account recovery."})
+            return False
         self.send_response(401)
         self.send_header("WWW-Authenticate", 'Basic realm="CEO OS Private Preview", charset="UTF-8"')
         self.end_headers()
@@ -56,11 +62,19 @@ class Handler(SimpleHTTPRequestHandler):
             super().do_GET()
             return
         if route == "/password-login" and passkey_auth.ENABLED:
+            if FORM_RECOVERY:
+                self.path="/recovery_login.html"
+                super().do_GET()
+                return
             if not self.require_basic_login():
                 return
             self.send_response(302)
             self.send_header("Location","/")
             self.end_headers()
+            return
+        if route == "/recovery-preview" and passkey_auth.ENABLED:
+            self.path="/recovery_login.html"
+            super().do_GET()
             return
         if route in ("/","/index.html") and passkey_auth.ENABLED and not self.authorized():
             try:
@@ -86,17 +100,17 @@ class Handler(SimpleHTTPRequestHandler):
                 self.respond_json(503,{"status":"unavailable","error":"Business KPI source unavailable. Check your private connection settings."})
             return
         if route == "/api/auth-status":
-            self.respond_json(200, {"session":"passkey" if passkey_auth.session_valid(self.headers) else "password"})
+            self.respond_json(200, {"session":passkey_auth.session_method(self.headers) or "legacy-password"})
             return
         if route == "/api/plaid/status":
-            if not passkey_auth.session_valid(self.headers):
+            if not passkey_auth.session_valid(self.headers,method="passkey"):
                 self.respond_json(403,{"error":"Face ID session required for test-bank access"})
                 return
             self.respond_json(200,{"status":"ready" if plaid_sandbox.configured() else "not_configured",
                                    "environment":"sandbox","live_banking":False})
             return
         if route == "/api/plaid/overview":
-            if not passkey_auth.session_valid(self.headers):
+            if not passkey_auth.session_valid(self.headers,method="passkey"):
                 self.respond_json(403,{"error":"Face ID session required for test-bank access"})
                 return
             try:
@@ -121,6 +135,40 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         route=self.path.split("?",1)[0]
+        if route=="/api/recovery/login":
+            try:
+                if not passkey_auth.secure_request(self.headers):
+                    self.respond_json(403,{"error":"Invalid request origin"})
+                    return
+            except ValueError:
+                self.respond_json(403,{"error":"Invalid request origin"})
+                return
+            if not passkey_auth.ENABLED:
+                self.respond_json(503,{"error":"Recovery login isn't configured"})
+                return
+            if self.headers.get("Content-Type","").split(";",1)[0].strip()!="application/json":
+                self.respond_json(415,{"error":"JSON required"})
+                return
+            try:
+                length=int(self.headers.get("Content-Length","0"))
+                if not 2<=length<=1800:
+                    self.respond_json(413,{"error":"Invalid request length"})
+                    return
+                body=json.loads(self.rfile.read(length))
+                if not isinstance(body,dict):
+                    raise ValueError("Invalid request")
+                # Remote client address comes from TCP peer; do not trust forwarded IP headers.
+                accepted=recovery_auth.verify(body.get("username"),body.get("password"),self.client_address[0])
+                if not accepted:
+                    self.respond_json(401,{"error":"Incorrect username or password"})
+                    return
+                ticket=passkey_auth.issue_session("password")
+                self.respond_json(200,{"ok":True},[("Set-Cookie",passkey_auth.cookie_header(ticket))])
+            except (ValueError,TypeError):
+                self.respond_json(401,{"error":"Incorrect credentials or too many attempts"})
+            except Exception:
+                self.respond_json(503,{"error":"Recovery login unavailable. Use Face ID."})
+            return
         if route=="/api/logout":
             try:
                 safe=passkey_auth.secure_request(self.headers)
@@ -138,7 +186,7 @@ class Handler(SimpleHTTPRequestHandler):
             self.respond_json(200,{"ok":True},[("Set-Cookie",passkey_auth.expired_cookie())])
             return
         if route.startswith("/api/plaid/"):
-            if not passkey_auth.session_valid(self.headers):
+            if not passkey_auth.session_valid(self.headers,method="passkey"):
                 self.respond_json(403,{"error":"Face ID session required for test-bank access"})
                 return
             try:
@@ -182,7 +230,7 @@ class Handler(SimpleHTTPRequestHandler):
         if not passkey_auth.secure_request(self.headers):
             self.respond_json(403,{"error":"Invalid request origin"})
             return
-        if route.startswith("/api/passkeys/register/") and not self.basic_authorized():
+        if route.startswith("/api/passkeys/register/") and not (passkey_auth.session_valid(self.headers) or (not FORM_RECOVERY and self.basic_authorized())):
             self.respond_json(401,{"error":"Sign in with your existing password to set up Face ID"})
             return
         if self.headers.get("Content-Type","").split(";",1)[0].strip()!="application/json":
@@ -265,7 +313,7 @@ class Handler(SimpleHTTPRequestHandler):
     def authorized(self):
         if passkey_auth.session_valid(self.headers):
             return True
-        return self.basic_authorized()
+        return not FORM_RECOVERY and self.basic_authorized()
 
     def basic_authorized(self):
         if not USERNAME or not PASSWORD:
