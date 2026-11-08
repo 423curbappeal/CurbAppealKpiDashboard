@@ -11,6 +11,8 @@ const securityHeaders = [
 const config: NextConfig = {
   output: "standalone",
   poweredByHeader: false,
+  // CEO OS serves no user images; disabling the optimizer removes an attack surface.
+  images: { unoptimized: true },
   reactStrictMode: true,
   async headers() {
     return [{ source: "/(.*)", headers: securityHeaders }];

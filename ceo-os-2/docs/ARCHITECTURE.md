@@ -55,4 +55,5 @@ drizzle/          SQL migrations (0001_rls.sql = row-level security)
 - Email verification and password reset need an email provider (a Resend/Postmark key).
 - No CSP header yet (needs nonce wiring for Next inline scripts).
 - Background sync runs only when a cron calls `/api/cron/sync`, or lazily when Home loads with stale data.
+- Dependency audit: `npm audit --omit=dev` reports 0 vulnerabilities (Next.js 15.5.29; `postcss`/`sharp` forced to patched versions via `overrides`; image optimizer disabled). One moderate advisory remains in esbuild bundled inside the dev-only `drizzle-kit` (affects esbuild's local dev server, which is never run). Re-run `npm audit` before each release.
 - Backups depend on the hosting provider and must be configured and **restore-tested** (see DEPLOY.md).
