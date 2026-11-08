@@ -5,7 +5,7 @@ from contextlib import closing
 import psycopg
 
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
-KINDS = ("tasks", "workouts", "posts", "routines", "weigh_ins", "lifts", "fitness_goals", "money_entries", "balance_items")
+KINDS = ("tasks", "workouts", "posts", "routines", "weigh_ins", "lifts", "fitness_goals", "money_entries", "balance_items", "time_blocks", "goals", "leads", "bills", "budgets")
 
 def validate(body):
     if not isinstance(body, dict) or not set(("tasks", "workouts", "posts")).issubset(body) or set(body) - set(KINDS):
@@ -150,6 +150,68 @@ def validate(body):
                     if type(reps) is not int or not 1 <= reps <= 100:
                         raise ValueError("Invalid reps")
                     clean_item.update({"pounds":round(amount,2),"reps":reps})
+            if kind in ("time_blocks","goals","leads","bills","budgets"):
+                from datetime import date
+                import math
+                def valid_date(value,optional=False):
+                    if optional and value=="":return value
+                    if not isinstance(value,str) or len(value)!=10:raise ValueError("Invalid date")
+                    try:date.fromisoformat(value)
+                    except ValueError:raise ValueError("Invalid date")
+                    return value
+                def amount_value(field,maximum=1000000000):
+                    value=item.get(field)
+                    if type(value) not in (int,float) or not math.isfinite(value) or not 0<=value<=maximum:
+                        raise ValueError("Invalid "+field)
+                    return round(value,2)
+                if kind=="time_blocks":
+                    day=valid_date(item.get("date"))
+                    start=item.get("start")
+                    end=item.get("end")
+                    def time_ok(value):
+                        return isinstance(value,str) and len(value)==5 and value[2]==":" and value[:2].isdigit() and value[3:].isdigit() and 0<=int(value[:2])<=23 and 0<=int(value[3:])<=59
+                    if not time_ok(start) or not time_ok(end) or start>=end:
+                        raise ValueError("Invalid time block")
+                    focus=item.get("focus","Work")
+                    if focus not in ("Work","Personal","Fitness"):
+                        raise ValueError("Invalid focus")
+                    clean_item.update({"date":day,"start":start,"end":end,"focus":focus})
+                elif kind=="goals":
+                    area=item.get("area")
+                    unit=item.get("unit")
+                    if area not in ("Business","Personal","Fitness") or unit not in ("USD","Count","Percent"):
+                        raise ValueError("Invalid goal type")
+                    target=amount_value("target")
+                    current=amount_value("current")
+                    if target<=0 or (unit=="Percent" and (target>100 or current>100)):
+                        raise ValueError("Invalid goal target")
+                    clean_item.update({"area":area,"unit":unit,"target":target,"current":current,
+                                      "deadline":valid_date(item.get("deadline",""),True)})
+                elif kind=="leads":
+                    stage=item.get("stage")
+                    if stage not in ("New","Contacted","Quoted","Won","Lost"):
+                        raise ValueError("Invalid lead stage")
+                    notes=item.get("notes","")
+                    service=item.get("service","Other")
+                    if not isinstance(notes,str) or len(notes)>500 or not isinstance(service,str) or len(service)>100:
+                        raise ValueError("Invalid lead details")
+                    clean_item.update({"stage":stage,"value":amount_value("value"),
+                                       "follow_up":valid_date(item.get("follow_up",""),True),
+                                       "service":service.strip() or "Other","notes":notes.strip()})
+                elif kind=="bills":
+                    due_day=item.get("due_day")
+                    paid=item.get("paid_months",[])
+                    if type(due_day) is not int or not 1<=due_day<=31 or not isinstance(paid,list) or len(paid)>24:
+                        raise ValueError("Invalid monthly bill")
+                    if any(not isinstance(month,str) or len(month)!=7 or month[4]!="-" or not month[:4].isdigit() or not month[5:].isdigit() or not 1<=int(month[5:])<=12 for month in paid):
+                        raise ValueError("Invalid bill month")
+                    clean_item.update({"amount":amount_value("amount"),"due_day":due_day,
+                                       "paid_months":sorted(set(paid))[-24:]})
+                elif kind=="budgets":
+                    category=item.get("category")
+                    if category not in ("Housing","Utilities","Transportation","Food","Insurance","Debt payment","Shopping","Entertainment","Health","Other"):
+                        raise ValueError("Invalid budget category")
+                    clean_item.update({"category":category,"limit":amount_value("limit")})
             result.append(clean_item)
         clean[kind] = result
     return clean
