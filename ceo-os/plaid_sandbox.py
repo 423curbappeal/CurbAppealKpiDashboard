@@ -11,7 +11,7 @@ from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 import psycopg
 from cryptography.fernet import Fernet
-from plaid_categorize import summarize, insights
+from plaid_categorize import summarize, insights, merchant_key, USER_CATEGORIES
 
 HOST = "https://sandbox.plaid.com"
 CLIENT = os.getenv("PLAID_CLIENT_ID","").strip()
@@ -100,6 +100,58 @@ def _sync(item_id,token,cursor,existing):
                 conn.commit()
             return transactions
     raise ValueError("Sandbox sync had too many pages; no changes committed")
+def _rules_table(cur):
+    cur.execute("""CREATE TABLE IF NOT EXISTS ceo_plaid_sandbox_rules (
+        rule_key TEXT PRIMARY KEY, choice TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())""")
+
+def _rules():
+    with closing(_db()) as conn:
+        with conn.cursor() as cur:
+            _rules_table(cur)
+            cur.execute("SELECT rule_key,choice FROM ceo_plaid_sandbox_rules")
+            rows=cur.fetchall()
+        conn.commit()
+    tx_rules={};merchant_rules={}
+    for key,choice in rows:
+        if key.startswith("tx:"):tx_rules[key[3:]]=choice
+        if key.startswith("merchant:"):merchant_rules[key[9:]]=choice
+    return tx_rules,merchant_rules
+
+def correct_transaction(transaction_id, choice, remember_merchant=False):
+    """Only allow correction of an existing saved Sandbox transaction."""
+    if not isinstance(transaction_id,str) or not 1<=len(transaction_id)<=160:
+        raise ValueError("Invalid transaction")
+    if choice not in USER_CATEGORIES or type(remember_merchant) is not bool:
+        raise ValueError("Invalid classification")
+    match=None
+    for _,_,_,saved in _items()[:5]:
+        if transaction_id in (saved or {}):
+            match=saved[transaction_id]
+            break
+    if not match:
+        raise ValueError("Transaction not found; refresh the Sandbox data")
+    amount=match.get("amount")
+    if match.get("pending") or type(amount) not in (int,float) or amount==0:
+        raise ValueError("Pending or zero-value transactions cannot be corrected")
+    if (choice=="Income" and amount>=0) or (choice not in ("Income","Transfer","Needs review") and amount<=0):
+        raise ValueError("Category conflicts with transaction direction")
+    merchant=merchant_key(match)
+    account_id=str(match.get("account_id") or "")
+    if remember_merchant and (not merchant or not account_id):
+        raise ValueError("Merchant cannot be identified for a rule")
+    keys=["tx:"+transaction_id]
+    if remember_merchant:
+        keys.append("merchant:"+account_id+"|"+merchant)
+    with closing(_db()) as conn:
+        with conn.cursor() as cur:
+            _rules_table(cur)
+            for key in keys:
+                cur.execute("""INSERT INTO ceo_plaid_sandbox_rules(rule_key,choice)
+                  VALUES (%s,%s) ON CONFLICT(rule_key) DO UPDATE
+                  SET choice=EXCLUDED.choice,updated_at=NOW()""",(key,choice))
+        conn.commit()
+    return {"ok":True,"remembered_merchant":remember_merchant}
+
 def overview(refresh=False):
     """Return partial test data when Sandbox sync/balances are temporarily unavailable.
 
@@ -140,9 +192,10 @@ def overview(refresh=False):
                              "currency":balance.get("iso_currency_code") or "USD"})
         transactions.extend(list((saved or {}).values()))
     transactions.sort(key=lambda a:a.get("date") or "",reverse=True)
+    tx_rules,merchant_rules=_rules()
     insight_data={}
     try:
-        transactions,monthly=summarize(transactions)
+        transactions,monthly=summarize(transactions,tx_rules,merchant_rules)
         insight_data=insights(transactions,monthly)
     except (ValueError,TypeError,KeyError,OverflowError,AttributeError):
         # Bad historical transaction metadata should not hide all saved account data.
@@ -154,7 +207,8 @@ def overview(refresh=False):
             "monthly":monthly,
             "insights":insight_data,
             "warnings":list(dict.fromkeys(warnings)),
-            "classification_version":"conservative-v1",
+            "classification_version":"conservative-v2-user-corrections",
+            "available_categories":list(USER_CATEGORIES),
             "retrieved_at":datetime.now(timezone.utc).isoformat()}
 def disconnect_all():
     # Explicitly disconnects Sandbox test items and discards all token material.
@@ -163,6 +217,8 @@ def disconnect_all():
         _api("/item/remove",{"access_token":token})
     with closing(_db()) as conn:
         with conn.cursor() as cur:
+            _rules_table(cur)
+            cur.execute("DELETE FROM ceo_plaid_sandbox_rules")
             cur.execute("DELETE FROM ceo_plaid_sandbox")
         conn.commit()
     return {"ok":True}
