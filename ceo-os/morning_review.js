@@ -129,6 +129,7 @@ if(legacyGrid){let current=legacyGrid;while(current&&current!==library){const ne
 const focusDate=()=>today();
 const reviewWeek=()=>weekStart();
 function routineToday(r,day){return Array.isArray(r.days)&&r.days.includes(new Date(day+'T12:00:00').getDay());}
+let expandedDaily=false;
 function renderDailyActions(){
  const s=state(),day=today(),target=$('daily-actions');target.replaceChildren();
  const dueTasks=s.tasks.filter(t=>!t.done&&(!t.due||t.due<=day))
@@ -137,9 +138,9 @@ function renderDailyActions(){
  const remaining=routines.filter(r=>!(r.completed||[]).includes(day));
  const openLeads=s.leads.filter(l=>!['Won','Lost'].includes(l.stage)&&l.follow_up&&l.follow_up<=day).sort((a,b)=>a.follow_up.localeCompare(b.follow_up));
  const todos=[
- ...dueTasks.slice(0,3).map(t=>({title:t.text,detail:'Priority'+(t.due&&t.due<day?' · overdue':''),run:()=>{t.done=true;api.save();api.render();}})),
- ...remaining.slice(0,2).map(r=>({title:r.text,detail:'Today’s routine',run:()=>{r.completed=Array.from(new Set([...(r.completed||[]),day])).sort().slice(-180);api.save();api.render();}})),
- ...openLeads.slice(0,1).map(l=>({title:'Follow up: '+l.text,detail:l.stage+' · '+(l.follow_up<day?'Overdue':'Due today'),label:'Contacted',run:()=>{
+ ...dueTasks.slice(0,expandedDaily?20:3).map(t=>({title:t.text,detail:'Priority'+(t.due&&t.due<day?' · overdue':''),run:()=>{t.done=true;api.save();api.render();}})),
+ ...remaining.slice(0,expandedDaily?15:2).map(r=>({title:r.text,detail:'Today’s routine',run:()=>{r.completed=Array.from(new Set([...(r.completed||[]),day])).sort().slice(-180);api.save();api.render();}})),
+ ...openLeads.slice(0,expandedDaily?10:1).map(l=>({title:'Follow up: '+l.text,detail:l.stage+' · '+(l.follow_up<day?'Overdue':'Due today'),label:'Contacted',run:()=>{
    if(!api.cloudReady()){alert('Reconnect cloud to update sales follow-ups.');return;}
    if(!confirm('Have you contacted '+l.text+'? CEO OS will remind you again in 2 days.'))return;
    if(l.stage==='New')l.stage='Contacted';
@@ -160,9 +161,14 @@ function renderDailyActions(){
  $('daily-progress').textContent=completed+' routines done · '+(dueTasks.length+remaining.length+openLeads.length)+' open';
  if(!todos.length){empty(target,'You’re caught up. Check today’s calendar below.');}
  for(const t of todos)row(target,t.title,t.detail,t.label||'Done',t.run);
- if(dueTasks.length>3||remaining.length>2||openLeads.length>1){
-  const extra=node('button','More items','secondary');extra.type='button';extra.addEventListener('click',()=>{briefingDetails.open=true;briefingDetails.scrollIntoView({behavior:'smooth'});});
+ if(expandedDaily||dueTasks.length>3||remaining.length>2||openLeads.length>1){
+  const extra=node('button',expandedDaily?'Show less':'Show more actions','secondary');extra.type='button';
+  extra.addEventListener('click',()=>{expandedDaily=!expandedDaily;renderDailyActions();});
   target.append(extra);
+  if(expandedDaily&&(dueTasks.length>20||remaining.length>15||openLeads.length>10)){
+    const note=node('p','Showing the first 20 tasks, 15 routines, and 10 follow-ups. See Today and Sales for the full lists.','muted small');
+    target.append(note);
+  }
  }
 }
 function recordQuickWorkout(category){
