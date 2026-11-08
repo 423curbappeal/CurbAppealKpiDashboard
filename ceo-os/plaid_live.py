@@ -76,7 +76,7 @@ def link_token():
     return {"link_token":response["link_token"]}
 def exchange(public_token):
     if not isinstance(public_token,str) or not public_token.startswith("public-") or len(public_token)>500:
-        raise ValueError("Invalid Sandbox token")
+        raise ValueError("Invalid Production public token")
     result=_api("/item/public_token/exchange",{"public_token":public_token})
     item_id=result["item_id"]
     encrypted=_crypto().encrypt(result["access_token"].encode())
@@ -192,7 +192,7 @@ def correct_transaction(transaction_id, choice, remember_merchant=False):
     return {"ok":True,"remembered_merchant":remember_merchant}
 
 def overview(refresh=False):
-    """Return partial test data when Live sync/balances are temporarily unavailable.
+    """Return partial live data when Live sync/balances are temporarily unavailable.
 
     Never invent current balances: fallback accounts/get snapshots carry an explicit
     freshness warning and are NOT labeled as recently refreshed balances.
@@ -212,17 +212,17 @@ def overview(refresh=False):
                 saved=_sync(item_id,token,cursor,saved)
             except (ValueError,HTTPError,OSError,KeyError,TypeError,TimeoutError,PlaidSyncMutation) as exc:
                 # Retain previously imported transactions; do not reset the sync cursor.
-                warnings.append("Transaction sync temporarily unavailable; showing last saved sample transactions.")
+                warnings.append("Transaction sync temporarily unavailable; showing last saved bank transactions.")
         try:
             response=_api("/accounts/balance/get",{"access_token":token})
         except (ValueError,HTTPError,OSError,KeyError,TypeError,TimeoutError):
-            warnings.append("Live Live balances unavailable; attempting account metadata fallback.")
+            warnings.append("Live balances unavailable; attempting account metadata fallback.")
             try:
                 response=_api("/accounts/get",{"access_token":token})
                 warnings.append("Balances from account metadata may be stale.")
             except (ValueError,HTTPError,OSError,KeyError,TypeError,TimeoutError):
                 response={"accounts":[]}
-                warnings.append("Account metadata unavailable; linked test accounts retained.")
+                warnings.append("Account metadata unavailable; linked bank connections retained.")
         for a in response.get("accounts",[]):
             balance=a.get("balances") or {}
             accounts.append({"id":a.get("account_id"),"name":str(a.get("name","Account"))[:80],
@@ -239,7 +239,7 @@ def overview(refresh=False):
     except (ValueError,TypeError,KeyError,OverflowError,AttributeError):
         # Bad historical transaction metadata should not hide all saved account data.
         monthly={}
-        warnings.append("Some saved sample transactions could not be categorized.")
+        warnings.append("Some saved bank transactions could not be categorized.")
     return {"status":"connected","environment":"production",
             "sample_data":False,"accounts":accounts[:50],
             "transactions":transactions[:350],
@@ -250,7 +250,7 @@ def overview(refresh=False):
             "available_categories":list(USER_CATEGORIES),
             "retrieved_at":datetime.now(timezone.utc).isoformat()}
 def disconnect_all():
-    # Explicitly disconnects Sandbox test items and discards all token material.
+    # Explicitly disconnects live bank items and discards all token material.
     for item_id,encrypted,_,_ in _items():
         token=_crypto().decrypt(bytes(encrypted)).decode()
         _api("/item/remove",{"access_token":token})
