@@ -40,6 +40,17 @@ select{background:#0b1423;border:1px solid #34415a;border-radius:11px;color:var(
 }
 @media(max-width:380px){.grid{grid-template-columns:1fr}}
 
+/* iOS native date controls can exceed half-width form columns. */
+#fitness #weight-form .field-grid,
+#fitness #lift-form .field-grid{grid-template-columns:minmax(0,1fr)}
+#fitness #weight-form .field-grid>div,
+#fitness #lift-form .field-grid>div{min-width:0;width:100%}
+#fitness #weight-form input,
+#fitness #lift-form input{box-sizing:border-box;display:block;width:100%;max-width:100%;min-width:0}
+#fitness input[type="date"]{-webkit-appearance:none;appearance:none;min-height:49px;line-height:normal}
+#fitness input[type="date"]::-webkit-date-and-time-value{text-align:left;min-width:0}
+#fitness input[type="date"]::-webkit-datetime-edit{min-width:0}
+
 </style></head>
 <body><div class="app"><aside><div class="brand">CEO <b>OS</b></div><nav class="nav" id="desktop-nav"></nav></aside><main>
 <div class="row"><div class="eyebrow">Personal command center</div><span class="pill">Prototype</span></div>
