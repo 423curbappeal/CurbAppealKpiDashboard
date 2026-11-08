@@ -5,7 +5,7 @@ from contextlib import closing
 import psycopg
 
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
-KINDS = ("tasks", "workouts", "posts", "routines", "weigh_ins", "lifts", "fitness_goals", "money_entries", "balance_items", "time_blocks", "goals", "leads", "bills", "budgets")
+KINDS = ("tasks", "workouts", "posts", "routines", "weigh_ins", "lifts", "fitness_goals", "money_entries", "balance_items", "time_blocks", "goals", "leads", "bills", "budgets", "weekly_reviews")
 
 def validate(body):
     if not isinstance(body, dict) or not set(("tasks", "workouts", "posts")).issubset(body) or set(body) - set(KINDS):
@@ -212,6 +212,33 @@ def validate(body):
                     if category not in ("Housing","Utilities","Transportation","Food","Insurance","Debt payment","Shopping","Entertainment","Health","Other"):
                         raise ValueError("Invalid budget category")
                     clean_item.update({"category":category,"limit":amount_value("limit")})
+            if kind=="weekly_reviews":
+                from datetime import date
+                week_start=item.get("week_start")
+                if not isinstance(week_start,str) or len(week_start)!=10:
+                    raise ValueError("Invalid review week")
+                try:
+                    parsed=date.fromisoformat(week_start)
+                except ValueError:
+                    raise ValueError("Invalid review week")
+                if parsed.weekday()!=0:
+                    raise ValueError("Review week must start on Monday")
+                wins=item.get("wins","")
+                improve=item.get("improve","")
+                next_focus=item.get("next_focus","")
+                for value in (wins,improve,next_focus):
+                    if not isinstance(value,str) or len(value)>500:
+                        raise ValueError("Invalid review note")
+                targets={}
+                for field in ("revenue","outreach","workouts"):
+                    value=(item.get("targets") or {}).get(field,0) if isinstance(item.get("targets"),dict) else 0
+                    if type(value) not in (int,float) or not 0<=value<=1000000000:
+                        raise ValueError("Invalid weekly target")
+                    if field!="revenue" and (int(value)!=value or value>10000):
+                        raise ValueError("Invalid weekly count target")
+                    targets[field]=round(value,2) if field=="revenue" else int(value)
+                clean_item.update({"week_start":week_start,"wins":wins.strip(),"improve":improve.strip(),
+                                   "next_focus":next_focus.strip(),"targets":targets})
             result.append(clean_item)
         clean[kind] = result
     return clean
