@@ -7,6 +7,7 @@ from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 import cloud_storage
 import business_kpi
 import google_calendar_feed
+import passkey_auth
 
 USERNAME = os.getenv("CEO_OS_USERNAME", "")
 PASSWORD = os.getenv("CEO_OS_PASSWORD", "")
@@ -21,13 +22,23 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'")
 
-    def respond_json(self, code, obj):
+    def respond_json(self, code, obj, extra_headers=None):
         body = json.dumps(obj).encode()
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        for name,value in (extra_headers or []):
+            self.send_header(name,value)
         self.end_headers()
         self.wfile.write(body)
+
+    def require_basic_login(self):
+        if self.basic_authorized():
+            return True
+        self.send_response(401)
+        self.send_header("WWW-Authenticate", 'Basic realm="CEO OS Private Preview", charset="UTF-8"')
+        self.end_headers()
+        return False
 
     def require_login(self):
         if self.authorized():
@@ -38,9 +49,20 @@ class Handler(SimpleHTTPRequestHandler):
         return False
 
     def do_GET(self):
+        route = self.path.split("?", 1)[0]
+        if route == "/passkey-login" and passkey_auth.ENABLED:
+            self.path="/passkey_login.html"
+            super().do_GET()
+            return
+        if route == "/password-login" and passkey_auth.ENABLED:
+            if not self.require_basic_login():
+                return
+            self.send_response(302)
+            self.send_header("Location","/")
+            self.end_headers()
+            return
         if not self.require_login():
             return
-        route = self.path.split("?", 1)[0]
         if route == "/api/google-calendar":
             try:
                 self.respond_json(200,google_calendar_feed.load())
@@ -67,6 +89,52 @@ class Handler(SimpleHTTPRequestHandler):
             return
         self.path = "/index.html"
         super().do_GET()
+
+    def do_POST(self):
+        route=self.path.split("?",1)[0]
+        if route not in ("/api/passkeys/register/options","/api/passkeys/register/verify",
+                         "/api/passkeys/login/options","/api/passkeys/login/verify"):
+            self.send_error(404)
+            return
+        if not passkey_auth.ENABLED:
+            self.respond_json(503,{"error":"Face ID is not enabled yet. Set CEO_OS_SESSION_SECRET."})
+            return
+        if not passkey_auth.secure_request(self.headers):
+            self.respond_json(403,{"error":"Invalid request origin"})
+            return
+        if route.startswith("/api/passkeys/register/") and not self.basic_authorized():
+            self.respond_json(401,{"error":"Sign in with your existing password to set up Face ID"})
+            return
+        if self.headers.get("Content-Type","").split(";",1)[0].strip()!="application/json":
+            self.respond_json(415,{"error":"JSON required"})
+            return
+        try:
+            length=int(self.headers.get("Content-Length","0"))
+        except ValueError:
+            length=0
+        if length<1 or length>24000:
+            self.respond_json(413,{"error":"Invalid request length"})
+            return
+        try:
+            body=json.loads(self.rfile.read(length))
+            if not isinstance(body,dict):
+                raise ValueError("Invalid request")
+            host=self.headers.get("Host","")
+            if route.endswith("register/options"):
+                result=passkey_auth.register_options(host)
+            elif route.endswith("register/verify"):
+                result=passkey_auth.register_verify(host,body.get("token",""),body.get("credential",{}))
+            elif route.endswith("login/options"):
+                result=passkey_auth.login_options(host)
+            else:
+                ticket=passkey_auth.login_verify(host,body.get("token",""),body.get("credential",{}))
+                self.respond_json(200,{"ok":True},[("Set-Cookie",passkey_auth.cookie_header(ticket))])
+                return
+            self.respond_json(200,result)
+        except (ValueError,TypeError,KeyError) as exc:
+            self.respond_json(400,{"error":str(exc)})
+        except Exception:
+            self.respond_json(503,{"error":"Passkey service unavailable"})
 
     def do_PUT(self):
         if not self.require_login():
@@ -115,6 +183,11 @@ class Handler(SimpleHTTPRequestHandler):
         super().do_HEAD()
 
     def authorized(self):
+        if passkey_auth.session_valid(self.headers):
+            return True
+        return self.basic_authorized()
+
+    def basic_authorized(self):
         if not USERNAME or not PASSWORD:
             return False
         value = self.headers.get("Authorization", "")
