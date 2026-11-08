@@ -312,3 +312,13 @@ Audit identified excessive mobile navigation (eight equal-priority destinations)
 - **Offline/private data:** adding or changing leads, bills, budgets, and goals through the operating modules now requires cloud readiness, because those collections intentionally are not cached to browser localStorage. The Home bill action has the same protection. The sync indicator no longer incorrectly promises offline persistence of private records. Existing non-sensitive offline workflows remain unchanged.
 
 **Verification scope:** Static parsing of the inline application code, `command_modules.js`, and `morning_review.js` succeeded; referenced DOM IDs and included static routes were checked. Browser behavior on iPhone, server-side GitHub Actions test outcome, sync failure simulation, and the most recent Railway deployment must still be verified independently. Production Plaid remains locked, and this change does not establish actual Railway database backups. Avoid relying on unverified backups.
+
+## Reliability and friction reduction (2026-11-08)
+
+Additional work on `feature/ceo-os-mobile` targets daily usability rather than feature count:
+- New **Quick priority** input on the Home Morning Briefing creates a due-today item and automatically uses an available top-three slot; when all three are taken it creates a standard task rather than silently discarding it.
+- The **unpaid bill alert** includes overdue current-month bills as well as installments due within seven days, including month boundaries and short-month date clamping. If a bill is both overdue and scheduled next month within seven days, both obligations may appear, and each bill can be marked paid for the appropriate month.
+- Cloud validator rejects non-finite weekly review targets to avoid invalid data entering saved reviews.
+- `test_morning_review.cjs` is executed by the branch's GitHub Actions workflow to cover date boundaries, paid/unpaid filtering, and weekly review week alignment. Direct static/manual execution of the pure bill/date helpers passed seven tested scenarios. GitHub Actions and live iPhone testing should be checked separately.
+
+Unchanged: production Plaid remains locked; KPI and Calendar feeds remain read-only; existing SQL state and integrations are preserved. The added modules have not undergone an authenticated browser-based end-to-end test.
