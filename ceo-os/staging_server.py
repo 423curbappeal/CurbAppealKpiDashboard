@@ -112,8 +112,12 @@ class Handler(SimpleHTTPRequestHandler):
             if not safe:
                 self.respond_json(403,{"error":"Invalid request origin"})
                 return
-            # Only the signed passkey cookie can be cleared server-side.
-            # Browsers may retain HTTP Basic credentials until the browser session ends.
+            try:
+                passkey_auth.revoke_session(self.headers)
+            except Exception:
+                self.respond_json(503,{"error":"Unable to revoke session. Please try again."})
+                return
+            # Browser-cached HTTP Basic credentials still need migration to a proper recovery login.
             self.respond_json(200,{"ok":True},[("Set-Cookie",passkey_auth.expired_cookie())])
             return
         if route not in ("/api/passkeys/register/options","/api/passkeys/register/verify",
