@@ -138,6 +138,22 @@ select{background:#0b1423;border:1px solid #34415a;border-radius:11px;color:var(
 .command-note{color:#f1c988;font-size:12px}
 @media(max-width:750px){.command-grid{grid-template-columns:1fr}.command-card{padding:15px}}
 @media(max-width:430px){.command-form .field-grid{grid-template-columns:minmax(0,1fr)}}
+/* Compact actions and accessible touch targets for new CEO OS modules. */
+.command-item{min-width:0}
+.command-item>div:first-child{flex:1 1 auto}
+.command-actions{flex:0 1 auto}
+.command-actions button{min-height:36px}
+.command-card .row{flex-wrap:wrap}
+.command-card input[type="date"],.command-card input[type="time"]{-webkit-appearance:none;appearance:none;min-height:48px}
+.command-card [aria-live="polite"]:empty{display:none}
+@media(max-width:600px){
+ .command-item{flex-wrap:wrap;gap:8px}
+ .command-actions{justify-content:flex-start;width:100%}
+ .command-card .command-stat{font-size:22px}
+ .command-card .command-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:380px){.command-card .command-grid{grid-template-columns:minmax(0,1fr)}}
+
 
 
 </style></head>
