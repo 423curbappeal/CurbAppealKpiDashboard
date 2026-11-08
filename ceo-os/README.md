@@ -244,3 +244,26 @@ Corrections are stored in the new PostgreSQL `ceo_plaid_sandbox_rules` table, se
 The `POST /api/plaid/correct` endpoint requires an authenticated passkey session, a same-origin JSON request, and an existing saved test transaction. The backend rejects assigning an expense label to a credit, assigning Income to a debit, or applying corrections to pending/zero-value transactions. The dropdown supports Income, Transfer, Needs review, and the existing expense categories. Merchant rules are an **opt-in** action, never created automatically.
 
 **Privacy and accuracy notes:** Plaid Sandbox remains fictional data only. Merchant names may be ambiguous; opt into merchant-wide rules only when transactions genuinely belong in the same category. Transaction corrections persist in the staging PostgreSQL database but have not been tested against the deployed Railway UI. The Python test file includes override and account-scoping cases; actual execution of those tests and production-grade security remain outstanding. No new environment variables are needed.
+
+## Production Plaid preparation — locked by default (2026-11-07)
+
+**This update does not connect real accounts.** It introduces a second `plaid_live.py` connector and separate `ceo_plaid_live` / `ceo_plaid_live_rules` tables. Access tokens use a dedicated Production encryption key; Sandbox tokens, test rows, and rules are never reused. The Finance tab will show **Personal bank connection — Locked** until all live requirements are satisfied. The existing Sandbox connection is unchanged.
+
+Live access is intentionally fail-closed. The code checks for all of the following **service-side** configuration values before allowing a production request:
+
+- Existing `PLAID_CLIENT_ID` and `DATABASE_URL`.
+- Production-specific `PLAID_PRODUCTION_SECRET` issued by Plaid (never commit to GitHub).
+- A distinct random `PLAID_PRODUCTION_TOKEN_ENCRYPTION_KEY` (40+ characters; preserve it securely for restoring encrypted token data).
+- `CEO_OS_RECOVERY_MODE=form` after safe testing of the password recovery path.
+- Explicit `PLAID_LIVE_APPROVED=yes` only following Plaid production entitlement and operator security, privacy, OAuth, and database recovery review.
+- When needed for browser OAuth redirect, `PLAID_PRODUCTION_REDIRECT_URI` must be an approved HTTPS URL configured in the Plaid Dashboard. The app currently does **not** provide an OAuth redirect reinitialization route or webhook receiver; test supported institution flows and implement those before launching broadly.
+
+**Do not set these variables merely to unlock the button.** First obtain Plaid Production access, verify database backup and recovery in a separate environment, review financial-data privacy/security obligations, remove cached HTTP Basic authentication via the previously tested form migration, and test consent, token revocation, relinking, sync error recovery, and Safari OAuth redirects. The existing password backup remains in place until the user elects the migration.
+
+The live read-only data flow uses `/api/plaid-live/status`, `/api/plaid-live/link-token`, `/api/plaid-live/exchange`, `/api/plaid-live/overview`, `/api/plaid-live/correct` and `/api/plaid-live/disconnect`. All data or mutation routes require a valid, server-revocable passkey session; writes require same-origin JSON. Linking always requires a person to explicitly authorize their institution via Plaid Link. Data is not imported into manual finance totals; there are separate read-only live balances and monthly cash-flow summaries. Production code is untested against real institutions and should not be represented as production-ready.
+
+### Incremental sync hardening
+
+Both environments now restart `/transactions/sync` pagination from the original saved cursor if Plaid returns `TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION`, persist complete batches only, and stop instead of advancing the cursor when the current 2,500-row retention limit would silently drop entries. When sync fails, previously saved transactions are retained with a visible warning. These behavior changes follow [Plaid Transactions Sync documentation](https://plaid.com/docs/api/products/transactions/) and [transaction error guidance](https://plaid.com/docs/errors/transactions/).
+
+**Remaining launch blockers:** authoritative production entitlement/configuration, tested backups/restore, formal privacy/security review, full OAuth redirect support for embedded browsers, webhook/scheduled syncing, retention policy, reconciliation for credit cards and transfers across multiple institutions, and production end-to-end testing. Do not imply real balances are connected or that ongoing background sync is implemented.
