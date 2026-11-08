@@ -103,3 +103,19 @@ A passkey sign-in is included as an **opt-in feature**, preserving existing HTTP
 Passkeys are created and held by the iPhone's passkey provider; the CEO OS database only stores a credential ID, public key and sign count. A session cookie is Secure, HttpOnly, SameSite=Strict, signed using `CEO_OS_SESSION_SECRET`, and expires after 30 days. Signing in with Face ID generally happens when the session expires or on a new browser; it does **not** force Face ID on every launch.
 
 This is a staging implementation, not independently security-audited or confirmed working on the user's device yet. The old password login remains functional. No production KPI dashboard code is modified.
+
+## Fitness dashboard upgrade (2026-11-07)
+
+The CEO OS **Fitness** tab now contains:
+- Workout log with Push, Pull, Legs, Upper, Lower, Full Body, Cardio and Other session types, duration and notes
+- Weekly workout completion meter (Monday–Sunday) with editable goal (1–7 workouts/week)
+- Body-weight log with date and pounds, latest weight, change from first recorded check-in, chronological SVG trend and removable entries
+- Strength set log (exercise, pounds, reps, date), exercise-specific trend chart and removable entries
+- Fitness-related cloud fields `weigh_ins`, `lifts` and `fitness_goals` stored in the existing PostgreSQL CEO OS state with optimistic-revision sync
+- Prior unstructured workouts and all other app data are still accepted and shown. No DB schema migration or Railway variables required.
+
+The weekly training goal also syncs between devices. The app has a 250-entry cap per log type, and its weight/strength trend charts show up to the latest 30 entries. Trends represent user-entered data only; no Apple Health or fitness-service integration is included.
+
+**Test after latest staging deployment:** On iPhone, open Fitness, log a workout, set a weekly training goal, add one weight and one strength entry. Watch the charts update and cloud status return to “Cloud synced”. Refresh on a computer to confirm all records and weekly goal match. Remove one test item and verify the deletion syncs.
+
+**Privacy warning:** Workout, strength and body-weight records are personal health/wellness information. This remains a staging app with HTTP Basic as a recovery login, app-level passkey sessions, and no audited data protection or confirmed automated Postgres backups. Do not use it to store medical diagnoses, clinical notes or other highly sensitive details until security and recovery are improved.
