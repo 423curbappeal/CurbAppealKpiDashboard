@@ -11,6 +11,7 @@ from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 import psycopg
 from cryptography.fernet import Fernet
+from plaid_categorize import summarize
 
 HOST = "https://sandbox.plaid.com"
 CLIENT = os.getenv("PLAID_CLIENT_ID","").strip()
@@ -88,7 +89,8 @@ def _sync(item_id,token,cursor,existing):
                     "name":str(change.get("merchant_name") or change.get("name") or "Transaction")[:120],
                     "amount":change.get("amount",0),"date":change.get("date"),
                     "pending":bool(change.get("pending",False)),
-                    "category":(change.get("personal_finance_category") or {}).get("primary","OTHER")}
+                    "category":(change.get("personal_finance_category") or {}).get("primary","OTHER"),
+                    "category_detail":(change.get("personal_finance_category") or {}).get("detailed","")}
         next_cursor=result.get("next_cursor")
         if not result.get("has_more"):
             with closing(_db()) as conn:
@@ -118,9 +120,12 @@ def overview(refresh=False):
                              "currency":balance.get("iso_currency_code") or "USD"})
         transactions.extend(list((saved or {}).values()))
     transactions.sort(key=lambda a:a.get("date") or "",reverse=True)
+    transactions,monthly=summarize(transactions)
     return {"status":"connected","environment":"sandbox",
             "sample_data":True,"accounts":accounts[:50],
             "transactions":transactions[:350],
+            "monthly":monthly,
+            "classification_version":"conservative-v1",
             "retrieved_at":datetime.now(timezone.utc).isoformat()}
 def disconnect_all():
     # Explicitly disconnects Sandbox test items and discards all token material.
