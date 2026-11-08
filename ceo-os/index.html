@@ -84,7 +84,7 @@ select{background:#0b1423;border:1px solid #34415a;border-radius:11px;color:var(
 (()=>{'use strict';
 const pages=[['home','⌂','Home','Your command center.','One place for daily execution and long-term progress.'],['business','▥','Business','Business performance.','Curb Appeal KPIs and operating decisions.'],['planner','✓','Today','Win the day.','Identify and finish your highest-impact priorities.'],['fitness','◉','Fitness','Build the athlete.','Keep training consistent and measurable.'],['brand','✦','Brand','Build your personal brand.','Capture the stories worth sharing.']];
 const KEY='ceo-os-prototype-v1';
-let state={tasks:[],workouts:[],posts:[],routines:[],weigh_ins:[],lifts:[]};
+let state={tasks:[],workouts:[],posts:[],routines:[],weigh_ins:[],lifts:[],fitness_goals:[]};
 try{const saved=JSON.parse(localStorage.getItem(KEY));if(saved&&typeof saved==='object')for(const k of Object.keys(state))if(Array.isArray(saved[k]))state[k]=saved[k].slice(0,250);}catch(e){}
 const $=id=>document.getElementById(id);
 const dollars=n=>typeof n==='number'&&Number.isFinite(n)?new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(n):'—';
@@ -111,10 +111,10 @@ if(!res.ok)throw Error('Cloud save failed');const data=await res.json();cloudRev
 async function initCloud(){const initialChanges=changeCounter;let local=JSON.parse(JSON.stringify(state));
 try{const res=await fetch('/api/state',{cache:'no-store'});if(!res.ok)throw Error('not connected');const data=await res.json();
 if(initialChanges!==changeCounter){syncStatus('Local edits made during startup — reload to sync');return;}
-cloudRevision=data.revision;const server=data.state;const serverHasData=['tasks','workouts','posts','routines','weigh_ins','lifts'].some(k=>server[k]?.length);
-const localHasData=['tasks','workouts','posts','routines','weigh_ins','lifts'].some(k=>local[k]?.length);
+cloudRevision=data.revision;const server=data.state;const serverHasData=['tasks','workouts','posts','routines','weigh_ins','lifts','fitness_goals'].some(k=>server[k]?.length);
+const localHasData=['tasks','workouts','posts','routines','weigh_ins','lifts','fitness_goals'].some(k=>local[k]?.length);
 if(!serverHasData && localHasData){if(window.confirm('Your cloud dashboard is empty. Import this device\'s existing entries to the cloud?')){cloudReady=true;syncStatus('Importing local data…');save();return;}}
-state={tasks:Array.isArray(server.tasks)?server.tasks:[],workouts:Array.isArray(server.workouts)?server.workouts:[],posts:Array.isArray(server.posts)?server.posts:[],routines:Array.isArray(server.routines)?server.routines:[],weigh_ins:Array.isArray(server.weigh_ins)?server.weigh_ins:[],lifts:Array.isArray(server.lifts)?server.lifts:[]};
+state={tasks:Array.isArray(server.tasks)?server.tasks:[],workouts:Array.isArray(server.workouts)?server.workouts:[],posts:Array.isArray(server.posts)?server.posts:[],routines:Array.isArray(server.routines)?server.routines:[],weigh_ins:Array.isArray(server.weigh_ins)?server.weigh_ins:[],lifts:Array.isArray(server.lifts)?server.lifts:[],fitness_goals:Array.isArray(server.fitness_goals)?server.fitness_goals:[]};
 cloudReady=true;localSave();render();syncStatus('Cloud synced');
 }catch(e){cloudReady=false;syncStatus('Cloud not connected — entries saved on this device only');}}
 
@@ -126,13 +126,14 @@ function render(){renderList('tasks','task-list');renderList('workouts','workout
 [['post-form','post-input','posts']].forEach(([form,input,type])=>{$(form).addEventListener('submit',e=>{e.preventDefault();const text=$(input).value.trim();if(!text)return;state[type].unshift({id:Date.now()+'-'+Math.random(),text,done:false,when:Date.now()});state[type]=state[type].slice(0,250);$(input).value='';save();render();});});
 
 
-const fitnessGoalKey='ceo-os-fitness-goal-v1';
-let weeklyGoal=4;
-try{const n=Number(localStorage.getItem(fitnessGoalKey));if(Number.isInteger(n)&&n>=1&&n<=7)weeklyGoal=n;}catch(e){}
-function fitnessGoal(delta){weeklyGoal=Math.max(1,Math.min(7,weeklyGoal+delta));try{localStorage.setItem(fitnessGoalKey,String(weeklyGoal));}catch(e){}renderFitness();}
+function fitnessGoal(delta){
+const existing=state.fitness_goals[0],current=existing?.target||4,target=Math.max(1,Math.min(7,current+delta));
+state.fitness_goals=[{id:existing?.id||'weekly-training-target',text:'Weekly training target',when:existing?.when||Date.now(),done:false,target}];
+save();renderFitness();
+}
 $('fitness-goal-less').addEventListener('click',()=>fitnessGoal(-1));
 $('fitness-goal-more').addEventListener('click',()=>fitnessGoal(1));
-$('weight-date').value=new Date().toLocaleDateString('en-CA');$('lift-date').value=new Date().toLocaleDateString('en-CA');
+$('weight-date').value=new Date().toLocaleDateString('sv-SE');$('lift-date').value=new Date().toLocaleDateString('en-CA');
 $('workout-form').addEventListener('submit',e=>{e.preventDefault();const text=$('workout-input').value.trim(),category=$('workout-category').value,duration=Number($('workout-duration').value);if(!text||!Number.isInteger(duration)||duration<0||duration>600)return;
 state.workouts.unshift({id:Date.now()+'-'+Math.random(),text,category,duration,done:false,when:Date.now()});state.workouts=state.workouts.slice(0,250);$('workout-input').value='';save();render();});
 $('weight-form').addEventListener('submit',e=>{e.preventDefault();const pounds=Number($('weight-value').value),date=$('weight-date').value;if(!date||!Number.isFinite(pounds)||pounds<50||pounds>800)return;
@@ -161,7 +162,7 @@ fitnessLineChart($('fitness-lift-chart'),selected.map(x=>({date:x.date,when:x.wh
 fitnessHistory($('lift-history'),selected,x=>x.pounds+' lb × '+x.reps+' reps','lifts');}
 function renderFitness(){
 const now=new Date(),weekday=(now.getDay()+6)%7,start=new Date(now.getFullYear(),now.getMonth(),now.getDate()-weekday).getTime(),end=start+7*86400000;
-const sessions=state.workouts.filter(w=>w.when>=start&&w.when<end).length;
+const sessions=state.workouts.filter(w=>w.when>=start&&w.when<end).length,weeklyGoal=state.fitness_goals[0]?.target||4;
 $('fitness-week-count').textContent=sessions+' / '+weeklyGoal;$('fitness-week-caption').textContent=sessions>=weeklyGoal?'Weekly training target reached':'Workouts logged since Monday';$('fitness-week-bar').style.width=Math.min(100,sessions/weeklyGoal*100)+'%';$('fitness-goal-value').textContent=String(weeklyGoal);
 $('fitness-lift-count').textContent=String(state.lifts.length);
 const weights=state.weigh_ins.slice().sort((a,b)=>b.date.localeCompare(a.date)||b.when-a.when);
