@@ -540,7 +540,10 @@ async function plaidOverview(){
       const left=document.createElement('div');const title=document.createElement('strong');title.textContent=transaction.name;
       const meta=document.createElement('div');meta.className='muted small';meta.textContent=(transaction.date||'')+' · '+(transaction.pending?'Pending · ':'')+(transaction.display_category||'Needs review')+' · '+(transaction.classification||'review');left.append(title,meta);
       const amount=document.createElement('strong');amount.textContent=plaidFormat(transaction.amount);
-      row.append(left,amount);txContainer.append(row);}
+      const edit=document.createElement('button');edit.type='button';edit.className='secondary';edit.textContent='Correct';
+      const editor=document.createElement('div');editor.hidden=true;
+      edit.addEventListener('click',()=>{editor.hidden=!editor.hidden;if(!editor.hidden){editor.replaceChildren();plaidCorrectionRow(editor,transaction);}});
+      row.append(left,amount,edit);txContainer.append(row,editor);}
   }catch(e){plaidStatus(e.message||'Sandbox temporarily unavailable');}
 }
 async function initPlaidSandbox(){
