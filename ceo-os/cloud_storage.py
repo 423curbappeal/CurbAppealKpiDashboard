@@ -5,7 +5,7 @@ from contextlib import closing
 import psycopg
 
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
-KINDS = ("tasks", "workouts", "posts", "routines")
+KINDS = ("tasks", "workouts", "posts", "routines", "weigh_ins", "lifts")
 
 def validate(body):
     if not isinstance(body, dict) or not set(("tasks", "workouts", "posts")).issubset(body) or set(body) - set(KINDS):
@@ -59,6 +59,37 @@ def validate(body):
                     except ValueError:
                         raise ValueError("Invalid check-in date")
                 clean_item.update({"days":days,"completed":sorted(set(completed))[-180:]})
+            if kind == "workouts":
+                category=item.get("category","Other")
+                if category not in ("Push","Pull","Legs","Upper","Lower","Full Body","Cardio","Other"):
+                    raise ValueError("Invalid workout category")
+                duration=item.get("duration",0)
+                if type(duration) not in (int,float) or not 0 <= duration <= 600:
+                    raise ValueError("Invalid workout duration")
+                clean_item.update({"category":category,"duration":int(duration)})
+            if kind in ("weigh_ins","lifts"):
+                from datetime import date
+                day=item.get("date")
+                if not isinstance(day,str) or len(day)!=10:
+                    raise ValueError("Invalid tracking date")
+                try:
+                    date.fromisoformat(day)
+                except ValueError:
+                    raise ValueError("Invalid tracking date")
+                clean_item["date"]=day
+                if kind=="weigh_ins":
+                    amount=item.get("pounds")
+                    if type(amount) not in (int,float) or not 50 <= amount <= 800:
+                        raise ValueError("Invalid body weight")
+                    clean_item["pounds"]=round(amount,2)
+                else:
+                    amount=item.get("pounds")
+                    reps=item.get("reps")
+                    if type(amount) not in (int,float) or not 0 <= amount <= 1500:
+                        raise ValueError("Invalid lift weight")
+                    if type(reps) is not int or not 1 <= reps <= 100:
+                        raise ValueError("Invalid reps")
+                    clean_item.update({"pounds":round(amount,2),"reps":reps})
             result.append(clean_item)
         clean[kind] = result
     return clean
