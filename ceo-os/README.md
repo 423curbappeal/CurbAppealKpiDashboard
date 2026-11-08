@@ -119,3 +119,24 @@ The weekly training goal also syncs between devices. The app has a 250-entry cap
 **Test after latest staging deployment:** On iPhone, open Fitness, log a workout, set a weekly training goal, add one weight and one strength entry. Watch the charts update and cloud status return to “Cloud synced”. Refresh on a computer to confirm all records and weekly goal match. Remove one test item and verify the deletion syncs.
 
 **Privacy warning:** Workout, strength and body-weight records are personal health/wellness information. This remains a staging app with HTTP Basic as a recovery login, app-level passkey sessions, and no audited data protection or confirmed automated Postgres backups. Do not use it to store medical diagnoses, clinical notes or other highly sensitive details until security and recovery are improved.
+
+## Personal Brand dashboard (November 2026)
+
+The **Brand** tab now supports:
+- Saving content ideas with platform (Instagram, Facebook, TikTok, YouTube, LinkedIn, Other), pipeline stage (Idea, Draft, Ready, Scheduled, Published), and optional planned date
+- Filtering content pipeline by stage, editing any saved idea, moving it across stages, and deleting posts with confirmation
+- Monthly content calendar for scheduled and published posts, with date selection
+- Manual post-level views, likes, comments, shares, and follower gains for published content
+- Aggregate content KPIs (in pipeline, published, logged views and attributed follower gains)
+
+Older post ideas lacking metadata automatically behave as `Idea` / `Other`. All content remains in the same authenticated, revisioned PostgreSQL state; no database migration or new Railway variable is required. User-entered engagement is **not** fetched from social networks and cannot independently confirm real social performance. No social platforms are connected and publishing is not automated.
+
+### Test on devices
+
+1. Verify Railway CEO OS staging deployment is active and open the app's **Brand** tab.
+2. Add a content idea and confirm **Cloud synced**.
+3. Edit the idea, change it to **Scheduled**, choose a planned date and save. Select that date in the Brand calendar; the entry should appear.
+4. Change it to **Published**, record example views/likes, and verify the summary counts change.
+5. Refresh on desktop and confirm the same entry, dates and metrics appear. Remove test data if desired.
+
+Original Curb Appeal KPI production code is untouched. Database backups, access hardening, and data portability are outstanding before using the staging app as critical business infrastructure.
