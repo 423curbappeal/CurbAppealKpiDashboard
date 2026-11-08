@@ -222,3 +222,15 @@ Conservative classification uses Plaid Personal Finance Category and transaction
 The categorizer lives in `plaid_categorize.py`, with a credential-free test suite `test_plaid_categorize.py`. Run from the `ceo-os` directory with `python -m unittest test_plaid_categorize.py` to verify the included scenarios. **This deployment has code-level inspection but has not yet been tested against the user's live Railway Sandbox output.**
 
 The test-bank data refreshes when the app is opened and when **Refresh sample data** is tapped. It does **not** have background scheduled syncs, webhook processing, user-correction persistence or live bank connections. Plaid's metadata and merchant names can be wrong; never assume automated categories are definitive. Real bank credentials and production Plaid APIs remain disabled.
+
+## Financial insights (Plaid Sandbox, 2026-11-07)
+
+Finance → Plaid Sandbox displays three new read-only, **fictional test-data** insights on each refresh:
+
+- **Cash-flow trend**: up to six months with recorded transactions, showing posted, classified income and expenses. Missing months are not treated as months with zero activity; partial months and incomplete bank history must not be interpreted as a full statement.
+- **Biggest spending categories**: top five by amount, with percent of classified spending, for the selected statement month.
+- **Possible recurring expenses**: posted expenses with matching account + normalized merchant name and broadly stable amounts (within 20% of median), seen across distinct dates with monthly-looking intervals of 25–40 days, or weekly-looking intervals of 6–8 days (at least three observations for weekly). These are unconfirmed historical patterns, **not** established subscriptions, contract obligations, or predictions of the next due date.
+
+Classification continues excluding pending entries, transfers, debt payments and ambiguous credits from monthly income/spending. Trend data is derived from the saved Sandbox transactions already retrieved by the backend, not from real accounts. If a Plaid refresh fails, previously saved transactions may still be shown with a warning. Test cases added in `test_plaid_categorize.py`. No new Railway variables, external apps, automated background jobs, or production banking access are introduced.
+
+**Verification:** Open Finance → Plaid Sandbox and tap Refresh sample data. Inspect the cash-flow trend, top categories and recurring candidates. Code inspection is not a substitute for testing the live deployed app or executing the Python test suite; these remain to be validated before calling the feature fully tested.
