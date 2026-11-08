@@ -419,7 +419,10 @@ async function plaidOverview(){
     const accountContainer=$('plaid-demo-accounts'),txContainer=$('plaid-demo-transactions');
     accountContainer.replaceChildren();txContainer.replaceChildren();
     if(result.status==='not_linked'){plaidStatus('Sandbox ready. Tap Connect test bank to try fictional data.');return;}
-    plaidStatus('Sample data refreshed. These are fictional bank accounts, not live balances.');
+    const syncWarnings=Array.isArray(result.warnings)?result.warnings:[];
+    plaidStatus(syncWarnings.length
+      ?'Sample data loaded with warnings: '+syncWarnings.join(' ')
+      :'Sample data refreshed. These are fictional bank accounts, not live balances.');
     const heading=document.createElement('h3');heading.textContent='Fictional account balances';accountContainer.append(heading);
     for(const account of accounts){const row=document.createElement('div');row.className='entry';
       const left=document.createElement('div');const title=document.createElement('strong');title.textContent=account.name;
