@@ -155,6 +155,17 @@ function renderGoals(){
   progress(progressContainer,pct(revenueGoal.current,revenueGoal.target));}
  else progressContainer.append(el('span','No business revenue goal entered yet. Create one in Goals.','muted small'));
 }
+
+function editLead(l){const date=prompt('New follow-up date (YYYY-MM-DD, or blank)',l.follow_up||'');
+   if(date===null)return;
+   if(date&&!/^\d{4}-\d{2}-\d{2}$/.test(date))return alert('Enter YYYY-MM-DD');
+   if(date&&Number.isNaN(new Date(date+'T12:00:00').getTime()))return alert('Enter a valid date');
+   const stage=prompt('Stage: New, Contacted, Quoted, Won, Lost',l.stage);
+   if(stage===null)return;
+   if(!['New','Contacted','Quoted','Won','Lost'].includes(stage))return alert('Invalid stage');
+   l.follow_up=date;l.stage=stage;api.save();api.render();
+  
+}
 function renderSales(){
  const arr=state().leads,open=arr.filter(l=>!['Won','Lost'].includes(l.stage)),won=arr.filter(l=>l.stage==='Won');
  const due=open.filter(l=>l.follow_up&&l.follow_up<=today()),quoted=arr.filter(l=>['Quoted','Won','Lost'].includes(l.stage));
@@ -167,7 +178,7 @@ function renderSales(){
  const followups=$('sales-due-list');followups.replaceChildren();
  if(!due.length)empty(followups,'No overdue or due-today follow-ups.');
  for(const l of due.slice().sort((a,b)=>a.follow_up.localeCompare(b.follow_up))){
-  itemRow(followups,l.text,l.service+' · Due '+dateCheck(l.follow_up)+' · '+l.stage,[action('Open',()=>{api.navigate('sales');$('sales-filter').value='All';renderSales();})]);
+  itemRow(followups,l.text,l.service+' · Due '+dateCheck(l.follow_up)+' · '+l.stage,[action('Edit',()=>editLead(l))]);
  }
  const list=$('sales-lead-list');list.replaceChildren();const filter=$('sales-filter').value;
  const view=arr.filter(l=>filter==='All'||l.stage===filter).slice().sort((a,b)=>(a.follow_up||'9999').localeCompare(b.follow_up||'9999'));
@@ -177,15 +188,7 @@ function renderSales(){
   if(!['Won','Lost'].includes(l.stage))actions.push(action('Next stage',()=>{
    const stages=['New','Contacted','Quoted','Won'];const i=stages.indexOf(l.stage);l.stage=stages[Math.min(stages.length-1,i+1)];api.save();api.render();
   }));
-  actions.push(action('Edit',()=>{const date=prompt('New follow-up date (YYYY-MM-DD, or blank)',l.follow_up||'');
-   if(date===null)return;
-   if(date&&!/^\d{4}-\d{2}-\d{2}$/.test(date))return alert('Enter YYYY-MM-DD');
-   if(date&&Number.isNaN(new Date(date+'T12:00:00').getTime()))return alert('Enter a valid date');
-   const stage=prompt('Stage: New, Contacted, Quoted, Won, Lost',l.stage);
-   if(stage===null)return;
-   if(!['New','Contacted','Quoted','Won','Lost'].includes(stage))return alert('Invalid stage');
-   l.follow_up=date;l.stage=stage;api.save();api.render();
-  }));
+  actions.push(action('Edit',()=>editLead(l)));
   actions.push(action('Remove',()=>{if(confirm('Remove this opportunity?'))remove('leads',l.id);}));
   itemRow(list,l.text,money(l.value)+' · '+l.stage+' · '+l.service+
     (l.follow_up?' · Follow up '+dateCheck(l.follow_up):'')+(l.notes?' · '+l.notes:''),actions);
