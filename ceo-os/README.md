@@ -66,3 +66,22 @@ The cloud JSONB payload now supports `routines`, task `due` and `priority` field
 **Staging verification**: Allow the separate CEO OS Railway service to redeploy this branch. On iPhone, go to Today and add one top priority and one routine; complete both and confirm score. On desktop, refresh CEO OS to confirm tasks/routines persist. Test the month calendar by creating a due date tomorrow. If a conflict warning appears because another device changed data, reload before further edits.
 
 **Known limits**: no Google Calendar sync, push reminders, complex recurrence, automatic daily reset for unfinished tasks, or strong production authentication. CEO OS remains a prototype; its database backups and security still need review. Existing Curb Appeal KPI service and branch `main` have not been modified.
+
+## Google Calendar read-only integration (private iCal feed)
+
+CEO OS now supports a **read-only** feed from one Google Calendar. No Google OAuth/API account access is required for this limited view. To activate:
+
+1. On a computer, open [Google Calendar](https://calendar.google.com), **Settings → Settings for my calendars → [your calendar] → Integrate calendar**.
+2. Under **Secret address in iCal format**, click Copy. This is sensitive: the private link grants read access to events in that calendar. **Never send it in chat, screenshots, email, or a GitHub file.**
+3. In Railway, open only the separate **CEO OS app** service → **Variables** → create `GOOGLE_CALENDAR_ICAL_URL` and paste the secret HTTPS address **as its value**.
+4. Apply changes and wait until the CEO OS service redeploys.
+5. Open CEO OS → **Today**. Look for **Google Calendar → Connected**, today's event list, and monthly event indicators. Check a date containing a real Google Calendar appointment.
+
+The secret feed URL is stored only in Railway Variables and fetched on the app server; the browser receives an allowlisted event summary (title, start/end, all-day flag, location), never the feed URL. Events are fetched over HTTPS with a 12-second timeout, limited response size, and a server-side 10-minute cache. Google calendar feed propagation can introduce additional delay.
+
+**Limitations:** read-only; no event creation/editing or Google Calendar OAuth access; only the calendar whose private iCal address you pasted; no automatic access to all Google calendars; dates shown in America/New_York; the app's task calendar combines deadline markers with appointment markers; events do not affect CEO Score. Calendar contents are sensitive, and this staging app uses temporary HTTP Basic authentication. Upgrade authentication before relying on it for sensitive appointments.
+
+If a secret address is missing on an organizational calendar, the Google Workspace administrator may have disabled the feature. Revoke a leaked address in Google Calendar with the **Reset** control and replace the Railway variable.
+
+### Safety
+The original Curb Appeal KPI dashboard and its Google Calendar (if any) are unchanged; only the CEO OS staging development branch is modified.
