@@ -19,6 +19,28 @@ class CommandFeatureTests(unittest.TestCase):
         state[key]=[record]
         return cloud_storage.validate(state)[key][0]
 
+    def test_weekly_review_validates_and_saves_targets(self):
+        saved=self.validated("weekly_reviews",item("CEO weekly review",
+            week_start="2026-11-02",wins="Closed a quote",improve="Follow up sooner",
+            next_focus="Call five prospects",targets={"revenue":5000,"outreach":20,"workouts":4}))
+        self.assertEqual(saved["week_start"],"2026-11-02")
+        self.assertEqual(saved["targets"]["outreach"],20)
+
+    def test_weekly_review_must_start_monday(self):
+        with self.assertRaises(ValueError):
+            self.validated("weekly_reviews",item("CEO weekly review",
+                week_start="2026-11-08",targets={"revenue":1000,"outreach":10,"workouts":4}))
+
+    def test_weekly_review_target_cannot_be_nan(self):
+        with self.assertRaises(ValueError):
+            self.validated("weekly_reviews",item("CEO weekly review",
+                week_start="2026-11-02",targets={"revenue":float("nan"),"outreach":10,"workouts":4}))
+
+    def test_weekly_review_notes_bounded(self):
+        with self.assertRaises(ValueError):
+            self.validated("weekly_reviews",item("CEO weekly review",
+                week_start="2026-11-02",wins="a"*501,targets={}))
+
     def test_legacy_data_remains_compatible(self):
         result=cloud_storage.validate(base())
         for name in ("time_blocks","goals","leads","bills","budgets"):
