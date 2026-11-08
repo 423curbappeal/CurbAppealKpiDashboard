@@ -259,7 +259,7 @@ select{background:#0b1423;border:1px solid #34415a;border-radius:11px;color:var(
 (()=>{'use strict';
 const pages=[['home','⌂','Home','Your command center.','One place for daily execution and long-term progress.'],['business','▥','Business','Business performance.','Curb Appeal KPIs and operating decisions.'],['planner','✓','Today','Win the day.','Identify and finish your highest-impact priorities.'],['fitness','◉','Fitness','Build the athlete.','Keep training consistent and measurable.'],['brand','✦','Brand','Build your personal brand.','Capture the stories worth sharing.'],['finance','$','Finance','Personal finances.','Track cash flow and net worth.'],['goals','◎','Goals','Measure progress.','Clear targets and visible progress.'],['sales','◆','Sales','Grow the pipeline.','Estimates, follow-ups and opportunities.']];
 const KEY='ceo-os-prototype-v1';
-let state={tasks:[],workouts:[],posts:[],routines:[],weigh_ins:[],lifts:[],fitness_goals:[],money_entries:[],balance_items:[],time_blocks:[],goals:[],leads:[],bills:[],budgets:[]};
+let state={tasks:[],workouts:[],posts:[],routines:[],weigh_ins:[],lifts:[],fitness_goals:[],money_entries:[],balance_items:[],time_blocks:[],goals:[],leads:[],bills:[],budgets:[],weekly_reviews:[]};
 try{const saved=JSON.parse(localStorage.getItem(KEY));if(saved&&typeof saved==='object')for(const k of Object.keys(state))if(Array.isArray(saved[k]))state[k]=saved[k].slice(0,250);}catch(e){}
 const $=id=>document.getElementById(id);
 const dollars=n=>typeof n==='number'&&Number.isFinite(n)?new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(n):'—';
@@ -267,7 +267,7 @@ const percent=n=>typeof n==='number'&&Number.isFinite(n)?n.toFixed(1)+'%':'—';
 async function loadBusiness(){const el=$('kpi-status');if(!el)return;el.textContent='Refreshing saved KPI weeks…';try{const res=await fetch('/api/business-summary',{cache:'no-store'});const data=await res.json();if(!res.ok||data.status==='unavailable')throw Error('Connection unavailable');
 if(data.status==='not_configured'){el.textContent='Not connected yet — add your KPI source variables in Railway.';return;}
 if(!data.latest){el.textContent='Connected, but no saved weekly KPI entries found.';return;}
-window.ceoOSLastKpi=data.latest;const w=data.latest;el.textContent='Connected · read-only · latest saved week ending '+w.week_ending;
+window.ceoOSLastKpi=data.latest;window.ceoOSKpiWeeks=data.weeks||[];window.ceoOSMorning?.render?.();const w=data.latest;el.textContent='Connected · read-only · latest saved week ending '+w.week_ending;
 $('kpi-revenue').textContent=dollars(w.revenue);$('kpi-net').textContent=dollars(w.net_profit);$('kpi-gross').textContent=dollars(w.gross_profit);$('kpi-jobs').textContent=w.jobs_completed+' / '+w.jobs_sold;$('kpi-ticket').textContent=dollars(w.average_ticket);$('kpi-hour').textContent=dollars(w.revenue_per_tech_hour);
 $('kpi-week').textContent='Week ending '+w.week_ending;$('kpi-net-margin').textContent='Net margin '+percent(w.net_margin_pct);$('kpi-gross-margin').textContent='Gross margin '+percent(w.gross_margin_pct);
 $('home-business-revenue').textContent=dollars(w.revenue);$('home-business-week').textContent='Saved week ending '+w.week_ending;
@@ -277,7 +277,7 @@ $('refresh-kpi').addEventListener('click',loadBusiness);
 
 let cloudReady=false,cloudRevision=null,writeQueue=Promise.resolve(),changeCounter=0;
 function syncStatus(message){$('sync-label').textContent=message;}
-function localSave(){try{const nonFinancial={...state,money_entries:[],balance_items:[],bills:[],budgets:[],leads:[],goals:[]};localStorage.setItem(KEY,JSON.stringify(nonFinancial));}catch(e){syncStatus('Unable to save locally');}}
+function localSave(){try{const nonFinancial={...state,money_entries:[],balance_items:[],bills:[],budgets:[],leads:[],goals:[],weekly_reviews:[]};localStorage.setItem(KEY,JSON.stringify(nonFinancial));}catch(e){syncStatus('Unable to save locally');}}
 function save(){localSave();changeCounter++;if(!cloudReady){syncStatus('Saved on this device only — cloud disconnected');return;}
 const snapshot=JSON.parse(JSON.stringify(state));writeQueue=writeQueue.then(async()=>{syncStatus('Syncing…');
 const res=await fetch('/api/state',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision:cloudRevision,state:snapshot})});
@@ -297,7 +297,7 @@ function navigate(page){const meta=pages.find(p=>p[0]===page)||pages[0];document
 for(const id of ['desktop-nav','mobile-nav']){for(const p of pages){const b=document.createElement('button');b.type='button';b.className='tab';b.dataset.page=p[0];const ico=document.createElement('span');ico.textContent=p[1];b.append(ico,document.createTextNode(p[2]));b.addEventListener('click',()=>navigate(p[0]));$(id).append(b);}}
 document.querySelectorAll('[data-page]:not(.tab)').forEach(b=>b.addEventListener('click',()=>navigate(b.dataset.page)));
 function renderList(type,target){const container=$(target);container.replaceChildren();if(!state[type].length){const e=document.createElement('div');e.className='empty';e.textContent='Nothing added yet.';container.append(e);return;}state[type].forEach(item=>{const row=document.createElement('div');row.className='entry';const left=document.createElement('div');left.style.minWidth='0';if(type==='tasks'){const cb=document.createElement('input');cb.type='checkbox';cb.className='check';cb.checked=!!item.done;cb.setAttribute('aria-label','Mark task complete');cb.addEventListener('change',()=>{item.done=cb.checked;save();render();});row.append(cb);}const name=document.createElement('strong');name.textContent=item.text;name.style.overflowWrap='anywhere';if(item.done)name.style.textDecoration='line-through';left.append(name);if(type==='tasks'){const details=document.createElement('div');details.className='muted small';details.textContent=(item.priority==='top'?'★ Top priority · ':'')+(item.due?'Due '+item.due:'No deadline');left.append(details);}if(type==='workouts'){const details=document.createElement('div');details.className='muted small';details.textContent=(item.category||'Workout')+(item.duration?' · '+item.duration+' min':'');left.append(details);}const date=document.createElement('div');date.className='muted small';date.textContent=new Date(item.when).toLocaleDateString();left.append(date);row.append(left);const remove=document.createElement('button');remove.className='remove';remove.textContent='Remove';remove.setAttribute('aria-label','Remove entry');remove.addEventListener('click',()=>{state[type]=state[type].filter(x=>x.id!==item.id);save();render();});row.append(remove);container.append(row);});}
-function render(){renderList('tasks','task-list');renderList('workouts','workout-list');renderPlanner();renderHomePreview();renderFitness();renderBrand();renderFinance();window.ceoOSFeatures?.render?.();const weekAgo=Date.now()-7*86400000;$('home-workouts').textContent=state.workouts.filter(w=>w.when>=weekAgo).length;$('home-posts').textContent=state.posts.length;}
+function render(){renderList('tasks','task-list');renderList('workouts','workout-list');renderPlanner();renderHomePreview();renderFitness();renderBrand();renderFinance();window.ceoOSFeatures?.render?.();window.ceoOSMorning?.render?.();const weekAgo=Date.now()-7*86400000;$('home-workouts').textContent=state.workouts.filter(w=>w.when>=weekAgo).length;$('home-posts').textContent=state.posts.length;}
 
 
 
@@ -852,8 +852,8 @@ for(const t of tasks)checkRow(t,list,!!t.done,v=>{t.done=v;save();render();},t.p
 showCalendarEvents(selectedDay,$('calendar-selected-events'));
 }
 
-window.ceoOSBridge={getState:()=>state,save,render,navigate,today:()=>today(),cloudReady:()=>cloudReady,localDate:()=>localDate(),getKpi:()=>window.ceoOSLastKpi||null};
+window.ceoOSBridge={getState:()=>state,save,render,navigate,today:()=>today(),cloudReady:()=>cloudReady,localDate:()=>localDate(),getKpi:()=>window.ceoOSLastKpi||null,getKpiWeeks:()=>window.ceoOSKpiWeeks||[],getCalendar:()=>({status:calendarConnection,events:googleEvents})};
 window.addEventListener('hashchange',()=>navigate(location.hash.slice(1)));render();navigate(location.hash.slice(1)||'home');initCloud();loadBusiness();loadGoogleCalendar();initPlaidSandbox();
 initPlaidLive();
 })();
-</script><script src="/command_modules.js" defer></script></body></html>
+</script><script src="/command_modules.js" defer></script><script src="/morning_review.js" defer></script></body></html>
