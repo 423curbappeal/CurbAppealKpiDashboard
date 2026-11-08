@@ -19,11 +19,13 @@ export PGCONNECT_TIMEOUT=5
 SOURCE=ceo_os_backup_fixture
 RESTORED=ceo_os_backup_restored
 tempdir="$(mktemp -d)"
+source_created=0
+restored_created=0
 cleanup() {
   rm -rf "$tempdir"
   # Only ever drop the hard-coded synthetic test database names.
-  dropdb --if-exists "$SOURCE" >/dev/null 2>&1 || true
-  dropdb --if-exists "$RESTORED" >/dev/null 2>&1 || true
+  if [[ "$source_created" -eq 1 ]]; then dropdb --if-exists "$SOURCE" >/dev/null 2>&1 || true; fi
+  if [[ "$restored_created" -eq 1 ]]; then dropdb --if-exists "$RESTORED" >/dev/null 2>&1 || true; fi
 }
 trap cleanup EXIT
 # Prevent unexpected deletion when a previous test was interrupted.
@@ -34,7 +36,9 @@ for db in "$SOURCE" "$RESTORED"; do
   fi
 done
 createdb "$SOURCE"
+source_created=1
 createdb "$RESTORED"
+restored_created=1
 psql -X -v ON_ERROR_STOP=1 -d "$SOURCE" <<'SQL'
 CREATE TABLE ceo_os_state(id integer PRIMARY KEY, revision bigint, payload jsonb);
 CREATE TABLE ceo_passkeys(credential_id text PRIMARY KEY, public_key bytea, sign_count bigint);
