@@ -1,0 +1,21 @@
+/* Focused regression checks for the pure Morning Briefing date/bill logic. */
+'use strict';
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const source=fs.readFileSync('ceo-os/morning_review.js','utf8');
+const start=source.indexOf('function weekStart(');
+const end=source.indexOf('const node=(tag,text,className)',start);
+assert.ok(start>=0&&end>start,'Unable to locate pure date helpers');
+const segment=source.slice(start,end);
+const local=d=>[d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');
+const {upcomingBills,weekStart}=new Function('local',segment+';return {upcomingBills,weekStart};')(local);
+const bill=(day,paid_months=[])=>({text:'Test bill',due_day:day,paid_months,amount:100});
+assert.equal(weekStart(new Date(2026,10,8)),'2026-11-02','Sunday review belongs to current Monday week');
+assert.deepEqual(upcomingBills([bill(1)],'2026-11-08').map(x=>x.when),['2026-11-01'],'overdue bill remains visible');
+assert.deepEqual(upcomingBills([bill(20)],'2026-11-08'),[],'future bill beyond 7 days hidden');
+assert.deepEqual(upcomingBills([bill(12)],'2026-11-08').map(x=>x.when),['2026-11-12'],'upcoming bill shown');
+assert.deepEqual(upcomingBills([bill(1,['2026-11'])],'2026-11-08'),[],'paid bill hidden');
+assert.deepEqual(upcomingBills([bill(3)],'2026-11-29').map(x=>x.when),['2026-11-03','2026-12-03'],'overdue and upcoming obligations shown');
+assert.deepEqual(upcomingBills([bill(31)],'2026-02-27').map(x=>x.when),['2026-02-28'],'short-month due dates clamped');
+assert.deepEqual(upcomingBills([bill(1,['2026-11'])],'2026-11-29').map(x=>x.when),['2026-12-01'],'next month due correctly shown');
+console.log('Morning Briefing bill and reporting-week regressions passed.');
