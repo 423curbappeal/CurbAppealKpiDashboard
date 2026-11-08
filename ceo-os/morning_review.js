@@ -138,8 +138,8 @@ function renderDailyActions(){
  const openLeads=s.leads.filter(l=>!['Won','Lost'].includes(l.stage)&&l.follow_up&&l.follow_up<=day).sort((a,b)=>a.follow_up.localeCompare(b.follow_up));
  const todos=[
  ...dueTasks.slice(0,3).map(t=>({title:t.text,detail:'Priority'+(t.due&&t.due<day?' · overdue':''),run:()=>{t.done=true;api.save();api.render();}})),
- ...remaining.slice(0,3).map(r=>({title:r.text,detail:'Today’s routine',run:()=>{r.completed=Array.from(new Set([...(r.completed||[]),day])).sort().slice(-180);api.save();api.render();}})),
- ...openLeads.slice(0,2).map(l=>({title:'Follow up: '+l.text,detail:l.stage+' · '+(l.follow_up<day?'Overdue':'Due today'),run:()=>{
+ ...remaining.slice(0,2).map(r=>({title:r.text,detail:'Today’s routine',run:()=>{r.completed=Array.from(new Set([...(r.completed||[]),day])).sort().slice(-180);api.save();api.render();}})),
+ ...openLeads.slice(0,1).map(l=>({title:'Follow up: '+l.text,detail:l.stage+' · '+(l.follow_up<day?'Overdue':'Due today'),run:()=>{
    if(!api.cloudReady()){alert('Reconnect cloud to update sales follow-ups.');return;}
    if(!confirm('Have you contacted '+l.text+'? CEO OS will remind you again in 2 days.'))return;
    if(l.stage==='New')l.stage='Contacted';
@@ -160,8 +160,8 @@ function renderDailyActions(){
  $('daily-progress').textContent=completed+' routines done · '+(dueTasks.length+remaining.length+openLeads.length)+' open';
  if(!todos.length){empty(target,'You’re caught up. Check today’s calendar below.');}
  for(const t of todos)row(target,t.title,t.detail,'Done',t.run);
- if(dueTasks.length>3||remaining.length>3||openLeads.length>2){
-  const extra=node('button','See remaining items','secondary');extra.type='button';extra.addEventListener('click',()=>{briefingDetails.open=true;briefingDetails.scrollIntoView({behavior:'smooth'});});
+ if(dueTasks.length>3||remaining.length>2||openLeads.length>1){
+  const extra=node('button','More items','secondary');extra.type='button';extra.addEventListener('click',()=>{briefingDetails.open=true;briefingDetails.scrollIntoView({behavior:'smooth'});});
   target.append(extra);
  }
 }
