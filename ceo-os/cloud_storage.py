@@ -1,5 +1,6 @@
 """Single-user CEO OS cloud snapshot storage. Requires DATABASE_URL."""
 import json
+import math
 import os
 from contextlib import closing
 import psycopg
@@ -232,7 +233,7 @@ def validate(body):
                 targets={}
                 for field in ("revenue","outreach","workouts"):
                     value=(item.get("targets") or {}).get(field,0) if isinstance(item.get("targets"),dict) else 0
-                    if type(value) not in (int,float) or not 0<=value<=1000000000:
+                    if type(value) not in (int,float) or not math.isfinite(value) or not 0<=value<=1000000000:
                         raise ValueError("Invalid weekly target")
                     if field!="revenue" and (int(value)!=value or value>10000):
                         raise ValueError("Invalid weekly count target")
