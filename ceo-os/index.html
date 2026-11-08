@@ -763,7 +763,7 @@ const subtitle=document.createElement('div');subtitle.className='muted small';su
 const value=document.createElement('div');value.className='small';value.textContent=financeMoney(item.amount);
 left.append(heading,subtitle,value);
 const remove=document.createElement('button');remove.className='remove';remove.type='button';remove.textContent='Remove';
-remove.addEventListener('click',()=>{if(!confirm('Remove this financial entry?'))return;state[kind]=state[kind].filter(x=>x.id!==item.id);save();renderFinance();});row.append(left,remove);container.append(row);}}
+remove.addEventListener('click',()=>{if(!cloudReady){alert('Reconnect cloud storage before removing financial records.');return;}if(!confirm('Remove this financial entry?'))return;state[kind]=state[kind].filter(x=>x.id!==item.id);save();renderFinance();});row.append(left,remove);container.append(row);}}
 function renderFinance(){const month=$('finance-month').value;
 const entries=state.money_entries.filter(e=>e.date.startsWith(month)).slice().sort((a,b)=>b.date.localeCompare(a.date)||b.when-a.when);
 const income=entries.filter(e=>e.direction==='Income').reduce((sum,e)=>sum+e.amount,0);
