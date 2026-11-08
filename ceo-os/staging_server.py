@@ -84,6 +84,9 @@ class Handler(SimpleHTTPRequestHandler):
             except Exception:
                 self.respond_json(503,{"status":"unavailable","error":"Business KPI source unavailable. Check your private connection settings."})
             return
+        if route == "/api/auth-status":
+            self.respond_json(200, {"session":"passkey" if passkey_auth.session_valid(self.headers) else "password"})
+            return
         if route == "/api/state":
             if not cloud_storage.DATABASE_URL:
                 self.respond_json(503, {"error":"Cloud storage not configured"})
@@ -101,6 +104,18 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         route=self.path.split("?",1)[0]
+        if route=="/api/logout":
+            try:
+                safe=passkey_auth.secure_request(self.headers)
+            except ValueError:
+                safe=False
+            if not safe:
+                self.respond_json(403,{"error":"Invalid request origin"})
+                return
+            # Only the signed passkey cookie can be cleared server-side.
+            # Browsers may retain HTTP Basic credentials until the browser session ends.
+            self.respond_json(200,{"ok":True},[("Set-Cookie",passkey_auth.expired_cookie())])
+            return
         if route not in ("/api/passkeys/register/options","/api/passkeys/register/verify",
                          "/api/passkeys/login/options","/api/passkeys/login/verify"):
             self.send_error(404)
