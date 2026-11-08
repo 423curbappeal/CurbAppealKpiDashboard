@@ -40,6 +40,8 @@ const briefing=panel(home,`<div class="row"><div><div class="eyebrow">CEO mornin
  <div><div class="muted small">Sales follow-ups due</div><div class="command-stat" id="morning-lead-count">0</div></div>
  <div><div class="muted small">Bills due within 7 days</div><div class="command-stat" id="morning-bill-count">0</div></div>
  <div><div class="muted small">Workouts logged this week</div><div class="command-stat" id="morning-workouts">0 / 4</div></div>
+ <div><div class="muted small">Latest saved KPI revenue</div><div class="command-stat" id="morning-revenue">—</div><div class="command-muted" id="morning-kpi-date">No saved KPI week</div></div>
+ <div><div class="muted small">Latest saved KPI net profit</div><div class="command-stat" id="morning-net">—</div><div class="command-muted">Historical KPI week · read-only</div></div>
  </div>
  <div class="command-grid">
  <div><h2 class="section" style="margin:16px 0 8px">Top priorities</h2><div id="morning-priorities"></div></div>
@@ -96,6 +98,10 @@ function renderMorning(){
  metric('morning-priority-count',priorities.length);metric('morning-lead-count',leads.length);
  metric('morning-bill-count',bills.length);
  metric('morning-workouts',workouts+' / '+(s.fitness_goals[0]?.target||4));
+ const kpi=api.getKpi();
+ metric('morning-revenue',kpi?.revenue==null?'—':money(kpi.revenue));
+ metric('morning-net',kpi?.net_profit==null?'—':money(kpi.net_profit));
+ metric('morning-kpi-date',kpi?.week_ending?'Week ending '+kpi.week_ending:'KPI source unavailable');
  const p=$('morning-priorities');p.replaceChildren();
  if(!priorities.length)empty(p,'Nothing due. Add a priority in Today.');
  for(const t of priorities.slice(0,4))row(p,t.text,(t.priority==='top'?'Top priority · ':'')+(t.due?'Due '+compact(t.due):'No deadline'),'Done',()=>{t.done=true;api.save();api.render();});
