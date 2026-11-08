@@ -36,6 +36,7 @@ jobs:
         run: |
           node --check ceo-os/command_modules.js
           node --check ceo-os/morning_review.js
+          node ceo-os/test_morning_review.cjs
           python - <<'PY'
           from pathlib import Path
           import re, subprocess, tempfile
