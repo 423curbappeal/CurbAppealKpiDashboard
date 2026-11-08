@@ -29,6 +29,33 @@ def validate(body):
                 raise ValueError("Invalid entry date")
             seen.add(item_id)
             clean_item={"id":item_id, "text":label.strip(), "when":when, "done":bool(item.get("done", False)) if kind == "tasks" else False}
+            if kind == "posts":
+                from datetime import date
+                platform=item.get("platform","Other")
+                stage=item.get("stage","Idea")
+                if platform not in ("Instagram","Facebook","TikTok","YouTube","LinkedIn","Other"):
+                    raise ValueError("Invalid content platform")
+                if stage not in ("Idea","Draft","Ready","Scheduled","Published"):
+                    raise ValueError("Invalid pipeline stage")
+                scheduled=item.get("scheduled","")
+                published=item.get("published","")
+                for field in (scheduled,published):
+                    if not isinstance(field,str) or (field and len(field)!=10):
+                        raise ValueError("Invalid content date")
+                    if field:
+                        try:
+                            date.fromisoformat(field)
+                        except ValueError:
+                            raise ValueError("Invalid content date")
+                if stage == "Scheduled" and not scheduled:
+                    raise ValueError("A scheduled post needs a date")
+                stats={}
+                for metric in ("views","likes","comments","shares","followers"):
+                    value=item.get("stats",{}).get(metric,0) if isinstance(item.get("stats",{}),dict) else 0
+                    if type(value) is not int or not 0<=value<=1000000000:
+                        raise ValueError("Invalid content analytics")
+                    stats[metric]=value
+                clean_item.update({"platform":platform,"stage":stage,"scheduled":scheduled,"published":published,"stats":stats})
             if kind == "tasks":
                 due=item.get("due","")
                 if not isinstance(due,str) or (due and (len(due)!=10 or due[4]!="-" or due[7]!="-")):
