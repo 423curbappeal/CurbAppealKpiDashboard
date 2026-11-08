@@ -167,3 +167,26 @@ Face ID/passkey sessions now expire after **7 days** instead of 30; previously i
 ### Accounting limitations
 
 Cash-flow totals only represent manually entered records. Net worth uses each currently recorded balance, not historical valuations. Enter each actual account once; create an owner-draw entry only on the personal side to avoid counting transfers as income twice. Categorizing transfers or credit card payments as expenses can double-count spending. The dashboard does not provide bank reconciliation, automated finance feeds, investment pricing, tax analysis, or financial advice.
+
+## Plaid automatic integration — Sandbox-only developer preview
+
+A **Plaid Sandbox test-bank connector** is now available in the Finance tab. It can launch Plaid Link with fictional banks, exchange a Sandbox public token, store encrypted test access tokens in PostgreSQL, retrieve account balances, and import transaction changes using the Plaid `/transactions/sync` cursor. The Finance tab refreshes Sandbox test data on load and has a Refresh button. **No real bank-account access is enabled, and no banking data is imported from ChatGPT's separate Finances connection.** Sandbox totals are displayed separately from manually entered Finance information.
+
+### Required Railway variables on CEO OS service (never share values)
+
+- `PLAID_ENV` = `sandbox` (anything else deliberately disables the integration).
+- `PLAID_CLIENT_ID` = the Plaid client ID from Plaid Dashboard.
+- `PLAID_SANDBOX_SECRET` = the **Sandbox secret**, not Production secret, from Plaid Dashboard.
+- `PLAID_TOKEN_ENCRYPTION_KEY` = a new, unique secret generated on Mac Terminal with `openssl rand -hex 32`. Keep secure and backed up in a private secrets manager: changing it makes stored Sandbox access tokens unreadable.
+- Existing `DATABASE_URL` and `CEO_OS_SESSION_SECRET` must remain configured; never replace or delete them.
+
+Plaid Sandbox uses fictional bank credentials (typically `user_good` and `pass_good`, or current options shown by Plaid Link). Visit the Finance tab, tap **Connect test bank**, authorize a fictional account, and verify sample balances/transactions appear. The test integration requires a working **Face ID passkey session**, not only the HTTP Basic fallback.
+
+### Important safety limits
+
+- This implementation **cannot** contact Plaid Production: its HTTPS API host is hardcoded to `https://sandbox.plaid.com` and startup rejects anything but `PLAID_ENV=sandbox`.
+- Plaid Sandbox data is separate from all manually logged income, expenses, debt and net-worth entries.
+- Token encryption uses Fernet with key derivation from a separately provisioned `PLAID_TOKEN_ENCRYPTION_KEY`. Tokens never leave backend APIs.
+- On each Finance load it fetches sample balances and synchronizes sample transactions; data depends on Plaid's upstream refresh and may not be real-time. A true scheduled sync/webhook architecture and bank-feed reconciliation are not yet implemented.
+- A **real bank connection must not be turned on** before full replacement of cached HTTP Basic recovery, multi-factor session and rate-limit testing, encrypted backups and restore drill, disclosure/consent UX, token rotation and removal workflows, account-category reconciliation, privacy and security audit.
+- This is developer-preview code; compilation, live Sandbox linking and Railway deployment require testing before using the connector. Never enter actual institution usernames/passwords in CEO OS or share Plaid secrets in chat.
