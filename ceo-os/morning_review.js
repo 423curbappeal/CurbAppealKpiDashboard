@@ -131,6 +131,7 @@ for(const id of ['review-wins','review-improve','review-focus','review-revenue-t
  $(id).addEventListener('input',()=>{dirtyReview=true;});
 $('weekly-review-form').addEventListener('submit',e=>{
  e.preventDefault();
+ if(!api.cloudReady()){$('review-save-status').textContent='Cloud storage is disconnected. Reconnect before saving your private weekly review.';return;}
  const fields=['revenue','outreach','workouts'];
  const ids=['review-revenue-target','review-outreach-target','review-workouts-target'];
  const values=ids.map(id=>Number($(id).value));
@@ -147,7 +148,7 @@ $('weekly-review-form').addEventListener('submit',e=>{
  if(old)Object.assign(old,data);
  else state().weekly_reviews.unshift({id:'weekly-'+data.week_start,when:Date.now(),done:false,...data});
  dirtyReview=false;api.save();api.render();
- $('review-save-status').textContent=api.cloudReady()?'Review saved. Cloud sync requested.':'Saved on this device only until cloud reconnects; review details are not retained offline.';
+ $('review-save-status').textContent='Review entered. Cloud sync requested; check the sync indicator above.';
 });
 window.ceoOSMorning={render};
 render();
