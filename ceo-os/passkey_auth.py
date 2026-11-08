@@ -155,16 +155,28 @@ def login_verify(host,token,credential):
             cur.execute("UPDATE ceo_passkeys SET sign_count=GREATEST(sign_count,%s) WHERE credential_id=%s",
                         (checked.new_sign_count,ident))
         conn.commit()
+    return issue_session("passkey")
+
+def _sessions_table(cur):
+    cur.execute("""CREATE TABLE IF NOT EXISTS ceo_sessions
+        (token_hash TEXT PRIMARY KEY, expires_at BIGINT NOT NULL,
+         auth_method TEXT NOT NULL DEFAULT 'passkey')""")
+    # Existing sessions created before this migration must remain valid.
+    cur.execute("""ALTER TABLE ceo_sessions ADD COLUMN IF NOT EXISTS
+        auth_method TEXT NOT NULL DEFAULT 'passkey'""")
+
+def issue_session(method):
+    if not ENABLED or method not in ("passkey","password"):
+        raise ValueError("Invalid authentication method")
     expiry=int(time.time())+LIFETIME
     nonce=secrets.token_urlsafe(32)
-    # Sessions are stored so signing out invalidates the session server-side.
     with closing(_db()) as conn:
         with conn.cursor() as cur:
-            cur.execute("""CREATE TABLE IF NOT EXISTS ceo_sessions
-                         (token_hash TEXT PRIMARY KEY, expires_at BIGINT NOT NULL)""")
+            _sessions_table(cur)
             cur.execute("DELETE FROM ceo_sessions WHERE expires_at < %s",(int(time.time()),))
-            cur.execute("INSERT INTO ceo_sessions(token_hash,expires_at) VALUES (%s,%s)",
-                        (hashlib.sha256(nonce.encode()).hexdigest(),expiry))
+            cur.execute("""INSERT INTO ceo_sessions(token_hash,expires_at,auth_method)
+                           VALUES (%s,%s,%s)""",
+                        (hashlib.sha256(nonce.encode()).hexdigest(),expiry,method))
         conn.commit()
     payload=f"v2.{expiry}.{nonce}"
     return b64(payload.encode())+"."+digest(payload)
@@ -185,22 +197,26 @@ def _session_payload(headers):
         return None
     return int(pieces[1]),hashlib.sha256(pieces[2].encode()).hexdigest()
 
-def session_valid(headers):
-    if not ENABLED: return False
+def session_method(headers):
+    if not ENABLED:return None
     try:
         record=_session_payload(headers)
-        if not record:return False
+        if not record:return None
         expiry,token_hash=record
         with closing(_db()) as conn:
             with conn.cursor() as cur:
-                cur.execute("""CREATE TABLE IF NOT EXISTS ceo_sessions
-                             (token_hash TEXT PRIMARY KEY, expires_at BIGINT NOT NULL)""")
-                cur.execute("SELECT expires_at FROM ceo_sessions WHERE token_hash=%s",(token_hash,))
+                _sessions_table(cur)
+                cur.execute("""SELECT expires_at,auth_method
+                    FROM ceo_sessions WHERE token_hash=%s""",(token_hash,))
                 row=cur.fetchone()
             conn.commit()
-        return bool(row and row[0]==expiry)
+        return row[1] if row and row[0]==expiry else None
     except Exception:
-        return False
+        return None
+
+def session_valid(headers,method=None):
+    value=session_method(headers)
+    return bool(value and (method is None or value==method))
 
 def revoke_session(headers):
     if not ENABLED:return
