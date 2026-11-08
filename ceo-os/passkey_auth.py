@@ -26,7 +26,7 @@ SESSION_SECRET = os.getenv("CEO_OS_SESSION_SECRET","").strip()
 DATABASE_URL = os.getenv("DATABASE_URL","").strip()
 # Inactive unless a new secret is explicitly provisioned.
 ENABLED = bool(SESSION_SECRET and len(SESSION_SECRET)>=40 and DATABASE_URL)
-LIFETIME = 30*86400
+LIFETIME = 7*86400
 CHALLENGE_AGE = 180
 _challenges = {}
 _guard = threading.Lock()
@@ -171,7 +171,7 @@ def session_valid(headers):
         encoded,mac=ticket.rsplit(".",1)
         payload=base64.urlsafe_b64decode(encoded+"="*(-len(encoded)%4)).decode()
         bits=payload.split(".")
-        return len(bits)==3 and bits[0]=="v1" and int(bits[1])>time.time() and hmac.compare_digest(mac,digest(payload))
+        return (len(bits)==3 and bits[0]=="v1" and int(time.time())<int(bits[1])<=int(time.time())+LIFETIME and hmac.compare_digest(mac,digest(payload)))
     except (KeyError,ValueError,TypeError,UnicodeDecodeError):
         return False
 
