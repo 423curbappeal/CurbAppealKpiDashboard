@@ -180,7 +180,7 @@ $('refresh-kpi').addEventListener('click',loadBusiness);
 
 let cloudReady=false,cloudRevision=null,writeQueue=Promise.resolve(),changeCounter=0;
 function syncStatus(message){$('sync-label').textContent=message;}
-function localSave(){try{localStorage.setItem(KEY,JSON.stringify(state));}catch(e){syncStatus('Unable to save locally');}}
+function localSave(){try{const nonFinancial={...state,money_entries:[],balance_items:[]};localStorage.setItem(KEY,JSON.stringify(nonFinancial));}catch(e){syncStatus('Unable to save locally');}}
 function save(){localSave();changeCounter++;if(!cloudReady){syncStatus('Saved on this device only — cloud disconnected');return;}
 const snapshot=JSON.parse(JSON.stringify(state));writeQueue=writeQueue.then(async()=>{syncStatus('Syncing…');
 const res=await fetch('/api/state',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision:cloudRevision,state:snapshot})});
@@ -359,7 +359,12 @@ updateFinanceCategories();
 function financeSave(kind,form,prefix){const text=$(prefix+'-name').value.trim(),direction=$(prefix+'-direction').value,
 category=$(prefix+'-category').value,date=$(prefix+'-date').value,amount=Number($(prefix+'-amount').value);
 if(!text||!date||!Number.isFinite(amount)||amount>(1e9)||(kind==='money_entries'?amount<=0:amount<0))return;
-state[kind].unshift({id:Date.now()+'-'+Math.random(),text,when:Date.now(),date,amount,direction,category});
+if(!cloudReady){alert('Finance requires cloud storage. Reconnect before saving financial information.');return;}
+if(kind==='balance_items'){
+  const existing=state.balance_items.find(x=>x.text.toLocaleLowerCase()===text.toLocaleLowerCase()&&x.direction===direction);
+  if(existing){Object.assign(existing,{text,when:Date.now(),date,amount,direction,category});}
+  else state[kind].unshift({id:Date.now()+'-'+Math.random(),text,when:Date.now(),date,amount,direction,category});
+}else state[kind].unshift({id:Date.now()+'-'+Math.random(),text,when:Date.now(),date,amount,direction,category});
 state[kind]=state[kind].slice(0,250);form.reset();$(prefix+'-date').value=new Date().toLocaleDateString('sv-SE');updateFinanceCategories();save();render();
 }
 $('finance-entry-form').addEventListener('submit',e=>{e.preventDefault();financeSave('money_entries',e.currentTarget,'finance-entry');});
