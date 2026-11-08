@@ -156,6 +156,33 @@ select{background:#0b1423;border:1px solid #34415a;border-radius:11px;color:var(
 
 
 
+/* Simple, tap-first daily view: optional detail does not crowd the Home screen. */
+.daily-action-card{margin:0 0 12px!important}
+.daily-action-card>.row{align-items:center}
+.daily-action-card .command-item{min-height:55px;gap:12px}
+.daily-action-card .command-item button{min-width:78px;min-height:43px}
+.daily-action-card .command-item>div{flex:1}
+.daily-action-card .quick-links button{flex:1 1 70px;min-height:46px}
+.daily-action-card .morning-quick-row{display:flex;gap:9px;align-items:center}
+.daily-action-card .morning-quick-row input{flex:1;min-width:0}
+.daily-action-card .morning-quick-row button{flex:0 0 auto;min-height:46px}
+.daily-action-card .daily-add-details{margin-top:14px}
+.daily-action-card .daily-add-details summary{min-height:44px;cursor:pointer;font-size:13px;color:var(--muted);padding:9px 0}
+.daily-detail-collapse{margin:10px 0;border:1px solid var(--line);border-radius:14px;padding:0 12px}
+.daily-detail-collapse>summary{cursor:pointer;font-weight:650;color:var(--muted);padding:13px 0;min-height:44px}
+.daily-detail-collapse[open]>summary{color:var(--fg)}
+.daily-detail-collapse>.command-card{margin:8px 0 12px}
+.daily-detail-collapse .grid{margin-bottom:16px}
+.daily-detail-collapse summary:focus-visible,.daily-add-details summary:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+@media(max-width:750px){
+ .daily-action-card{padding:15px!important}
+ .daily-action-card .command-item{flex-wrap:nowrap}
+ .daily-action-card .command-item button{flex:0 0 auto}
+ .daily-action-card .quick-links{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+ .daily-action-card .quick-links button{padding:11px 4px;min-width:0}
+ .daily-action-card .command-item strong{font-size:14px}
+ .daily-action-card .command-muted{font-size:11px}
+}
 /* Compact first-screen experience with deeper details only when requested. */
 #home-extra-details,#home .weekly-review-collapse{margin:12px 0}
 #home-extra-details>summary,#home .weekly-review-collapse>summary{
