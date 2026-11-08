@@ -5,7 +5,7 @@ from contextlib import closing
 import psycopg
 
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
-KINDS = ("tasks", "workouts", "posts", "routines", "weigh_ins", "lifts")
+KINDS = ("tasks", "workouts", "posts", "routines", "weigh_ins", "lifts", "fitness_goals")
 
 def validate(body):
     if not isinstance(body, dict) or not set(("tasks", "workouts", "posts")).issubset(body) or set(body) - set(KINDS):
@@ -67,6 +67,11 @@ def validate(body):
                 if type(duration) not in (int,float) or not 0 <= duration <= 600:
                     raise ValueError("Invalid workout duration")
                 clean_item.update({"category":category,"duration":int(duration)})
+            if kind == "fitness_goals":
+                target=item.get("target")
+                if type(target) is not int or not 1 <= target <= 7:
+                    raise ValueError("Invalid weekly fitness goal")
+                clean_item["target"]=target
             if kind in ("weigh_ins","lifts"):
                 from datetime import date
                 day=item.get("date")
