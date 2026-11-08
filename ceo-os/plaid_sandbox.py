@@ -9,6 +9,7 @@ from contextlib import closing
 from datetime import datetime, timezone
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
+import math
 import psycopg
 from cryptography.fernet import Fernet
 from plaid_categorize import summarize, insights, merchant_key, USER_CATEGORIES
@@ -35,6 +36,9 @@ def _db():
           linked_at TIMESTAMPTZ NOT NULL DEFAULT NOW())""")
     conn.commit()
     return conn
+class PlaidSyncMutation(Exception):
+    """Plaid requires restarting pagination from the original saved cursor."""
+
 def _api(path,data):
     if not ENABLED:raise ValueError("Sandbox is not configured")
     payload=dict(data,client_id=CLIENT,secret=SECRET)
@@ -45,6 +49,14 @@ def _api(path,data):
         with urlopen(req,timeout=16) as response:
             return json.loads(response.read(2500000))
     except HTTPError as error:
+        # The Plaid error is parsed server-side only, never returned to the browser.
+        if path=="/transactions/sync" and error.code==400:
+            try:
+                details=json.loads(error.read(4096))
+                if details.get("error_code")=="TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION":
+                    raise PlaidSyncMutation() from None
+            except (ValueError,TypeError):
+                pass
         # No access tokens or sensitive Plaid request information in client errors.
         raise ValueError("Plaid Sandbox request failed ("+str(error.code)+")") from None
 def link_token():
@@ -72,34 +84,52 @@ def _items():
             cur.execute("SELECT item_id,token_cipher,cursor,transactions FROM ceo_plaid_sandbox ORDER BY linked_at")
             return cur.fetchall()
 def _sync(item_id,token,cursor,existing):
-    transactions=dict(existing or {})
-    next_cursor=cursor
-    # Bounded sync; do not commit partial pagination.
-    for _ in range(20):
-        data={"access_token":token,"count":500}
-        if next_cursor:data["cursor"]=next_cursor
-        result=_api("/transactions/sync",data)
-        for change in result.get("removed",[]):
-            transactions.pop(change.get("transaction_id",""),None)
-        for change in result.get("added",[])+result.get("modified",[]):
-            tid=change.get("transaction_id")
-            if tid and (len(transactions)<2500 or tid in transactions):
+    """Apply complete incremental batches exactly once; never persist partial pages.
+
+    Plaid may mutate a transaction batch during pagination. In that case we
+    restart at the ORIGINAL cursor, discarding the entire partial attempt.
+    """
+    for attempt in range(3):
+        transactions=dict(existing or {})
+        next_cursor=cursor
+        mutated=False
+        for _ in range(40):
+            data={"access_token":token,"count":500}
+            if next_cursor:data["cursor"]=next_cursor
+            try:
+                result=_api("/transactions/sync",data)
+            except PlaidSyncMutation:
+                mutated=True
+                break
+            for change in result.get("removed",[]):
+                transactions.pop(change.get("transaction_id",""),None)
+            for change in result.get("added",[])+result.get("modified",[]):
+                tid=change.get("transaction_id")
+                if not tid or len(tid)>160:continue
+                amount=change.get("amount")
+                if type(amount) not in (int,float) or not math.isfinite(amount):
+                    continue
+                if len(transactions)>=2500 and tid not in transactions:
+                    # Do not silently advance the cursor while dropping records.
+                    raise ValueError("Transaction retention limit reached; sync paused")
                 transactions[tid]={
                     "id":tid,"account_id":change.get("account_id"),
                     "name":str(change.get("merchant_name") or change.get("name") or "Transaction")[:120],
-                    "amount":change.get("amount",0),"date":change.get("date"),
+                    "amount":amount,"date":change.get("date"),
                     "pending":bool(change.get("pending",False)),
                     "category":(change.get("personal_finance_category") or {}).get("primary","OTHER"),
                     "category_detail":(change.get("personal_finance_category") or {}).get("detailed","")}
-        next_cursor=result.get("next_cursor")
-        if not result.get("has_more"):
-            with closing(_db()) as conn:
-                with conn.cursor() as cur:
-                    cur.execute("UPDATE ceo_plaid_sandbox SET cursor=%s,transactions=%s::jsonb WHERE item_id=%s",
-                                (next_cursor,json.dumps(transactions),item_id))
-                conn.commit()
-            return transactions
-    raise ValueError("Sandbox sync had too many pages; no changes committed")
+            next_cursor=result.get("next_cursor")
+            if not result.get("has_more"):
+                with closing(_db()) as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("UPDATE ceo_plaid_sandbox SET cursor=%s,transactions=%s::jsonb WHERE item_id=%s",
+                                    (next_cursor,json.dumps(transactions),item_id))
+                    conn.commit()
+                return transactions
+        if not mutated:
+            raise ValueError("Sandbox sync exceeded page limit; no partial changes committed")
+    raise ValueError("Sandbox sync changed repeatedly during pagination; retry later")
 def _rules_table(cur):
     cur.execute("""CREATE TABLE IF NOT EXISTS ceo_plaid_sandbox_rules (
         rule_key TEXT PRIMARY KEY, choice TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())""")
@@ -171,7 +201,7 @@ def overview(refresh=False):
         if refresh:
             try:
                 saved=_sync(item_id,token,cursor,saved)
-            except (ValueError,HTTPError,OSError,KeyError,TypeError,TimeoutError) as exc:
+            except (ValueError,HTTPError,OSError,KeyError,TypeError,TimeoutError,PlaidSyncMutation) as exc:
                 # Retain previously imported transactions; do not reset the sync cursor.
                 warnings.append("Transaction sync temporarily unavailable; showing last saved sample transactions.")
         try:
