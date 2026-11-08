@@ -322,3 +322,15 @@ Additional work on `feature/ceo-os-mobile` targets daily usability rather than f
 - `test_morning_review.cjs` is executed by the branch's GitHub Actions workflow to cover date boundaries, paid/unpaid filtering, and weekly review week alignment. Direct static/manual execution of the pure bill/date helpers passed seven tested scenarios. GitHub Actions and live iPhone testing should be checked separately.
 
 Unchanged: production Plaid remains locked; KPI and Calendar feeds remain read-only; existing SQL state and integrations are preserved. The added modules have not undergone an authenticated browser-based end-to-end test.
+
+## Action-first simplification (2026-11-08)
+
+Following UX feedback that tracking felt fragmented and labor-intensive, CEO OS Home now uses a **single Daily Command Center** as the first screen. It reuses saved tasks, recurring routines, follow-up dates, workout logs, Google Calendar, and the existing dated KPI summary, instead of asking for duplicate daily metrics.
+
+- Daily list: up to three open priority tasks, two incomplete scheduled routines, and one due sales follow-up, each with an action button. Completing a task/routine updates its original state; a salesperson can explicitly confirm actual customer contact, advancing a New lead to Contacted and setting the next reminder two days later. **It does not actually contact any customer.**
+- One-tap workout check-in: Push, Pull, Legs, or Cardio creates an existing workout record with unspecified duration (zero, not invented minutes). Repeated clicks on the same workout type within 20 seconds do not create duplicates. Users may enter precise details in Fitness later if desired.
+- Quick Add: optional single-field task entry in an expandable section; earlier full forms stay on Today. Open actions come directly from existing cloud data and are not duplicated in a separate tracker.
+- Original Morning Briefing, full Home preview, Sunday review, Face ID settings, and original Home cards remain in separate expandable sections. No records, integrations, or navigation destinations are deleted. The global cloud status stays visible, with optional privacy information below it.
+- KPI is a historically dated, **read-only** source and Google Calendar remains read-only. Housecall Pro job/customer/estimate records are **not automatically imported**, and the Sales pipeline remains manually maintained. Without a supported provider-side integration, CEO OS must not claim to know live jobs, lead updates, or sales results.
+
+Static syntax/DOM integration checks were performed; complete browser-level iPhone regression tests, persistent real database backups, and external CRM linkage remain unfinished. Real-bank Plaid integration remains locked.
