@@ -9,6 +9,7 @@ import business_kpi
 import google_calendar_feed
 import passkey_auth
 import plaid_sandbox
+import plaid_live
 import recovery_auth
 
 USERNAME = os.getenv("CEO_OS_USERNAME", "")
@@ -118,6 +119,22 @@ class Handler(SimpleHTTPRequestHandler):
             except Exception:
                 self.respond_json(503,{"error":"Sandbox test data temporarily unavailable"})
             return
+        if route == "/api/plaid-live/status":
+            if not passkey_auth.session_valid(self.headers,method="passkey"):
+                self.respond_json(403,{"error":"Face ID session required"})
+                return
+            self.respond_json(200,{"status":"ready" if plaid_live.configured() else "locked",
+                                   "environment":"production","live_banking":plaid_live.configured()})
+            return
+        if route == "/api/plaid-live/overview":
+            if not passkey_auth.session_valid(self.headers,method="passkey") or not plaid_live.configured():
+                self.respond_json(403,{"error":"Live banking is not enabled"})
+                return
+            try:
+                self.respond_json(200,plaid_live.overview(refresh=True))
+            except Exception:
+                self.respond_json(503,{"error":"Live banking temporarily unavailable"})
+            return
         if route == "/api/state":
             if not cloud_storage.DATABASE_URL:
                 self.respond_json(503, {"error":"Cloud storage not configured"})
@@ -184,6 +201,41 @@ class Handler(SimpleHTTPRequestHandler):
                 return
             # Browser-cached HTTP Basic credentials still need migration to a proper recovery login.
             self.respond_json(200,{"ok":True},[("Set-Cookie",passkey_auth.expired_cookie())])
+            return
+        if route.startswith("/api/plaid-live/"):
+            if not passkey_auth.session_valid(self.headers,method="passkey") or not plaid_live.configured():
+                self.respond_json(403,{"error":"Live banking is not enabled"})
+                return
+            try:
+                if not passkey_auth.secure_request(self.headers):
+                    self.respond_json(403,{"error":"Invalid origin"})
+                    return
+            except ValueError:
+                self.respond_json(403,{"error":"Invalid origin"})
+                return
+            if self.headers.get("Content-Type","").split(";",1)[0].strip()!="application/json":
+                self.respond_json(415,{"error":"JSON required"})
+                return
+            try:
+                length=int(self.headers.get("Content-Length","0"))
+                if not 2<=length<=2000:raise ValueError("Invalid request")
+                body=json.loads(self.rfile.read(length))
+                if not isinstance(body,dict):raise ValueError("Invalid request")
+                if route=="/api/plaid-live/link-token":
+                    self.respond_json(200,plaid_live.link_token())
+                elif route=="/api/plaid-live/exchange":
+                    self.respond_json(200,plaid_live.exchange(body.get("public_token")))
+                elif route=="/api/plaid-live/correct":
+                    self.respond_json(200,plaid_live.correct_transaction(
+                        body.get("transaction_id"),body.get("category"),body.get("remember_merchant",False)))
+                elif route=="/api/plaid-live/disconnect":
+                    self.respond_json(200,plaid_live.disconnect_all())
+                else:
+                    self.send_error(404)
+            except (ValueError,TypeError) as exc:
+                self.respond_json(400,{"error":str(exc)})
+            except Exception:
+                self.respond_json(503,{"error":"Live banking temporarily unavailable"})
             return
         if route.startswith("/api/plaid/"):
             if not passkey_auth.session_valid(self.headers,method="passkey"):
