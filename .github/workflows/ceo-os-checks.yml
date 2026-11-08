@@ -35,21 +35,28 @@ jobs:
       - name: Validate CEO OS browser scripts and feature targets
         run: |
           node --check ceo-os/command_modules.js
+          node --check ceo-os/morning_review.js
           python - <<'PY'
           from pathlib import Path
           import re, subprocess, tempfile
           html=Path('ceo-os/index.html').read_text()
           module=Path('ceo-os/command_modules.js').read_text()
+          morning=Path('ceo-os/morning_review.js').read_text()
           scripts=re.findall(r'<script>(.*?)</script>',html,re.S)
           assert len(scripts)==1, 'Expected one inline application script'
           with tempfile.NamedTemporaryFile(suffix='.js',mode='w',encoding='utf-8') as f:
               f.write(scripts[0]);f.flush()
               subprocess.run(['node','--check',f.name],check=True)
-          ids=set(re.findall(r'\\bid="([^"]+)"',html+module))
-          referenced=set(re.findall(r"\\$\\('([^']+)'\\)",module))
+          ids=set(re.findall(r'\bid="([^"]+)"',html+module+morning))
+          referenced=set(re.findall(r"\$\('([^']+)'\)",module+morning))
           assert not (referenced-ids),f'Missing feature element IDs: {referenced-ids}'
           assert 'window.ceoOSBridge=' in html
           assert 'src="/command_modules.js"' in html
+          assert 'src="/morning_review.js"' in html
+          server=Path('ceo-os/staging_server.py').read_text()
+          docker=Path('ceo-os/Dockerfile').read_text()
+          assert '"/morning_review.js"' in server
+          assert 'morning_review.js' in docker
           assert "['sales','◆','Sales'" in html
           assert "['goals','◎','Goals'" in html
           print('Browser syntax, navigation, and DOM identifier checks passed')
