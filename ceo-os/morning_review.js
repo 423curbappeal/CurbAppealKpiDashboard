@@ -42,6 +42,7 @@ const daily=document.createElement('div');
 daily.className='command-card daily-action-card';
 daily.innerHTML=`<div class="row"><div><div class="eyebrow">Daily command center</div><h2 style="margin:5px 0">Just do these next</h2></div><span class="pill" id="daily-progress">0 / 0 done</span></div>
  <p class="muted small">Nothing to fill out. Tap to finish actions that already exist in CEO OS.</p>
+ <div id="daily-smart-summary" class="muted small" aria-live="polite"></div>
  <div id="daily-actions" aria-live="polite"></div>
  <div class="row" style="margin-top:12px"><strong style="font-size:13px">Quick workout check-in</strong><span class="muted small">Log a session (duration optional)</span></div>
  <div class="quick-links" id="daily-workout-buttons">
@@ -116,6 +117,15 @@ home.insertBefore(review,extra.nextSibling);
 const reviewDetails=document.createElement('details');reviewDetails.className='weekly-review-collapse';
 const reviewHeading=document.createElement('summary');reviewHeading.textContent='Weekly CEO review · planning and results';
 reviewDetails.append(reviewHeading);home.insertBefore(reviewDetails,review);reviewDetails.append(review);
+// Nothing is deleted: put legacy cards, authentication controls, and shortcuts
+// behind one optional panel so the daily page no longer looks like a form catalog.
+const library=document.createElement('details');library.className='daily-detail-collapse';
+const librarySummary=document.createElement('summary');librarySummary.textContent='Settings and original dashboard';
+library.append(librarySummary);
+home.append(library);
+const legacyGrid=home.querySelector(':scope > .grid');
+if(legacyGrid){let current=legacyGrid;while(current){const next=current.nextSibling;library.append(current);current=next;}}
+
 const focusDate=()=>today();
 const reviewWeek=()=>weekStart();
 function routineToday(r,day){return Array.isArray(r.days)&&r.days.includes(new Date(day+'T12:00:00').getDay());}
@@ -131,12 +141,21 @@ function renderDailyActions(){
  ...remaining.slice(0,3).map(r=>({title:r.text,detail:'Today’s routine',run:()=>{r.completed=Array.from(new Set([...(r.completed||[]),day])).sort().slice(-180);api.save();api.render();}})),
  ...openLeads.slice(0,2).map(l=>({title:'Follow up: '+l.text,detail:l.stage+' · '+(l.follow_up<day?'Overdue':'Due today'),run:()=>{
    if(!api.cloudReady()){alert('Reconnect cloud to update sales follow-ups.');return;}
-   if(!confirm('Have you contacted '+l.text+'?'))return;
+   if(!confirm('Have you contacted '+l.text+'? CEO OS will remind you again in 2 days.'))return;
    if(l.stage==='New')l.stage='Contacted';
    l.follow_up=plusDays(day,2);
    api.save();api.render();
  }}))
  ];
+ const cal=api.getCalendar();
+ const appointments=(cal.events||[]).filter(e=>e.start&&e.end&&e.start.slice(0,10)<=day&&
+   (e.end.slice(0,10)>day||(!e.all_day&&e.end.slice(0,10)===day)));
+ const kpi=api.getKpi();
+ const digest=[
+  appointments.length+' calendar appointment'+(appointments.length===1?'':'s')+' today'+(cal.status==='connected'?'':' (calendar not connected)'),
+  kpi?.week_ending?'Latest saved KPI week: '+money(kpi.revenue)+' revenue · '+kpi.week_ending:'KPI feed unavailable'
+ ];
+ $('daily-smart-summary').textContent=digest.join('  •  ');
  const completed=routines.length-remaining.length;
  $('daily-progress').textContent=completed+' routines done · '+(dueTasks.length+remaining.length+openLeads.length)+' open';
  if(!todos.length){empty(target,'You’re caught up. Check today’s calendar below.');}
