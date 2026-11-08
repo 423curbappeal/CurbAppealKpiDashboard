@@ -82,7 +82,18 @@ select{background:#0b1423;border:1px solid #34415a;border-radius:11px;color:var(
 #plaid-sandbox-card .finance-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
 #plaid-sandbox-card .entry{align-items:flex-start}
 #plaid-sandbox-card .entry>div{min-width:0;overflow-wrap:anywhere}
-#plaid-cashflow-panel[hidden]{display:none!important}
+#plaid-insights[hidden],#plaid-cashflow-panel[hidden]{display:none!important}
+#plaid-insights{margin-top:20px;padding-top:14px;border-top:1px solid var(--line)}
+#plaid-insights h4{margin:16px 0 8px;font-size:14px}
+.plaid-trend-row{display:grid;grid-template-columns:72px minmax(0,1fr);gap:8px;align-items:center;margin:8px 0}
+.plaid-trend-bars{display:grid;gap:3px}
+.plaid-trend-line{display:grid;grid-template-columns:58px minmax(0,1fr) 88px;gap:6px;align-items:center}
+.plaid-trend-line>span:last-child{text-align:right}
+.plaid-bar-track{height:9px;border-radius:6px;background:var(--card2);overflow:hidden}
+.plaid-bar-fill{height:100%;border-radius:6px;background:var(--green)}
+.plaid-bar-fill.spending{background:var(--blue)}
+@media(max-width:420px){.plaid-trend-row{grid-template-columns:58px minmax(0,1fr)}.plaid-trend-line{grid-template-columns:51px minmax(0,1fr) 72px;gap:4px}.plaid-trend-line>span{font-size:10px}}
+
 #plaid-cashflow-panel{margin-top:18px;border-top:1px solid var(--line);padding-top:12px}
 #plaid-cashflow-panel .finance-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
 #plaid-sandbox-card button:disabled{opacity:.5}
@@ -162,6 +173,13 @@ select{background:#0b1423;border:1px solid #34415a;border-radius:11px;color:var(
 <div class="finance-metrics"><div><div class="muted small">Classified income</div><div class="metric" id="plaid-month-income">$0</div></div><div><div class="muted small">Classified spending</div><div class="metric" id="plaid-month-expenses">$0</div></div><div><div class="muted small">Classified net</div><div class="metric" id="plaid-month-net">$0</div></div><div><div class="muted small">Needs review</div><div class="metric" id="plaid-month-review">0</div></div></div>
 <p id="plaid-month-exclusions" class="muted small"></p><h3>Spending by category</h3><div id="plaid-spending-categories"></div>
 <p class="muted small">Only clearly classified, posted transactions count toward totals. Transfers, debt payments, pending items, and ambiguous credits are excluded or flagged for review; totals may be incomplete.</p></div>
+<div id="plaid-insights" hidden>
+<h3>Financial insights <span class="muted small">· Fictional sample data</span></h3>
+<p class="muted small" id="plaid-insights-note">Historical patterns are estimates, not confirmed bills.</p>
+<h4>Cash-flow trend</h4><div id="plaid-trend" aria-label="Monthly sample cash flow"></div>
+<h4>Biggest spending categories</h4><div id="plaid-top-categories"></div>
+<h4>Possible recurring expenses</h4><div id="plaid-recurring"></div>
+</div>
 <div id="plaid-demo-accounts"></div><div id="plaid-demo-transactions"></div>
 <p class="muted small">Sandbox information is separate from your manual finance totals and never represents live bank data.</p></div>
 <div class="grid" id="finance-grid">
@@ -363,12 +381,53 @@ renderBrandPipeline();renderBrandCalendar();
 
 
 
-let plaidSandboxReady=false,plaidLinkScript=null,plaidMonthly={},plaidSelectedMonth='';
+let plaidSandboxReady=false,plaidLinkScript=null,plaidMonthly={},plaidSelectedMonth='',plaidInsights={};
+function plaidEmpty(container,message){container.replaceChildren();const p=document.createElement('p');p.className='muted small';p.textContent=message;container.append(p);}
+function plaidInsightRow(container,titleText,subtitleText,valueText){
+const row=document.createElement('div');row.className='entry';
+const left=document.createElement('div');const name=document.createElement('strong');name.textContent=titleText;
+const detail=document.createElement('div');detail.className='muted small';detail.textContent=subtitleText;left.append(name,detail);
+const value=document.createElement('strong');value.textContent=valueText;row.append(left,value);container.append(row);
+}
+function renderPlaidInsights(){
+const panel=$('plaid-insights'),trend=$('plaid-trend'),top=$('plaid-top-categories'),recurring=$('plaid-recurring');
+const months=Array.isArray(plaidInsights.trend)?plaidInsights.trend:[];
+const candidates=Array.isArray(plaidInsights.recurring_candidates)?plaidInsights.recurring_candidates:[];
+const byMonth=plaidInsights.top_categories_by_month||{};
+panel.hidden=!months.length;
+if(!months.length)return;
+$('plaid-insights-note').textContent=plaidInsights.note||'Historical Sandbox patterns only.';
+trend.replaceChildren();
+const scale=Math.max(1,...months.flatMap(m=>[m.income||0,m.expenses||0]));
+for(const m of months){
+ const group=document.createElement('div');group.className='plaid-trend-row';
+ const month=document.createElement('div');month.className='muted small';month.textContent=m.month;
+ const bars=document.createElement('div');bars.className='plaid-trend-bars';
+ for(const [label,amount,type] of [['Income',m.income,'income'],['Spending',m.expenses,'spending']]){
+  const line=document.createElement('div');line.className='plaid-trend-line';
+  const text=document.createElement('span');text.className='muted small';text.textContent=label;
+  const track=document.createElement('div');track.className='plaid-bar-track';
+  const fill=document.createElement('div');fill.className='plaid-bar-fill '+type;
+  fill.style.width=(Math.max(0,Math.min(100,amount/scale*100)))+'%';
+  track.append(fill);const value=document.createElement('span');value.className='muted small';value.textContent=plaidFormat(amount);
+  line.append(text,track,value);bars.append(line);
+ }
+ group.append(month,bars);trend.append(group);
+}
+const cats=Array.isArray(byMonth[plaidSelectedMonth])?byMonth[plaidSelectedMonth]:[];
+top.replaceChildren();
+if(!cats.length)plaidEmpty(top,'No categorized spending for this month.');
+else for(const cat of cats)plaidInsightRow(top,cat.category,(cat.share_percent||0)+'% of classified spending',plaidFormat(cat.amount));
+recurring.replaceChildren();
+if(!candidates.length)plaidEmpty(recurring,'No clear repeated-payment patterns in the available sample history.');
+else for(const c of candidates)plaidInsightRow(recurring,c.merchant,c.cadence+' · '+c.observations+' matches · Last seen '+c.last_seen,plaidFormat(c.typical_amount));
+}
 $('plaid-cashflow-month').addEventListener('change',e=>{plaidSelectedMonth=e.target.value;renderPlaidMonthly();});
 function renderPlaidMonthly(){
 const data=plaidMonthly[plaidSelectedMonth],panel=$('plaid-cashflow-panel');
 panel.hidden=!data;
-if(!data)return;
+if(!data){renderPlaidInsights();return;}
+renderPlaidInsights();
 $('plaid-month-income').textContent=plaidFormat(data.income);
 $('plaid-month-expenses').textContent=plaidFormat(data.expenses);
 $('plaid-month-net').textContent=plaidFormat(data.net);
@@ -405,6 +464,7 @@ async function plaidOverview(){
     $('plaid-test-disconnect').disabled=result.status!=='connected';
     const accounts=result.accounts||[],transactions=result.transactions||[];
     plaidMonthly=result.monthly||{};
+    plaidInsights=result.insights||{};
     const monthSelect=$('plaid-cashflow-month'),previous=plaidSelectedMonth;
     monthSelect.replaceChildren();
     for(const month of Object.keys(plaidMonthly).sort().reverse()){
