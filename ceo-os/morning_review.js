@@ -43,7 +43,7 @@ daily.className='command-card daily-action-card';
 daily.innerHTML=`<div class="row"><div><div class="eyebrow">Daily command center</div><h2 style="margin:5px 0">Just do these next</h2></div><span class="pill" id="daily-progress">0 / 0 done</span></div>
  <p class="muted small">Nothing to fill out. Tap to finish actions that already exist in CEO OS.</p>
  <div id="daily-actions" aria-live="polite"></div>
- <div class="row" style="margin-top:12px"><strong style="font-size:13px">Quick workout check-in</strong><span class="muted small">One tap logs a 45-minute session</span></div>
+ <div class="row" style="margin-top:12px"><strong style="font-size:13px">Quick workout check-in</strong><span class="muted small">Log a session (duration optional)</span></div>
  <div class="quick-links" id="daily-workout-buttons">
  <button type="button" class="secondary" data-quick-workout="Push">Push</button>
  <button type="button" class="secondary" data-quick-workout="Pull">Pull</button>
@@ -77,7 +77,11 @@ const briefing=panel(home,`<div class="row"><div><div class="eyebrow">CEO mornin
  <div><h2 class="section" style="margin:16px 0 8px">Today's schedule</h2><div id="morning-schedule"></div></div></div>
  <div class="row" style="margin-top:12px"><button type="button" class="secondary" id="morning-open-review">Weekly CEO review</button>
  <span class="muted small">Calendar read-only · Bill and lead data manually entered</span></div>`);
-home.insertBefore(briefing,home.firstElementChild);
+// Keep the full briefing available, but not in the path of the 2-minute check-in.
+const briefingDetails=document.createElement('details');briefingDetails.className='daily-detail-collapse';
+const briefingSummary=document.createElement('summary');briefingSummary.textContent='More details · calendar, bills, and business metrics';
+briefingDetails.append(briefingSummary);
+home.insertBefore(briefingDetails,daily.nextSibling);briefingDetails.append(briefing);
 // Existing Home content remains available on demand instead of repeating the briefing.
 const extra=document.createElement('details');extra.className='command-card';extra.id='home-extra-details';
 const summary=document.createElement('summary');summary.textContent='More: full daily overview and calendar';extra.append(summary);
@@ -85,7 +89,7 @@ const existing=$('home-day-preview');
 const oldHeading=existing.previousElementSibling;
 if(oldHeading&&oldHeading.textContent.includes('Today at a glance'))extra.append(oldHeading);
 extra.append(existing);
-home.insertBefore(extra,briefing.nextSibling);
+home.insertBefore(extra,briefingDetails.nextSibling);
 
 const review=panel(home,`<div class="eyebrow">Weekly CEO review</div><div class="row"><h2 style="margin:5px 0">Review, learn, plan</h2><span class="muted small" id="review-dates"></span></div>
  <p class="muted small">A Sunday review for the Monday–Sunday week. Historical KPI figures are labeled by their saved week; they're not automatically today's revenue.</p>
@@ -138,16 +142,16 @@ function renderDailyActions(){
  if(!todos.length){empty(target,'You’re caught up. Check today’s calendar below.');}
  for(const t of todos)row(target,t.title,t.detail,'Done',t.run);
  if(dueTasks.length>3||remaining.length>3||openLeads.length>2){
-  const extra=node('button','See remaining items','secondary');extra.type='button';extra.addEventListener('click',()=>{briefing.open=true;briefing.scrollIntoView({behavior:'smooth'});});
+  const extra=node('button','See remaining items','secondary');extra.type='button';extra.addEventListener('click',()=>{briefingDetails.open=true;briefingDetails.scrollIntoView({behavior:'smooth'});});
   target.append(extra);
  }
 }
 function recordQuickWorkout(category){
  if(state().workouts.length>=250){$('daily-workout-note').textContent='Workout history is full. Remove older entries in Fitness.';return;}
  const stamp=Date.now();
- state().workouts.unshift({id:stamp+'-'+Math.random().toString(36).slice(2),when:stamp,text:category+' session',category,duration:45,done:false});
+ state().workouts.unshift({id:stamp+'-'+Math.random().toString(36).slice(2),when:stamp,text:category+' session',category,duration:0,done:false});
  api.save();api.render();
- $('daily-workout-note').textContent=category+' session logged. Edit details in Fitness if needed.';
+ $('daily-workout-note').textContent=category+' session logged with no duration. Add details in Fitness if you want.';
 }
 function renderMorning(){
  const date=focusDate(),s=state(),d=new Date(date+'T12:00:00');
