@@ -16,6 +16,7 @@ An AI-assisted personal operating system for ambitious people. You connect the t
 | **Quick actions.** One-tap workout logging (protected against accidental double logs), routine check-offs, contact logging | ✅ Duration is never invented |
 | **Growth: automatic progress.** Workouts/week, routine consistency and tasks/week come from recorded activity. Every number is labeled **Actual**, **You entered** or **Not tracked** | ✅ Revenue shows "Not tracked" until a verified source is connected |
 | **Weekly review.** Drafted automatically: wins, habits, meetings, goals, unfinished work (move / leave / drop), ideas for next week, reflection, approve | ✅ Only the changes you approve are applied |
+| **Housecall Pro (MAX).** Open estimates → follow-ups with real amounts; approved-not-scheduled and unscheduled jobs → tasks; scheduled jobs on Home; tasks auto-close from Housecall Pro status; briefing pipeline line | ✅ Verified against a live account (read-only) |
 | **Google Calendar.** OAuth, read-only, encrypted tokens, deduplicated sync, disconnect + revoke | ✅ Code complete. **Needs Google OAuth credentials before it can be used** |
 | Accounts, personal workspace, data export, account deletion, audit log | ✅ |
 | Tenant isolation enforced by Postgres row-level security | ✅ Integration-tested |
@@ -23,7 +24,7 @@ An AI-assisted personal operating system for ambitious people. You connect the t
 
 ### Deliberately not built yet
 - **An LLM.** The briefing, prioritization and capture are deterministic and explainable. An LLM layer is planned on top (see [docs/ROADMAP.md](docs/ROADMAP.md)), but the core never depends on one, so it can't make anything up.
-- Outlook, Housecall Pro, QuickBooks, Jobber and Stripe. See [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) for feasibility research.
+- Outlook, QuickBooks, Jobber and Stripe. See [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) for feasibility research.
 - Teams/assignment, billing, push notifications, passkeys.
 
 ## Run locally
@@ -45,7 +46,7 @@ npm run test:e2e            # Playwright on an iPhone 14 viewport against a runn
 npm run lint                # TypeScript strict typecheck
 ```
 
-What was actually verified for this commit: 27 unit tests, 10 integration tests on PostgreSQL 16, 2 end-to-end browser tests (production build and standalone server layout), a clean `next build` and a clean strict typecheck. **Not verified:** the Docker image build (no Docker daemon in the build environment), a live Google OAuth round trip (no credentials), and real-device iPhone testing.
+What was actually verified: 37 unit tests, 16 integration tests (incl. Housecall Pro sync against a fake API), a live read-only Housecall Pro sync, on PostgreSQL 16, 2 end-to-end browser tests (production build and standalone server layout), a clean `next build` and a clean strict typecheck. **Not verified:** the Docker image build (no Docker daemon in the build environment), a live Google OAuth round trip (no credentials), and real-device iPhone testing.
 
 ## Docs
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): stack, data model, security model, key decisions

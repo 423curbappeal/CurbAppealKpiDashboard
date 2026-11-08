@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { AlertTriangle, CalendarClock, CalendarPlus, ChevronRight, ClipboardCheck, Info, MapPin, Repeat, Sparkles } from "lucide-react";
-import { CalendarAutoSync, RoutineToggles, WorkoutQuickLog } from "@/components/quick";
+import { AutoSync, RoutineToggles, WorkoutQuickLog } from "@/components/quick";
 import { TaskRow } from "@/components/tasks";
 import { Card, cx, EmptyState, Screen, SectionTitle, TextLink } from "@/components/ui";
 import { CaptureHint } from "./capture-hint";
@@ -22,7 +22,7 @@ export default async function HomePage() {
 
   return (
     <Screen>
-      <CalendarAutoSync needed={home.needsSync} />
+      <AutoSync needed={home.needsSync} />
       <header className="flex items-start justify-between gap-4 pt-6 pb-5">
         <div className="min-w-0 animate-rise">
           <p className="text-[13px] font-medium tracking-wide text-faint uppercase">{briefing.dateLabel}</p>
@@ -76,7 +76,7 @@ export default async function HomePage() {
           </Card>
 
           {/* Schedule */}
-          <SectionTitle action={home.calendar !== "not_connected" && home.calendarSyncedAt ? <span className="text-[12px] text-faint">Google Calendar</span> : undefined}>
+          <SectionTitle action={home.scheduleSources ? <span className="text-[12px] text-faint">{home.scheduleSources}</span> : undefined}>
             Today's schedule
           </SectionTitle>
           {home.calendar === "not_connected" ? (

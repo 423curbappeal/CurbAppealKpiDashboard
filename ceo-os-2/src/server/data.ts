@@ -1,7 +1,8 @@
 import "server-only";
 import { and, asc, desc, eq, gte, isNull, lt, sql } from "drizzle-orm";
 import { schema, withTenant, type Tx } from "@/db";
-import { buildBriefing, type ConnectionState, type TaskLike } from "@/lib/briefing";
+import { buildBriefing, type BusinessSnapshot, type ConnectionState, type TaskLike } from "@/lib/briefing";
+import { housecallConfiguredFor } from "./integrations/housecall-pro";
 import { addDays, localDate, startOfLocalDay, startOfWeek, type DateString } from "@/lib/dates";
 import { goalProgress, routineConsistency, type GoalLike, type Metrics } from "@/lib/progress";
 import { buildWeeklyReview } from "@/lib/review";
@@ -23,6 +24,8 @@ function toTaskLike(t: typeof schema.tasks.$inferSelect): TaskLike {
     snoozedUntil: t.snoozedUntil,
     contactName: t.contactName,
     createdAt: t.createdAt,
+    valueCents: t.external?.amountCents ?? null,
+    fromIntegration: t.source === "integration",
   };
 }
 
@@ -30,16 +33,33 @@ function toRoutineLike(r: typeof schema.routines.$inferSelect): RoutineLike {
   return { id: r.id, title: r.title, cadence: r.cadence, daysOfWeek: r.daysOfWeek };
 }
 
-async function calendarState(tx: Tx, userId: string): Promise<{ state: ConnectionState; integration: typeof schema.integrations.$inferSelect | null }> {
+async function integrationState(
+  tx: Tx,
+  userId: string,
+  provider: "google_calendar" | "housecall_pro",
+  staleAfterMs = STALE_AFTER_MS,
+): Promise<{ state: ConnectionState; integration: typeof schema.integrations.$inferSelect | null }> {
   const [integration] = await tx
     .select()
     .from(schema.integrations)
-    .where(and(eq(schema.integrations.userId, userId), eq(schema.integrations.provider, "google_calendar")))
+    .where(and(eq(schema.integrations.userId, userId), eq(schema.integrations.provider, provider)))
     .limit(1);
   if (!integration || integration.status === "disconnected") return { state: "not_connected", integration: null };
   if (integration.status === "error") return { state: "error", integration };
-  if (!integration.lastSyncedAt || Date.now() - integration.lastSyncedAt.getTime() > STALE_AFTER_MS) return { state: "stale", integration };
+  if (!integration.lastSyncedAt || Date.now() - integration.lastSyncedAt.getTime() > staleAfterMs) return { state: "stale", integration };
   return { state: "connected", integration };
+}
+
+const calendarState = (tx: Tx, userId: string) => integrationState(tx, userId, "google_calendar");
+const HCP_STALE_MS = 30 * 60_000;
+
+/** Housecall Pro state for this user, or not_connected when the server key isn't bound to them. */
+async function housecallState(tx: Tx, ctx: AppContext) {
+  if (!housecallConfiguredFor(ctx.email)) return { state: "not_connected" as ConnectionState, integration: null };
+  const r = await integrationState(tx, ctx.userId, "housecall_pro", HCP_STALE_MS);
+  // Configured but never synced yet: treat as stale so the first sync runs.
+  if (!r.integration) return { state: "stale" as ConnectionState, integration: null, firstRun: true };
+  return r;
 }
 
 async function metricsFor(tx: Tx, ctx: AppContext, today: DateString): Promise<Metrics & { lastWorkoutDate: DateString | null }> {
@@ -99,7 +119,22 @@ export async function loadHome(ctx: AppContext) {
       .where(and(eq(schema.calendarEvents.userId, ctx.userId), gte(schema.calendarEvents.endsAt, now), lt(schema.calendarEvents.startsAt, new Date(now.getTime() + 2 * 86_400_000))))
       .orderBy(asc(schema.calendarEvents.startsAt));
     const cal = await calendarState(tx, ctx.userId);
+    const hcp = await housecallState(tx, ctx);
     const m = await metricsFor(tx, ctx, today);
+    const hcpTasks = tasks.filter((t) => t.external?.provider === "housecall_pro");
+    const business: BusinessSnapshot | null =
+      hcp.state === "not_connected"
+        ? null
+        : {
+            source: "Housecall Pro",
+            state: hcp.state,
+            awaitingEstimates: hcpTasks.filter((t) => t.external?.type === "estimate").length,
+            awaitingValueCents: hcpTasks.filter((t) => t.external?.type === "estimate").reduce((sum, t) => sum + (t.external?.amountCents ?? 0), 0),
+            approvedUnscheduled: hcpTasks.filter((t) => t.external?.type === "approved_estimate").length,
+            jobsToSchedule: hcpTasks.filter((t) => t.external?.type === "job").length,
+          };
+    // The schedule comes from Google Calendar, or from Housecall Pro jobs when that's all that's connected.
+    const scheduleState: ConnectionState = cal.state !== "not_connected" ? cal.state : hcp.state === "not_connected" ? "not_connected" : hcp.state === "error" ? "stale" : "connected";
     const recentWorkouts = await tx
       .select()
       .from(schema.activities)
@@ -117,7 +152,8 @@ export async function loadHome(ctx: AppContext) {
       workoutsThisWeek: m.workoutsThisWeek,
       weeklyWorkoutTarget: ctx.weeklyWorkoutTarget,
       lastWorkoutDate: m.lastWorkoutDate,
-      calendar: cal.state,
+      calendar: scheduleState,
+      business,
     });
     const weekday = new Date(`${today}T12:00:00Z`).getUTCDay();
     const [thisWeeksReview] = await tx
@@ -132,6 +168,7 @@ export async function loadHome(ctx: AppContext) {
       return {
         ...toTaskLike(t),
         source: t.source,
+        notes: t.notes,
         reason: p.reason,
         overdue: t.dueDate !== null && t.dueDate < today,
       };
@@ -139,9 +176,9 @@ export async function loadHome(ctx: AppContext) {
     return {
       briefing,
       priorityTasks,
-      calendar: cal.state,
-      calendarSyncedAt: cal.integration?.lastSyncedAt ?? null,
-      needsSync: cal.state === "stale",
+      calendar: scheduleState,
+      scheduleSources: [cal.state !== "not_connected" ? "Google Calendar" : null, hcp.state !== "not_connected" ? "Housecall Pro" : null].filter(Boolean).join(" · "),
+      needsSync: cal.state === "stale" || hcp.state === "stale",
       workoutsToday: recentWorkouts.map((w) => ({ id: w.id, label: w.label })),
       workoutsThisWeek: m.workoutsThisWeek,
       reviewDue,
@@ -261,7 +298,14 @@ export async function loadYou(ctx: AppContext) {
   return withTenant(ctx, async (tx) => {
     const routines = await tx.select().from(schema.routines).where(and(eq(schema.routines.userId, ctx.userId), isNull(schema.routines.archivedAt))).orderBy(asc(schema.routines.createdAt));
     const cal = await calendarState(tx, ctx.userId);
+    const hcp = await housecallState(tx, ctx);
     return {
+      housecall: {
+        available: housecallConfiguredFor(ctx.email),
+        state: hcp.state,
+        lastSyncedAt: hcp.integration?.lastSyncedAt ?? null,
+        lastError: hcp.integration?.lastError ?? null,
+      },
       routines: routines.map((r) => ({ id: r.id, title: r.title, cadence: r.cadence, daysOfWeek: r.daysOfWeek })),
       calendar: {
         state: cal.state,

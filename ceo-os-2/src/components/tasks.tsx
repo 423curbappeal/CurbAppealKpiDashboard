@@ -31,6 +31,7 @@ export interface TaskView {
   snoozed?: boolean;
   contactName?: string | null;
   source?: string;
+  notes?: string | null;
 }
 
 function addDaysLocal(days: number) {
@@ -118,6 +119,7 @@ function TaskActions({ task, open, onClose }: { task: TaskView; open: boolean; o
     <Sheet open={open} onClose={onClose} title={task.title}>
       {!picking ? (
         <div className="-mx-2 space-y-0.5">
+          {task.notes && <p className="mx-3 mb-3 rounded-2xl bg-white/[0.04] px-4 py-3 text-[14px] leading-relaxed text-muted">{task.notes}</p>}
           {task.kind === "follow_up" && task.status === "open" && (
             <SheetOption
               icon={<PhoneCall size={18} />}
@@ -152,7 +154,7 @@ function TaskActions({ task, open, onClose }: { task: TaskView; open: boolean; o
           <SheetOption icon={<Trash2 size={18} />} label="Remove task" tone="danger" disabled={pending} onClick={() => act(() => deleteTask(task.id), () => reopenTask(task.id))} />
           <p className="flex items-center gap-2 px-3 pt-4 text-[13px] text-faint">
             <Info size={14} />
-            {task.source === "capture" ? "Added from quick capture" : task.source === "review" ? "Added during weekly review" : "Added manually"}
+            {task.source === "integration" ? "From Housecall Pro (read-only)" : task.source === "capture" ? "Added from quick capture" : task.source === "review" ? "Added during weekly review" : "Added manually"}
             {task.scope === "business" && (
               <>
                 {" "}

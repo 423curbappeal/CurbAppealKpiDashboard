@@ -1,10 +1,10 @@
 import Link from "next/link";
-import { CalendarDays, ChevronLeft, Lock } from "lucide-react";
+import { Briefcase, CalendarDays, ChevronLeft, Lock } from "lucide-react";
 import { Badge, Card, Screen, ScreenHeader, SectionTitle } from "@/components/ui";
 import { requireContext } from "@/server/context";
 import { loadYou } from "@/server/data";
 import { googleConfigured } from "@/server/integrations/google-calendar";
-import { CalendarControls } from "./controls";
+import { CalendarControls, HousecallControls } from "./controls";
 
 export const metadata = { title: "Connections" };
 
@@ -19,7 +19,6 @@ const ERRORS: Record<string, string> = {
 const ROADMAP = [
   { name: "Microsoft Outlook / 365 Calendar", status: "Next up", detail: "Read-only calendar via Microsoft Graph" },
   { name: "QuickBooks Online", status: "Planned", detail: "Verified revenue and expenses for business goals" },
-  { name: "Housecall Pro", status: "Evaluating", detail: "Jobs, estimates and follow-ups — pending API access review" },
   { name: "Jobber", status: "Evaluating", detail: "Jobs, quotes and clients for service businesses" },
   { name: "Stripe", status: "Planned", detail: "Payments revenue, read-only" },
 ];
@@ -27,7 +26,7 @@ const ROADMAP = [
 export default async function ConnectionsPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const ctx = await requireContext();
   const params = await searchParams;
-  const { calendar } = await loadYou(ctx);
+  const { calendar, housecall } = await loadYou(ctx);
   const configured = googleConfigured();
   const fmt = new Intl.DateTimeFormat("en-US", { timeZone: ctx.timeZone, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
@@ -73,6 +72,37 @@ export default async function ConnectionsPage({ searchParams }: { searchParams: 
         <p className="mt-3 flex items-start gap-2 text-[12px] leading-relaxed text-faint">
           <Lock size={13} className="mt-0.5 shrink-0" />
           CEO OS can see event titles, times and locations. It can't create, change or delete events. Disconnect any time — tokens are revoked and cached events deleted.
+        </p>
+      </Card>
+
+      <SectionTitle>Business</SectionTitle>
+      <Card className="p-4">
+        <div className="flex items-start gap-4">
+          <div className="grid size-11 shrink-0 place-items-center rounded-2xl bg-white/[0.06]">
+            <Briefcase size={20} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[16px] font-semibold">Housecall Pro</p>
+              {!housecall.available || housecall.state === "not_connected" ? (
+                <Badge>{housecall.available ? "Paused" : "Not set up"}</Badge>
+              ) : housecall.state === "error" ? (
+                <Badge tone="bad">Sync failed</Badge>
+              ) : (
+                <Badge tone="good">Connected</Badge>
+              )}
+            </div>
+            <p className="mt-0.5 text-[13px] text-muted">Open estimates and unscheduled jobs become follow-ups. Scheduled jobs appear on Home.</p>
+            {housecall.lastSyncedAt && <p className="mt-0.5 text-[13px] text-faint">Last synced {fmt.format(housecall.lastSyncedAt)}</p>}
+            {housecall.state === "error" && housecall.lastError && <p className="mt-1 text-[13px] text-bad">{housecall.lastError}</p>}
+          </div>
+        </div>
+        <div className="mt-4">
+          <HousecallControls available={housecall.available} paused={housecall.available && housecall.state === "not_connected"} />
+        </div>
+        <p className="mt-3 flex items-start gap-2 text-[12px] leading-relaxed text-faint">
+          <Lock size={13} className="mt-0.5 shrink-0" />
+          Read-only. CEO OS never changes anything in Housecall Pro. Follow-ups close automatically when an estimate is approved, declined or expires there.
         </p>
       </Card>
 

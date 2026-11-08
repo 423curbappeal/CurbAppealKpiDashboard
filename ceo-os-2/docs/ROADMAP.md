@@ -6,7 +6,7 @@ Ordered by how much manual work each step removes, against what it costs.
 1. **Deploy + Google Calendar live** (credentials only, code is done).
 2. **Passkeys / Face ID sign-in** (Better Auth passkey plugin) and password reset over email.
 3. **Microsoft Outlook calendar** connector.
-4. **Housecall Pro, single-tenant**: read-only key in a server env var → open estimates and unscheduled jobs become follow-ups automatically (deduped by HCP ID). Removes the double entry you named as the biggest pain.
+4. ~~Housecall Pro, single-tenant~~ ✅ built — open estimates, approved-unscheduled estimates and unscheduled jobs become follow-ups; scheduled jobs on Home; auto-close from upstream status.
 5. **QuickBooks** → verified revenue → the $1M goal tracks itself.
 
 ## AI layer (on top of the deterministic core, never replacing it)

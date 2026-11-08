@@ -3,6 +3,7 @@ import { timingSafeEqual } from "node:crypto";
 import { and, eq, ne } from "drizzle-orm";
 import { adminDb, schema } from "@/db";
 import { syncGoogleCalendar } from "@/server/integrations/google-calendar";
+import { syncHousecallPro } from "@/server/integrations/housecall-pro";
 
 export const dynamic = "force-dynamic";
 
@@ -25,5 +26,22 @@ export async function POST(request: NextRequest) {
     if ("error" in result) failed++;
     else ok++;
   }
-  return NextResponse.json({ ok, failed });
+  // Housecall Pro: single account bound by HOUSECALL_PRO_ACCOUNT_EMAIL.
+  let housecall: string = "not_configured";
+  const owner = process.env.HOUSECALL_PRO_ACCOUNT_EMAIL?.trim().toLowerCase();
+  if (process.env.HOUSECALL_PRO_API_KEY && owner) {
+    const [row] = await adminDb()
+      .select({ userId: schema.user.id, orgId: schema.memberships.orgId, timeZone: schema.preferences.timezone })
+      .from(schema.user)
+      .innerJoin(schema.memberships, and(eq(schema.memberships.userId, schema.user.id), eq(schema.memberships.role, "owner")))
+      .innerJoin(schema.organizations, and(eq(schema.organizations.id, schema.memberships.orgId), eq(schema.organizations.kind, "personal")))
+      .leftJoin(schema.preferences, eq(schema.preferences.userId, schema.user.id))
+      .where(eq(schema.user.email, owner))
+      .limit(1);
+    if (row) {
+      const r = await syncHousecallPro({ userId: row.userId, orgId: row.orgId, timeZone: row.timeZone ?? "America/New_York" });
+      housecall = "error" in r ? r.error : "ok";
+    } else housecall = "account_not_found";
+  }
+  return NextResponse.json({ ok, failed, housecall });
 }

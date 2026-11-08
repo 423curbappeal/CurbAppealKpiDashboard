@@ -12,6 +12,16 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+
+export interface ExternalFacts {
+  provider: "housecall_pro";
+  type: "estimate" | "approved_estimate" | "job";
+  number?: string | null;
+  amountCents?: number | null;
+  customer?: string | null;
+  closedReason?: string | null;
+}
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Authentication tables (shape required by Better Auth).
@@ -152,11 +162,17 @@ export const tasks = pgTable(
     contactName: text("contact_name"),
     source: recordSource("source").notNull().default("manual"),
     sourceRef: text("source_ref"),
+    /** Facts copied from the source record (e.g. estimate amount). Shown, never edited. */
+    external: jsonb("external").$type<ExternalFacts>(),
     completedAt: timestamp("completed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("tasks_org_user_status_idx").on(t.orgId, t.userId, t.status)],
+  (t) => [
+    index("tasks_org_user_status_idx").on(t.orgId, t.userId, t.status),
+    // One CEO OS task per external record, ever — dismissed items are never re-created.
+    uniqueIndex("tasks_user_source_ref_uq").on(t.userId, t.sourceRef).where(sql`${t.sourceRef} is not null`),
+  ],
 );
 
 export const routineCadence = pgEnum("routine_cadence", ["daily", "weekdays", "weekends", "custom"]);
@@ -263,7 +279,7 @@ export const goals = pgTable(
   (t) => [index("goals_org_user_idx").on(t.orgId, t.userId)],
 );
 
-export const integrationProvider = pgEnum("integration_provider", ["google_calendar", "microsoft_calendar"]);
+export const integrationProvider = pgEnum("integration_provider", ["google_calendar", "microsoft_calendar", "housecall_pro"]);
 export const integrationStatus = pgEnum("integration_status", ["connected", "error", "disconnected"]);
 
 export const integrations = pgTable(

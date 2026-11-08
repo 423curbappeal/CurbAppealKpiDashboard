@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { CalendarDays, ChevronRight, ShieldCheck } from "lucide-react";
+import { Briefcase, CalendarDays, ChevronRight, ShieldCheck } from "lucide-react";
 import { Badge, Card, Screen, ScreenHeader, SectionTitle } from "@/components/ui";
 import { describeCadence } from "@/lib/routines";
 import { requireContext } from "@/server/context";
@@ -38,6 +38,16 @@ export default async function YouPage() {
           <ChevronRight size={18} className="text-faint" />
         </Card>
       </Link>
+      {you.housecall.available && (
+        <Link href="/you/connections" className="mt-2 block">
+          <Card className="flex min-h-16 items-center gap-4 px-4 py-3 active:bg-raised">
+            <Briefcase size={20} className="text-muted" />
+            <span className="flex-1 text-[16px]">Housecall Pro</span>
+            {you.housecall.state === "not_connected" ? <Badge>Paused</Badge> : you.housecall.state === "error" ? <Badge tone="bad">Needs attention</Badge> : <Badge tone="good">Connected</Badge>}
+            <ChevronRight size={18} className="text-faint" />
+          </Card>
+        </Link>
+      )}
 
       <SectionTitle>Preferences</SectionTitle>
       <Card className="overflow-hidden">

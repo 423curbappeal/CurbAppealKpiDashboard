@@ -164,3 +164,27 @@ describe("buildWeeklyReview", () => {
     expect(s.unfinished[0]).toMatchObject({ overdueDays: 3 });
   });
 });
+
+describe("briefing with a business source", () => {
+  it("summarizes Housecall Pro once and ranks follow-ups by wait and value", () => {
+    const old = new Date(now.getTime() - 9 * 86_400_000);
+    const tasks = [
+      task({ id: "small", kind: "follow_up", scope: "business", createdAt: old, valueCents: 20_000, fromIntegration: true }),
+      task({ id: "big", kind: "follow_up", scope: "business", createdAt: old, valueCents: 280_000, fromIntegration: true }),
+      task({ id: "big2", kind: "follow_up", scope: "business", createdAt: old, valueCents: 150_000, fromIntegration: true }),
+    ];
+    const b = buildBriefing({
+      ...baseInput,
+      tasks,
+      business: { source: "Housecall Pro", state: "connected", awaitingEstimates: 3, awaitingValueCents: 450_000, approvedUnscheduled: 1, jobsToSchedule: 0 },
+    });
+    expect(b.summary).toContain("Housecall Pro: 3 estimates awaiting a reply ($4,500), 1 approved but not scheduled.");
+    expect(b.priorities[0]).toMatchObject({ taskId: "big", reason: "Waiting 9 days for a reply · $2,800" });
+    expect(b.alerts.some((a) => a.id === "stale-follow-ups")).toBe(false);
+  });
+  it("warns instead of summarizing when the business sync fails", () => {
+    const b = buildBriefing({ ...baseInput, tasks: [], business: { source: "Housecall Pro", state: "error", awaitingEstimates: 0, awaitingValueCents: 0, approvedUnscheduled: 0, jobsToSchedule: 0 } });
+    expect(b.alerts.map((a) => a.id)).toContain("business-error");
+    expect(b.summary.join(" ")).not.toMatch(/Housecall/);
+  });
+});

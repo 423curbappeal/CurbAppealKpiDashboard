@@ -12,6 +12,7 @@ import { auth } from "./auth";
 import { requireContext, type AppContext } from "./context";
 import { loadReview } from "./data";
 import { disconnectGoogleCalendar, syncGoogleCalendar } from "./integrations/google-calendar";
+import { housecallConfiguredFor, setHousecallConnected, syncHousecallPro } from "./integrations/housecall-pro";
 
 export type ActionResult<T = undefined> = { ok: true; data?: T; message?: string } | { ok: false; error: string };
 
@@ -417,6 +418,34 @@ export async function syncCalendarNow(): Promise<ActionResult> {
   refresh();
   if ("error" in r) return { ok: false, error: r.error === "not_connected" ? "Calendar isn't connected." : r.error };
   return { ok: true, message: `Calendar synced · ${r.synced} events` };
+}
+
+export async function syncHousecallNow(): Promise<ActionResult> {
+  const ctx = await requireContext();
+  if (!housecallConfiguredFor(ctx.email)) return { ok: false, error: "Housecall Pro isn't set up for this account." };
+  const r = await syncHousecallPro(ctx);
+  refresh();
+  if ("error" in r) return { ok: false, error: r.error === "disconnected" ? "Housecall Pro is paused. Turn it on first." : r.error };
+  const parts = [r.created && `${r.created} new`, r.closed && `${r.closed} closed`].filter(Boolean);
+  return { ok: true, message: `Housecall Pro synced${parts.length ? ` · ${parts.join(", ")}` : ""}` };
+}
+
+export async function setHousecall(connected: boolean): Promise<ActionResult> {
+  const ctx = await requireContext();
+  if (!housecallConfiguredFor(ctx.email)) return { ok: false, error: "Housecall Pro isn't set up for this account." };
+  await setHousecallConnected(ctx, connected);
+  if (connected) await syncHousecallPro(ctx);
+  refresh();
+  return { ok: true, message: connected ? "Housecall Pro sync on" : "Housecall Pro sync paused" };
+}
+
+/** Background refresh of any stale source; called once per visit from Home. Never throws. */
+export async function syncStaleSources(): Promise<void> {
+  const ctx = await requireContext();
+  const jobs: Promise<unknown>[] = [syncGoogleCalendar(ctx)];
+  if (housecallConfiguredFor(ctx.email)) jobs.push(syncHousecallPro(ctx));
+  await Promise.allSettled(jobs);
+  refresh();
 }
 
 export async function disconnectCalendar(): Promise<ActionResult> {

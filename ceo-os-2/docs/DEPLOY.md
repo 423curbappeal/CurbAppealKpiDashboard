@@ -31,18 +31,29 @@ Migrations run automatically on every boot and are safe to re-run. The health ch
 4. Put the client ID and secret into Railway variables and redeploy.
 5. Before **public** launch: calendar scopes are "sensitive", so Google requires app verification (privacy policy, homepage, demo video). Plan a few weeks for this.
 
-## 4. Background calendar sync (optional)
+## 4. Housecall Pro (MAX plan, optional)
+Housecall Pro offers API keys only (no OAuth), so the key lives in Railway — never in an app form — and is bound to one CEO OS account.
+1. Housecall Pro (web, Admin account) → App Store → API → generate a key, **read-only** if offered.
+2. Railway → CEO OS app service → Variables:
+   - `HOUSECALL_PRO_API_KEY` = the key
+   - `HOUSECALL_PRO_ACCOUNT_EMAIL` = the email you sign in to CEO OS with
+3. Redeploy, open Home: the first sync runs in the background (≈10–20 s), then refresh.
+4. You → Connections → Housecall Pro shows status, **Sync now**, and **Pause**.
+
+What it does (read-only, never writes to Housecall Pro): estimates sent in the last 60 days that await approval → follow-ups; approved estimates without a job → "Schedule approved estimate"; jobs needing scheduling → tasks; scheduled jobs (next 3 weeks) → Home schedule. Tasks close themselves when Housecall Pro shows the estimate converted/declined/expired or the job scheduled; anything you dismiss is never re-created. Syncs on Home visits when older than 30 min, on **Sync now**, and via the cron below.
+
+## 5. Background sync (optional)
 Create a Railway cron service (or any scheduler) that runs every 30 minutes:
 ```
 curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" https://YOUR-DOMAIN/api/cron/sync
 ```
-Without it, calendars still refresh when Home is opened with data older than 6 hours, or when you tap **Sync now**.
+It syncs Google Calendar for every connected user and Housecall Pro for the bound account. Without it, sources still refresh when Home is opened with data older than 6 hours, or when you tap **Sync now**.
 
-## 5. Backups (required before relying on it)
+## 6. Backups (required before relying on it)
 - Turn on Railway Postgres backups (or schedule `pg_dump` to object storage).
 - **Test a restore**: restore into a scratch database, point a staging copy of the app at it, sign in and check your data. A backup that hasn't been restored isn't proven to work.
 
-## 6. First-run checklist on iPhone
+## 7. First-run checklist on iPhone
 1. Open the domain in Safari → create an account.
 2. Share → **Add to Home Screen** to open it full-screen like an app.
 3. You → Connections → Connect Google Calendar → check today's events show on Home.

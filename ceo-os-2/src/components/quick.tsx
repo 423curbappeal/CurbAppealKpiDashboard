@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Check, Dumbbell, House, ListChecks, Sprout, UserRound } from "lucide-react";
-import { adoptDeviceTimezone, deleteActivity, logWorkout, syncCalendarNow, toggleRoutine } from "@/server/actions";
+import { adoptDeviceTimezone, deleteActivity, logWorkout, syncStaleSources, toggleRoutine } from "@/server/actions";
 import { useAction, useToast } from "./feedback";
 import { cx } from "./ui";
 
@@ -138,13 +138,13 @@ export function TimezoneAdopter({ needed }: { needed: boolean }) {
   return null;
 }
 
-/** Refreshes a stale calendar once per visit, without blocking the screen. */
-export function CalendarAutoSync({ needed }: { needed: boolean }) {
+/** Refreshes stale connected sources once per visit, without blocking the screen. */
+export function AutoSync({ needed }: { needed: boolean }) {
   const done = useRef(false);
   useEffect(() => {
     if (!needed || done.current) return;
     done.current = true;
-    void syncCalendarNow().catch(() => {});
+    void syncStaleSources().catch(() => {});
   }, [needed]);
   return null;
 }
