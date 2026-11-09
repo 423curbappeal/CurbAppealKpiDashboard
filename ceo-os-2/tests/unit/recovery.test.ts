@@ -79,3 +79,10 @@ describe("computeRecovery", () => {
     expect(r.muscles.chest.lastTrainedAt).toBeNull();
   });
 });
+
+describe("Apple workout names", () => {
+  it("treats functional strength as strength that needs a focus, not cardio", () => {
+    expect(needsFocus({ label: "Functional Strength Training", focus: null })).toBe(true);
+    expect(classifyWorkout("Functional Strength Training").cardio).toBe(false);
+  });
+});

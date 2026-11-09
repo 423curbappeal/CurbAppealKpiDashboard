@@ -45,7 +45,7 @@ export function parseHealthDate(value: unknown): Date | null {
 }
 
 function energyKcal(w: Obj): number | null {
-  for (const key of ["activeEnergyBurned", "activeEnergy", "energy", "calories", "totalEnergy"]) {
+  for (const key of ["activeEnergyBurned", "totalEnergyBurned", "activeEnergy", "energy", "calories", "totalEnergy"]) {
     const v = w[key];
     if (typeof v === "number" && Number.isFinite(v)) return Math.round(v);
     if (isObj(v) && typeof v.qty === "number") {
@@ -58,7 +58,8 @@ function energyKcal(w: Obj): number | null {
 
 function cleanLabel(raw: string): string {
   const s = raw.replace(/^HKWorkoutActivityType/, "").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/\s+/g, " ").trim();
-  return s.slice(0, 60) || "Workout";
+  const titled = s.replace(/\b([a-z])/g, (c) => c.toUpperCase());
+  return titled.slice(0, 60) || "Workout";
 }
 
 export function parseWorkoutPayload(body: unknown): ParseResult {
@@ -79,7 +80,7 @@ export function parseWorkoutPayload(body: unknown): ParseResult {
     }
     const start = parseHealthDate(item.start ?? item.startDate);
     const end = parseHealthDate(item.end ?? item.endDate);
-    const name = [item.name, item.workoutActivityType, item.activityType, item.type].find((v) => typeof v === "string" && v.trim()) as string | undefined;
+    const name = [item.name, item.workoutType, item.workoutActivityType, item.activityType, item.type].find((v) => typeof v === "string" && v.trim()) as string | undefined;
     if (!start || !end || end <= start || !name) {
       skipped++;
       continue;
@@ -90,9 +91,9 @@ export function parseWorkoutPayload(body: unknown): ParseResult {
       continue;
     }
     const label = cleanLabel(name);
-    const id = typeof item.id === "string" && item.id.trim() ? item.id.trim() : typeof item.uuid === "string" ? item.uuid : null;
+    const id = [item.id, item.platformId, item.uuid].find((v) => typeof v === "string" && v.trim()) as string | undefined;
     workouts.push({
-      externalId: (id ?? `${label}|${start.toISOString()}`).slice(0, 200),
+      externalId: (id?.trim() ?? `${label}|${start.toISOString()}`).slice(0, 200),
       label,
       start,
       end,

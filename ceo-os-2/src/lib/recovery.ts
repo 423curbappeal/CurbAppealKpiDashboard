@@ -58,7 +58,7 @@ const RULES: { test: RegExp; load: Load; cardio?: boolean; strength?: boolean }[
   { test: /\bback\b/, load: { back: 1, biceps: 0.5 }, strength: true },
   { test: /\bshoulders?\b/, load: { shoulders: 1, triceps: 0.3 }, strength: true },
   { test: /\b(core|abs|core training)\b/, load: { core: 1 }, strength: true },
-  { test: /\b(hiit|high intensity|cross ?training|crossfit|functional)\b/, load: { quads: 0.4, glutes: 0.3, core: 0.4, shoulders: 0.2, calves: 0.3 }, cardio: true },
+  { test: /\b(hiit|high intensity|cross ?training|crossfit)\b/, load: { quads: 0.4, glutes: 0.3, core: 0.4, shoulders: 0.2, calves: 0.3 }, cardio: true },
   { test: /\b(run|running|jog|treadmill|track)\b/, load: { quads: 0.4, hamstrings: 0.3, glutes: 0.3, calves: 0.5 }, cardio: true },
   { test: /\b(cycl|bike|biking|spin)\w*/, load: { quads: 0.5, glutes: 0.3, calves: 0.2 }, cardio: true },
   { test: /\b(hike|hiking|stair|stepper)\w*/, load: { quads: 0.4, glutes: 0.3, calves: 0.4 }, cardio: true },

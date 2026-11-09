@@ -42,3 +42,12 @@ describe("parseWorkoutPayload", () => {
     expect(parseWorkoutPayload(null).workouts).toEqual([]);
   });
 });
+
+describe("native HealthKit plugin shape (@capgo/capacitor-health)", () => {
+  it("uses platformId, workoutType and totalEnergyBurned", () => {
+    const r = parseWorkoutPayload({
+      workouts: [{ workoutType: "functionalStrengthTraining", startDate: "2026-11-09T11:00:00.000Z", endDate: "2026-11-09T11:41:00.000Z", duration: 2460, totalEnergyBurned: 288.6, platformId: "HK-UUID-1", sourceName: "Apple Watch" }],
+    });
+    expect(r.workouts[0]).toMatchObject({ externalId: "HK-UUID-1", label: "Functional Strength Training", durationMinutes: 41, energyKcal: 289 });
+  });
+});

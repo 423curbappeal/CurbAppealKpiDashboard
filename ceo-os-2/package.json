@@ -13,12 +13,16 @@
     "db:seed": "tsx src/db/seed.ts",
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.ts",
-    "test:e2e": "playwright test --trace off"
+    "test:e2e": "playwright test --trace off",
+    "ios:sync": "cap sync ios",
+    "ios:open": "cap open ios"
   },
   "engines": {
     "node": ">=20"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.6.0",
+    "@capacitor/ios": "^8.6.0",
     "@playwright/test": "^1.63.0",
     "@tailwindcss/postcss": "^4.1.14",
     "@types/node": "^22.20.5",
@@ -31,6 +35,8 @@
     "vitest": "^4.1.12"
   },
   "dependencies": {
+    "@capacitor/core": "^8.6.0",
+    "@capgo/capacitor-health": "^8.12.0",
     "better-auth": "^1.7.12",
     "drizzle-orm": "^0.45.2",
     "lucide-react": "^0.545.0",

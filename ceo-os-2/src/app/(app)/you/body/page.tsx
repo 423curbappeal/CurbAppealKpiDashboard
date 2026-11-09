@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ChevronLeft, Dumbbell, Flame, Info, Watch } from "lucide-react";
 import { BodyLegend, BodyMap } from "@/components/body-map";
 import { AppleHealthSetup, FocusPrompt } from "@/components/body";
+import { HealthKitConnect } from "@/components/native-health";
 import { Badge, Card, cx, Screen, ScreenHeader, SectionTitle } from "@/components/ui";
 import { MUSCLES } from "@/lib/recovery";
 import { requireContext } from "@/server/context";
@@ -106,16 +107,22 @@ export default async function BodyPage() {
       <div id="apple-health" className="scroll-mt-6">
         <SectionTitle action={body.appleHealth.connected ? <Badge tone="good">Connected</Badge> : <Badge>Not connected</Badge>}>Apple Watch / Apple Health</SectionTitle>
         <Card className="p-4">
-          <p className="mb-4 text-[14px] leading-relaxed text-muted">
-            Apple only lets iPhone apps read Health data, so a small app on your phone forwards your workouts here. Runs, rides and HIIT are classified automatically; for strength sessions you'll get a one-tap “what did you train?”.
-          </p>
-          {body.appleHealth.lastUsedAt && (
-            <p className="mb-4 text-[13px] text-faint">
-              Last received {ago(body.appleHealth.lastUsedAt, now)}
-              {body.appleHealth.summary?.imported !== undefined ? ` · ${body.appleHealth.summary.imported} new workouts` : ""}
-            </p>
-          )}
-          <AppleHealthSetup connected={body.appleHealth.connected} lastFour={body.appleHealth.lastFour} endpoint={endpoint} />
+          <HealthKitConnect
+            fallback={
+              <>
+                <p className="mb-4 text-[14px] leading-relaxed text-muted">
+                  In the CEO OS iPhone app this connects directly. In the browser, Apple only lets iPhone apps read Health data, so a small app on your phone forwards your workouts here. Runs, rides and HIIT are classified automatically; for strength sessions you'll get a one-tap “what did you train?”.
+                </p>
+                {body.appleHealth.lastUsedAt && (
+                  <p className="mb-4 text-[13px] text-faint">
+                    Last received {ago(body.appleHealth.lastUsedAt, now)}
+                    {body.appleHealth.summary?.imported !== undefined ? ` · ${body.appleHealth.summary.imported} new workouts` : ""}
+                  </p>
+                )}
+                <AppleHealthSetup connected={body.appleHealth.connected} lastFour={body.appleHealth.lastFour} endpoint={endpoint} />
+              </>
+            }
+          />
         </Card>
       </div>
 

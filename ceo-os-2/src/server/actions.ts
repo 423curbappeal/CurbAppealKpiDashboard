@@ -13,7 +13,8 @@ import { requireContext, type AppContext } from "./context";
 import { loadReview } from "./data";
 import { disconnectGoogleCalendar, syncGoogleCalendar } from "./integrations/google-calendar";
 import { housecallConfiguredFor, setHousecallConnected, syncHousecallPro } from "./integrations/housecall-pro";
-import { issueIngestToken, revokeIngestTokens } from "./ingest";
+import { importWorkouts, issueIngestToken, revokeIngestTokens } from "./ingest";
+import { parseWorkoutPayload } from "@/lib/apple-health";
 
 export type ActionResult<T = undefined> = { ok: true; data?: T; message?: string } | { ok: false; error: string };
 
@@ -523,4 +524,13 @@ export async function setWorkoutFocus(activityId: string, focus: string | null):
   if (!n) return { ok: false, error: "That workout no longer exists." };
   refresh();
   return { ok: true, message: focus ? `Saved as ${focus}` : "Cleared" };
+}
+
+/** Called by the native iPhone app after reading HealthKit on-device. Authenticated by the user's session. */
+export async function importHealthKitWorkouts(workouts: unknown[]): Promise<ActionResult<{ imported: number }>> {
+  const ctx = await requireContext();
+  if (!Array.isArray(workouts) || workouts.length > 500) return { ok: false, error: "Too many workouts in one sync" };
+  const r = await importWorkouts(ctx, ctx.timeZone, parseWorkoutPayload({ workouts }));
+  if (r.imported > 0) refresh();
+  return { ok: true, data: { imported: r.imported }, message: r.imported ? `${r.imported} workout${r.imported === 1 ? "" : "s"} from Apple Health` : undefined };
 }

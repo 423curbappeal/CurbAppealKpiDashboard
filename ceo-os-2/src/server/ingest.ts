@@ -47,11 +47,21 @@ export async function ingestAppleHealth(authorization: string | null, payload: u
   if (!row) return { status: 401, body: { error: "unauthorized" } };
 
   const parsed = parseWorkoutPayload(payload);
+  const ctx = { userId: row.userId, orgId: row.orgId };
+  const r = await importWorkouts(ctx, row.timeZone ?? "America/New_York", parsed, now, row.id);
+  return { status: 200, body: r };
+}
+
+/** Imports parsed workouts for one user under RLS. Shared by the token endpoint and the in-app (native) sync. */
+export async function importWorkouts(
+  ctx: TenantContext,
+  tz: string,
+  parsed: ReturnType<typeof parseWorkoutPayload>,
+  now = new Date(),
+  tokenId?: string,
+): Promise<{ imported: number; duplicates: number; skipped: number }> {
   const cutoff = now.getTime() - WINDOW_DAYS * 86_400_000;
   const fresh = parsed.workouts.filter((w) => w.start.getTime() >= cutoff && w.start <= now);
-  const tz = row.timeZone ?? "America/New_York";
-  const ctx = { userId: row.userId, orgId: row.orgId };
-
   const imported = await withTenant(ctx, async (tx) => {
     let n = 0;
     for (const w of fresh) {
@@ -73,14 +83,16 @@ export async function ingestAppleHealth(authorization: string | null, payload: u
         .returning({ id: schema.activities.id });
       n += r.length;
     }
-    await tx
-      .update(schema.ingestTokens)
-      .set({
-        lastUsedAt: now,
-        lastPayloadSummary: { received: parsed.workouts.length + parsed.skipped, imported: n, skipped: parsed.skipped, fields: parsed.fieldsSeen },
-      })
-      .where(eq(schema.ingestTokens.id, row.id));
+    if (tokenId) {
+      await tx
+        .update(schema.ingestTokens)
+        .set({
+          lastUsedAt: now,
+          lastPayloadSummary: { received: parsed.workouts.length + parsed.skipped, imported: n, skipped: parsed.skipped, fields: parsed.fieldsSeen },
+        })
+        .where(eq(schema.ingestTokens.id, tokenId));
+    }
     return n;
   });
-  return { status: 200, body: { imported, duplicates: fresh.length - imported, skipped: parsed.skipped + (parsed.workouts.length - fresh.length) } };
+  return { imported, duplicates: fresh.length - imported, skipped: parsed.skipped + (parsed.workouts.length - fresh.length) };
 }
