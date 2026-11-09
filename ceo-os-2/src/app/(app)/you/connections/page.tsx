@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Briefcase, CalendarDays, ChevronLeft, Lock } from "lucide-react";
+import { Briefcase, CalendarDays, ChevronLeft, ChevronRight, Lock, Watch } from "lucide-react";
 import { Badge, Card, Screen, ScreenHeader, SectionTitle } from "@/components/ui";
 import { requireContext } from "@/server/context";
 import { loadYou } from "@/server/data";
@@ -105,6 +105,20 @@ export default async function ConnectionsPage({ searchParams }: { searchParams: 
           Read-only. CEO OS never changes anything in Housecall Pro. Follow-ups close automatically when an estimate is approved, declined or expires there.
         </p>
       </Card>
+
+      <SectionTitle>Health</SectionTitle>
+      <Link href="/you/body#apple-health" className="block">
+        <Card className="flex min-h-16 items-center gap-4 p-4 active:bg-raised">
+          <div className="grid size-11 shrink-0 place-items-center rounded-2xl bg-white/[0.06]">
+            <Watch size={20} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-[16px] font-semibold">Apple Watch / Apple Health</p>
+            <p className="text-[13px] text-muted">Workouts update your body map automatically</p>
+          </div>
+          <ChevronRight size={18} className="text-faint" />
+        </Card>
+      </Link>
 
       <SectionTitle>Coming next</SectionTitle>
       <Card className="divide-y divide-line overflow-hidden">

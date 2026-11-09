@@ -22,6 +22,20 @@
       "when": 1794164111344,
       "tag": "0002_housecall_pro",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1794186527869,
+      "tag": "0003_apple_health",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1794186528625,
+      "tag": "0004_apple_health_rls",
+      "breakpoints": true
     }
   ]
 }

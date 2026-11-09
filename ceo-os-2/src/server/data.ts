@@ -6,6 +6,7 @@ import { housecallConfiguredFor } from "./integrations/housecall-pro";
 import { addDays, localDate, startOfLocalDay, startOfWeek, type DateString } from "@/lib/dates";
 import { goalProgress, routineConsistency, type GoalLike, type Metrics } from "@/lib/progress";
 import { buildWeeklyReview } from "@/lib/review";
+import { computeRecovery, needsFocus } from "@/lib/recovery";
 import type { RoutineLike } from "@/lib/routines";
 import type { AppContext } from "./context";
 
@@ -425,4 +426,43 @@ export async function exportAll(ctx: AppContext) {
       .from(schema.integrations)
       .where(eq(schema.integrations.userId, ctx.userId)),
   }));
+}
+
+/* ── Body / recovery ──────────────────────────────────────────────────────── */
+
+async function bodyReport(tx: Tx, ctx: AppContext, now: Date) {
+  const since = new Date(now.getTime() - 21 * 86_400_000);
+  const rows = await tx
+    .select()
+    .from(schema.activities)
+    .where(and(eq(schema.activities.userId, ctx.userId), eq(schema.activities.type, "workout"), gte(schema.activities.occurredAt, since)))
+    .orderBy(desc(schema.activities.occurredAt));
+  const report = computeRecovery(
+    rows.map((r) => ({ label: r.label, focus: r.focus, occurredAt: r.occurredAt, durationMinutes: r.durationMinutes })),
+    now,
+    { workoutTypes: ctx.workoutTypes },
+  );
+  const untagged = rows
+    .filter((r) => needsFocus(r))
+    .slice(0, 3)
+    .map((r) => ({ id: r.id, label: r.label, durationMinutes: r.durationMinutes, occurredAt: r.occurredAt }));
+  return { report, untagged, recent: rows.slice(0, 12) };
+}
+
+export async function loadBodySummary(ctx: AppContext) {
+  return withTenant(ctx, (tx) => bodyReport(tx, ctx, new Date()));
+}
+
+export async function loadBody(ctx: AppContext) {
+  const now = new Date();
+  return withTenant(ctx, async (tx) => {
+    const body = await bodyReport(tx, ctx, now);
+    const [token] = await tx.select().from(schema.ingestTokens).where(eq(schema.ingestTokens.userId, ctx.userId)).limit(1);
+    return {
+      ...body,
+      appleHealth: token
+        ? { connected: true, lastFour: token.lastFour, lastUsedAt: token.lastUsedAt, summary: token.lastPayloadSummary as { received?: number; imported?: number; skipped?: number } | null }
+        : { connected: false, lastFour: null, lastUsedAt: null, summary: null },
+    };
+  });
 }

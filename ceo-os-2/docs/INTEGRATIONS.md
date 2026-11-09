@@ -12,7 +12,7 @@ Connector pattern (see `src/server/integrations/google-calendar.ts`): `authoriza
 | **Jobber** | ✅ Good | OAuth 2.0 + GraphQL (versioned header required) | Developer Center account; apps go through Jobber's App Review before public use; tester accounts are time-limited | Strong candidate for the service-business segment |
 | **QuickBooks Online** | ✅ Good | OAuth 2.0 (Intuit), Accounting API | Intuit app review for production keys; use Reports (P&L) for verified revenue | Unlocks automatic **revenue goal** progress |
 | **Stripe** | ✅ Good | Stripe Connect OAuth (read-only) or restricted keys | | Revenue for online businesses |
-| Fitness (Apple Health) | ⚠️ | HealthKit is native-only | Needs an iOS app; not possible from a web app | After a native shell exists |
+| **Apple Health / Apple Watch** | ✅ Built (push-based) | Per-user bearer token (SHA-256 hashed, revocable) on `POST /api/ingest/apple-health` | HealthKit is native-only, so an iPhone app forwards data: Health Auto Export (REST automation; `data.workouts[]` with `start`/`end` documented) or an iOS Shortcut. Apple strength workouts don't say which muscles → user tags with one tap | Field names beyond `name/start/end` are parsed defensively; the token row records which fields arrive (`last_payload_summary.fields`) to confirm on first real export. Native iOS app would allow direct HealthKit reads later |
 
 ### Housecall Pro: verified behavior
 Checked with read-only calls on a live MAX account — field names and statuses are observed, not assumed:

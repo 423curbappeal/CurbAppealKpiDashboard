@@ -17,6 +17,8 @@ An AI-assisted personal operating system for ambitious people. You connect the t
 | **Growth: automatic progress.** Workouts/week, routine consistency and tasks/week come from recorded activity. Every number is labeled **Actual**, **You entered** or **Not tracked** | ✅ Revenue shows "Not tracked" until a verified source is connected |
 | **Weekly review.** Drafted automatically: wins, habits, meetings, goals, unfinished work (move / leave / drop), ideas for next week, reflection, approve | ✅ Only the changes you approve are applied |
 | **Housecall Pro (MAX).** Open estimates → follow-ups with real amounts; approved-not-scheduled and unscheduled jobs → tasks; scheduled jobs on Home; tasks auto-close from Housecall Pro status; briefing pipeline line | ✅ Verified against a live account (read-only) |
+| **Body & recovery.** Front/back muscle map colored Ready / Recovering / Fatigued from logged workouts; daily "what to train" suggestion with its reason; suggested workout highlighted in the quick log | ✅ Estimate, not medical advice |
+| **Apple Watch / Apple Health.** Workouts pushed from the iPhone (Health Auto Export REST automation or a Shortcut) to a per-user token endpoint; real durations; runs/rides/HIIT auto-classified; one-tap "what did you train?" for strength | ✅ Endpoint and flow tested; awaiting first real export to confirm field names |
 | **Google Calendar.** OAuth, read-only, encrypted tokens, deduplicated sync, disconnect + revoke | ✅ Code complete. **Needs Google OAuth credentials before it can be used** |
 | Accounts, personal workspace, data export, account deletion, audit log | ✅ |
 | Tenant isolation enforced by Postgres row-level security | ✅ Integration-tested |

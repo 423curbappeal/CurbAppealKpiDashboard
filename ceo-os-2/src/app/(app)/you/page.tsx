@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Briefcase, CalendarDays, ChevronRight, ShieldCheck } from "lucide-react";
+import { Activity, Briefcase, CalendarDays, ChevronRight, ShieldCheck } from "lucide-react";
 import { Badge, Card, Screen, ScreenHeader, SectionTitle } from "@/components/ui";
 import { describeCadence } from "@/lib/routines";
 import { requireContext } from "@/server/context";
@@ -18,6 +18,16 @@ export default async function YouPage() {
       <ScreenHeader eyebrow={ctx.email} title={ctx.name || "You"} />
 
       <SectionTitle>Fitness</SectionTitle>
+      <Link href="/you/body" className="mb-2 block">
+        <Card className="flex min-h-16 items-center gap-4 px-4 py-3 active:bg-raised">
+          <Activity size={20} className="text-muted" />
+          <span className="flex-1">
+            <span className="block text-[16px]">Body & recovery</span>
+            <span className="block text-[13px] text-faint">Muscle map, what to train, Apple Watch</span>
+          </span>
+          <ChevronRight size={18} className="text-faint" />
+        </Card>
+      </Link>
       <Card className="overflow-hidden">
         <WorkoutSettings target={ctx.weeklyWorkoutTarget} types={ctx.workoutTypes} />
       </Card>

@@ -13,6 +13,7 @@ import { requireContext, type AppContext } from "./context";
 import { loadReview } from "./data";
 import { disconnectGoogleCalendar, syncGoogleCalendar } from "./integrations/google-calendar";
 import { housecallConfiguredFor, setHousecallConnected, syncHousecallPro } from "./integrations/housecall-pro";
+import { issueIngestToken, revokeIngestTokens } from "./ingest";
 
 export type ActionResult<T = undefined> = { ok: true; data?: T; message?: string } | { ok: false; error: string };
 
@@ -487,4 +488,39 @@ export async function deleteAccount(confirmEmail: string): Promise<ActionResult>
     await tx.delete(schema.user).where(eq(schema.user.id, ctx.userId));
   });
   redirect("/sign-in?deleted=1");
+}
+
+/* ── Apple Health ─────────────────────────────────────────────────────────── */
+
+/** Returns the new token once. Only its hash is stored; issuing again replaces the old one. */
+export async function createAppleHealthToken(): Promise<ActionResult<{ token: string }>> {
+  const ctx = await requireContext();
+  const token = await issueIngestToken(ctx);
+  refresh();
+  return { ok: true, data: { token } };
+}
+
+export async function revokeAppleHealthToken(): Promise<ActionResult> {
+  const ctx = await requireContext();
+  await revokeIngestTokens(ctx);
+  refresh();
+  return { ok: true, message: "Apple Health sync turned off" };
+}
+
+/** Records which muscles an imported strength session worked (the Watch doesn't know). */
+export async function setWorkoutFocus(activityId: string, focus: string | null): Promise<ActionResult> {
+  const ctx = await requireContext();
+  if (!id.safeParse(activityId).success) return { ok: false, error: "Unknown workout" };
+  if (focus !== null && !z.string().trim().min(1).max(40).safeParse(focus).success) return { ok: false, error: "Pick what you trained" };
+  const n = await withTenant(ctx, async (tx) => {
+    const r = await tx
+      .update(schema.activities)
+      .set({ focus })
+      .where(and(eq(schema.activities.id, activityId), eq(schema.activities.userId, ctx.userId), eq(schema.activities.type, "workout")))
+      .returning({ id: schema.activities.id });
+    return r.length;
+  });
+  if (!n) return { ok: false, error: "That workout no longer exists." };
+  refresh();
+  return { ok: true, message: focus ? `Saved as ${focus}` : "Cleared" };
 }

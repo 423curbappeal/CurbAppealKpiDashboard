@@ -10,7 +10,7 @@ import { cx } from "./ui";
 
 /* ── Workout one-tap logger ───────────────────────────────────────────────── */
 
-export function WorkoutQuickLog({ types, loggedToday }: { types: string[]; loggedToday: { id: string; label: string }[] }) {
+export function WorkoutQuickLog({ types, loggedToday, suggested }: { types: string[]; loggedToday: { id: string; label: string }[]; suggested?: string | null }) {
   const { run, pending } = useAction();
   const toast = useToast();
   const [justLogged, setJustLogged] = useState<string | null>(null);
@@ -42,9 +42,10 @@ export function WorkoutQuickLog({ types, loggedToday }: { types: string[]; logge
             aria-label={`Log ${t} workout${n ? `, ${n} logged today` : ""}`}
             className={cx(
               "relative flex h-[76px] flex-col items-center justify-center gap-1.5 rounded-2xl border text-[14px] font-medium transition active:scale-95",
-              n > 0 ? "border-good/30 bg-good/[0.08] text-good" : "border-line bg-surface text-ink",
+              n > 0 ? "border-good/30 bg-good/[0.08] text-good" : t === suggested ? "border-accent/50 bg-accent/[0.08] text-ink" : "border-line bg-surface text-ink",
             )}
           >
+            {t === suggested && n === 0 && <span className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-accent" aria-label="Suggested" />}
             {justLogged === t || n > 0 ? <Check size={20} className={cx(justLogged === t && "animate-pop")} /> : <Dumbbell size={20} className="text-muted" />}
             <span className="truncate px-1">{t}</span>
           </button>

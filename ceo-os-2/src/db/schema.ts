@@ -239,9 +239,39 @@ export const activities = pgTable(
     durationMinutes: integer("duration_minutes"),
     notes: text("notes"),
     relatedTaskId: uuid("related_task_id").references(() => tasks.id, { onDelete: "set null" }),
+    /** "manual" (quick log) or "apple_health" (imported from the user's iPhone). */
+    source: text("source").notNull().default("manual"),
+    /** Stable id from the source, so the same workout is never imported twice. */
+    externalId: text("external_id"),
+    /** Muscles the user says they trained, for strength sessions the source can't classify. */
+    focus: text("focus"),
+    energyKcal: integer("energy_kcal"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("activities_org_user_date_idx").on(t.orgId, t.userId, t.localDate)],
+  (t) => [
+    index("activities_org_user_date_idx").on(t.orgId, t.userId, t.localDate),
+    uniqueIndex("activities_user_external_uq").on(t.userId, t.externalId).where(sql`${t.externalId} is not null`),
+  ],
+);
+
+/** Personal tokens that let the user's own iPhone push Apple Health data. Only a hash is stored. */
+export const ingestTokens = pgTable(
+  "ingest_tokens",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull().unique(),
+    lastFour: text("last_four").notNull(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    lastPayloadSummary: jsonb("last_payload_summary").$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("ingest_tokens_user_idx").on(t.userId)],
 );
 
 export const goalArea = pgEnum("goal_area", ["business", "finance", "fitness", "personal", "career"]);

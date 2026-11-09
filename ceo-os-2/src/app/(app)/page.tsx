@@ -5,13 +5,15 @@ import { TaskRow } from "@/components/tasks";
 import { Card, cx, EmptyState, Screen, SectionTitle, TextLink } from "@/components/ui";
 import { CaptureHint } from "./capture-hint";
 import { requireContext } from "@/server/context";
-import { loadHome } from "@/server/data";
+import { loadBodySummary, loadHome } from "@/server/data";
+import { BodyMap } from "@/components/body-map";
+import { FocusPrompt } from "@/components/body";
 
 export const metadata = { title: "Home" };
 
 export default async function HomePage() {
   const ctx = await requireContext();
-  const home = await loadHome(ctx);
+  const [home, body] = await Promise.all([loadHome(ctx), loadBodySummary(ctx)]);
   const { briefing } = home;
   const initials = ctx.name
     .split(" ")
@@ -120,9 +122,37 @@ export default async function HomePage() {
         </>
       )}
 
-      {/* Quick log */}
-      <SectionTitle action={<span className="text-[13px] text-faint tabular">{home.workoutsThisWeek}/{ctx.weeklyWorkoutTarget} this week</span>}>Log a workout</SectionTitle>
-      <WorkoutQuickLog types={ctx.workoutTypes} loggedToday={home.workoutsToday} />
+      {/* Body: recovery-aware suggestion + one-tap log */}
+      <SectionTitle action={<TextLink href="/you/body">Body</TextLink>}>Training</SectionTitle>
+      <Card className="p-4">
+        <Link href="/you/body" className="flex items-center gap-4">
+          <div className="w-[104px] shrink-0">
+            <BodyMap muscles={body.report.muscles} compact />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-[17px] leading-snug font-semibold">{body.report.suggestion.headline}</p>
+            <p className="mt-1 text-[14px] leading-snug text-muted">{body.report.suggestion.reason}</p>
+            <p className="mt-2 text-[12px] text-faint tabular">
+              {home.workoutsThisWeek}/{ctx.weeklyWorkoutTarget} workouts this week
+            </p>
+          </div>
+        </Link>
+        <div className="mt-4">
+          <WorkoutQuickLog types={ctx.workoutTypes} loggedToday={home.workoutsToday} suggested={body.report.suggestion.workout} />
+        </div>
+      </Card>
+      {body.untagged.length > 0 && (
+        <div className="mt-3">
+          <FocusPrompt
+            workouts={body.untagged.map((w) => ({
+              id: w.id,
+              label: w.label,
+              durationMinutes: w.durationMinutes,
+              whenLabel: new Intl.DateTimeFormat("en-US", { timeZone: ctx.timeZone, weekday: "short", hour: "numeric", minute: "2-digit" }).format(w.occurredAt),
+            }))}
+          />
+        </div>
+      )}
 
       {briefing.routinesDue.length > 0 && (
         <>
