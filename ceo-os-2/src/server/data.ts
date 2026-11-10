@@ -4,9 +4,10 @@ import { schema, withTenant, type Tx } from "@/db";
 import { buildBriefing, type BusinessSnapshot, type ConnectionState, type TaskLike } from "@/lib/briefing";
 import { housecallConfiguredFor } from "./integrations/housecall-pro";
 import { addDays, localDate, startOfLocalDay, startOfWeek, type DateString } from "@/lib/dates";
-import { goalProgress, routineConsistency, type GoalLike, type Metrics } from "@/lib/progress";
+import { goalProgress, periodStart, routineConsistency, type GoalLike, type GoalPeriod, type Metrics } from "@/lib/progress";
 import { buildWeeklyReview } from "@/lib/review";
-import { daysListed, daysToSell, depopSnapshot, depopStats, feesFor, profitCents, type DepopItemLike } from "@/lib/depop";
+import { daysListed, daysToSell, depopSnapshot, depopStats, feesFor, profitBetween, profitCents, type DepopItemLike } from "@/lib/depop";
+import type { BusinessKpis } from "@/lib/housecall";
 import type { RoutineLike } from "@/lib/routines";
 import type { AppContext } from "./context";
 
@@ -88,6 +89,31 @@ async function housecallState(tx: Tx, ctx: AppContext) {
   return r;
 }
 
+const PERIODS: GoalPeriod[] = ["week", "month", "quarter", "year"];
+
+/** Revenue goals use completed-job totals from Housecall Pro: real records, never estimated. */
+function revenueMetric(k: BusinessKpis | null | undefined): Metrics["revenue"] {
+  if (!k?.revenueCents) return null;
+  return {
+    byPeriod: { week: k.revenueCents.week / 100, month: k.revenueCents.month / 100, quarter: k.revenueCents.quarter / 100, year: k.revenueCents.year / 100 },
+    asOf: new Date(k.asOf),
+    source: k.cut ? "completed jobs in Housecall Pro (partial: too many jobs to load)" : "completed jobs in Housecall Pro",
+  };
+}
+
+function depopProfitMetric(items: DepopItemLike[], today: DateString): Metrics["depopProfit"] {
+  if (items.length === 0) return null;
+  let feesEstimated = false;
+  const byPeriod = Object.fromEntries(
+    PERIODS.map((p) => {
+      const r = profitBetween(items, periodStart(today, p), today);
+      if (p === "year") feesEstimated = r.feesEstimated;
+      return [p, r.cents / 100];
+    }),
+  ) as Record<GoalPeriod, number>;
+  return { byPeriod, feesEstimated };
+}
+
 async function metricsFor(tx: Tx, ctx: AppContext, today: DateString): Promise<Metrics & { lastWorkoutDate: DateString | null }> {
   const weekStart = startOfWeek(today);
   const weekStartInstant = startOfLocalDay(weekStart, ctx.timeZone);
@@ -118,11 +144,14 @@ async function metricsFor(tx: Tx, ctx: AppContext, today: DateString): Promise<M
     today,
   );
 
+  const hcpKpis = (await housecallState(tx, ctx)).integration?.metrics as BusinessKpis | null | undefined;
+  const shopItems = (await depopItemsFor(tx, ctx.userId)).map(toDepopLike);
   return {
     workoutsThisWeek: workouts?.n ?? 0,
     tasksCompletedThisWeek: completed?.n ?? 0,
     routineConsistency7d: consistency,
-    revenue: null, // No verified revenue connector yet — never estimated.
+    revenue: revenueMetric(hcpKpis),
+    depopProfit: depopProfitMetric(shopItems, today),
     lastWorkoutDate: lastWorkout?.d ?? null,
   };
 }
@@ -211,6 +240,8 @@ export async function loadHome(ctx: AppContext) {
       workoutsToday: recentWorkouts.map((w) => ({ id: w.id, label: w.label })),
       workoutsThisWeek: m.workoutsThisWeek,
       reviewDue,
+      jobKpis: hcp.state === "not_connected" ? null : ((hcp.integration?.metrics as BusinessKpis | null | undefined) ?? null),
+      jobKpisState: hcp.state,
     };
   });
 }
@@ -485,7 +516,18 @@ export async function loadDepop(ctx: AppContext) {
       .map(enrich)
       .sort((a, b) => (b.soldOn! < a.soldOn! ? -1 : b.soldOn! > a.soldOn! ? 1 : 0));
     const categories = [...new Set(rows.map((r) => r.category?.trim()).filter((c): c is string => Boolean(c)))].sort();
-    return { today, stats, active, sold, categories };
+    const goalRows = await tx
+      .select()
+      .from(schema.goals)
+      .where(and(eq(schema.goals.userId, ctx.userId), eq(schema.goals.metric, "depop_profit"), isNull(schema.goals.archivedAt)))
+      .orderBy(asc(schema.goals.createdAt));
+    const profit = depopProfitMetric(items, today);
+    const goals = goalRows.map((g) => {
+      const target = Number(g.target);
+      const current = profit?.byPeriod[g.period] ?? 0;
+      return { id: g.id, title: g.title, period: g.period, target, current, percent: target > 0 ? Math.max(0, Math.min(100, (current / target) * 100)) : 0 };
+    });
+    return { today, stats, active, sold, categories, goals };
   });
 }
 

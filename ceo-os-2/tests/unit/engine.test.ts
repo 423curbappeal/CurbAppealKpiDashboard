@@ -116,7 +116,7 @@ describe("goalProgress", () => {
     manualUpdatedAt: null,
     ...over,
   });
-  const metrics = { workoutsThisWeek: 3, tasksCompletedThisWeek: 5, routineConsistency7d: 80, revenue: null };
+  const metrics = { workoutsThisWeek: 3, tasksCompletedThisWeek: 5, routineConsistency7d: 80, revenue: null, depopProfit: null };
 
   it("derives fitness progress from the workout log", () => {
     expect(goalProgress(goal({}), metrics)).toMatchObject({ current: 3, percent: 75, provenance: "actual" });

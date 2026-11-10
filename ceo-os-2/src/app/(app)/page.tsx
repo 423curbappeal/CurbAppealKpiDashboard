@@ -6,6 +6,8 @@ import { Card, cx, EmptyState, Screen, SectionTitle, TextLink } from "@/componen
 import { CaptureHint } from "./capture-hint";
 import { requireContext } from "@/server/context";
 import { loadHome } from "@/server/data";
+import { formatCents, type BusinessKpis } from "@/lib/housecall";
+import { formatTime } from "@/lib/dates";
 
 export const metadata = { title: "Home" };
 
@@ -64,6 +66,8 @@ export default async function HomePage() {
               </ul>
             )}
           </Card>
+
+          {home.jobKpis && <JobKpis k={home.jobKpis} state={home.jobKpisState} timeZone={ctx.timeZone} />}
 
           {/* Top 3 */}
           <SectionTitle action={briefing.openTaskCount > 3 ? <TextLink href="/execute">All {briefing.openTaskCount}</TextLink> : undefined}>Top priorities</SectionTitle>
@@ -175,5 +179,57 @@ function Welcome() {
         </li>
       </ol>
     </Card>
+  );
+}
+
+function JobKpis({ k, state, timeZone }: { k: BusinessKpis; state: string; timeZone: string }) {
+  const month = k.revenueCents.month;
+  const prior = k.lastMonthToDateCents;
+  const change = prior > 0 ? Math.round(((month - prior) / prior) * 100) : null;
+  const close = k.closeRate.pct;
+  return (
+    <>
+      <SectionTitle action={<span className="text-[12px] text-faint">Housecall Pro · {formatTime(new Date(k.asOf), timeZone)}</span>}>Business this month</SectionTitle>
+      <Card className="p-4">
+        <div className="flex items-baseline justify-between gap-3">
+          <div>
+            <p className="text-[12px] text-muted">Completed jobs</p>
+            <p className="mt-0.5 font-display text-[30px] leading-none font-semibold tracking-[-0.02em] tabular">{formatCents(month)}</p>
+          </div>
+          {change !== null && (
+            <span className={cx("rounded-full px-2.5 py-1 text-[12px] font-semibold tabular", change >= 0 ? "bg-good/12 text-good" : "bg-bad/12 text-bad")}>
+              {change > 0 ? "+" : change < 0 ? "−" : "±"}
+              {Math.abs(change)}% vs last month
+            </span>
+          )}
+        </div>
+        <div className="mt-4 grid grid-cols-3 gap-2 border-t border-line pt-3">
+          <MiniStat label="Jobs done" value={String(k.jobsCompletedMonth)} />
+          <MiniStat label="Avg ticket" value={k.avgTicketCentsMonth === null ? "—" : formatCents(k.avgTicketCentsMonth)} />
+          <MiniStat label="Close rate" value={close === null ? "—" : `${Math.round(close)}%`} detail={close === null ? "no decisions yet" : `${k.closeRate.won} of ${k.closeRate.won + k.closeRate.lost}, 60d`} />
+        </div>
+        <p className="mt-3 text-[13px] text-muted">
+          {k.scheduledNext7 > 0
+            ? `${k.scheduledNext7} ${k.scheduledNext7 === 1 ? "job" : "jobs"} booked in the next 7 days${k.scheduledNext7ValueCents > 0 ? `, worth ${formatCents(k.scheduledNext7ValueCents)}` : ""}`
+            : "Nothing booked in the next 7 days."}
+        </p>
+        {(state === "error" || state === "stale" || k.cut) && (
+          <p className="mt-2 text-[12px] text-warn">
+            {k.cut ? "Too many jobs to load in one sync, so totals may be low. " : ""}
+            {state === "error" ? "The last sync failed, so these numbers may be out of date." : state === "stale" ? "Refreshing from Housecall Pro…" : ""}
+          </p>
+        )}
+      </Card>
+    </>
+  );
+}
+
+function MiniStat({ label, value, detail }: { label: string; value: string; detail?: string }) {
+  return (
+    <div className="min-w-0">
+      <p className="truncate text-[17px] font-semibold tabular">{value}</p>
+      <p className="truncate text-[11px] text-faint">{label}</p>
+      {detail && <p className="truncate text-[11px] text-faint/70">{detail}</p>}
+    </div>
   );
 }

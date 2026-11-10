@@ -66,6 +66,16 @@ describe("Housecall Pro sync", () => {
     expect(events.map((e) => e.title)).toEqual(["House Wash · Sam Diaz"]);
   });
 
+  it("stores business KPIs computed from the same pull", async () => {
+    const [row] = await withTenant(ctx, (tx) => tx.select().from(schema.integrations).where(eq(schema.integrations.provider, "housecall_pro")));
+    const k = row!.metrics as { today: string; scheduledNext7: number; scheduledNext7ValueCents: number; closeRate: { won: number; lost: number }; cut: boolean };
+    expect(k.today).toBe("2026-11-09");
+    expect(k.scheduledNext7).toBe(1);
+    expect(k.scheduledNext7ValueCents).toBe(41400);
+    expect(k.closeRate.won).toBe(2); // e2 converted, e3 approved
+    expect(k.cut).toBe(false);
+  });
+
   it("is idempotent", async () => {
     const { f } = fakeHcp(state);
     expect(await syncHousecallPro(ctx, f, NOW)).toEqual({ created: 0, updated: 0, closed: 0, events: 1 });

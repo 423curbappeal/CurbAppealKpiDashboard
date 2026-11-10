@@ -1,5 +1,6 @@
 "use client";
 
+import { haptic } from "@/components/app-shell";
 import { createContext, useCallback, useContext, useEffect, useRef, useState, useTransition, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
@@ -77,8 +78,11 @@ export function useAction() {
         start(async () => {
           try {
             const r = await fn();
-            if (!r.ok) toast({ text: r.error, tone: "error" });
-            else if (!opts.silent) {
+            if (!r.ok) {
+              toast({ text: r.error, tone: "error" });
+              haptic("error");
+            } else if (!opts.silent) {
+              haptic("success");
               const text = opts.success ?? r.message;
               if (text) toast({ text, tone: "default", action: opts.undo ? { label: "Undo", run: opts.undo(r) } : undefined });
             }

@@ -29,6 +29,13 @@
       "when": 1794269341724,
       "tag": "0003_depop",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1794286014345,
+      "tag": "0004_kpis",
+      "breakpoints": true
     }
   ]
 }

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Briefcase, CalendarDays, ChevronRight, ShieldCheck } from "lucide-react";
 import { Badge, Card, Screen, ScreenHeader, SectionTitle } from "@/components/ui";
+import { InstallCard } from "@/components/app-shell";
 import { describeCadence } from "@/lib/routines";
 import { requireContext } from "@/server/context";
 import { loadYou } from "@/server/data";
@@ -48,6 +49,8 @@ export default async function YouPage() {
           </Card>
         </Link>
       )}
+
+      <InstallCard />
 
       <SectionTitle>Preferences</SectionTitle>
       <Card className="overflow-hidden">

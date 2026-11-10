@@ -1,5 +1,6 @@
 "use client";
 
+import { haptic } from "@/components/app-shell";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -112,6 +113,7 @@ export function TabBar() {
             <li key={href}>
               <Link
                 href={href}
+                onClick={() => !active && haptic("tap")}
                 aria-current={active ? "page" : undefined}
                 className={cx("flex h-full flex-col items-center justify-center gap-1 text-[11px] font-medium transition-colors", active ? "text-ink" : "text-faint")}
               >

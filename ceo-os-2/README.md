@@ -19,6 +19,10 @@ An AI-assisted personal operating system for ambitious people. You connect the t
 | **Housecall Pro (MAX).** Open estimates → follow-ups with real amounts; approved-not-scheduled and unscheduled jobs → tasks; scheduled jobs on Home; tasks auto-close from Housecall Pro status; briefing pipeline line | ✅ Verified against a live account (read-only) |
 | **Google Calendar.** OAuth, read-only, encrypted tokens, deduplicated sync, disconnect + revoke | ✅ Code complete. **Needs Google OAuth credentials before it can be used** |
 | **Depop shop (Shop tab).** Log listings with cost, tap Sold with a live profit preview, edit/remove with undo. 30-day profit, revenue, items sold, avg sale, margin, days to sell, sell-through, inventory cost, stale listings (60+ days), 6-month chart, best categories. Feeds a Depop line and stale-listing alert into the Home briefing, and a card on Growth. Fees left blank are estimated (3.3% + $0.45) and labeled | ✅ Unit, integration (RLS) and e2e tested |
+| **Business this month (Home).** From Housecall Pro: completed-job revenue month to date vs the same days last month, jobs done, average ticket, 60-day close rate, jobs booked in the next 7 days. Revenue goals now track completed-job totals by week/month/quarter/year | ✅ Unit + integration tested |
+| **Depop profit goal.** Weekly, monthly, quarterly or yearly target that tracks itself from logged sales; shown on Growth and Shop | ✅ Unit + e2e tested |
+| **Faster Depop logging.** Paste a depop.com listing link to fill in title, brand, size, category and USD price; Save and add another; remembers last category; one-tap "Sold at list price" | ✅ Unit (real listing fixture) + e2e tested |
+| **App feel.** Pull to refresh, haptics on Android, screen fade transitions, offline screen, cached build assets, home-screen shortcuts (Log a Depop item, Execute, Growth), install help on You | ✅ e2e tested |
 | Accounts, personal workspace, data export, account deletion, audit log | ✅ |
 | Tenant isolation enforced by Postgres row-level security | ✅ Integration-tested |
 | Installable on iPhone home screen (PWA, safe areas, dark theme) | ✅ |

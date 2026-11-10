@@ -225,3 +225,9 @@ export function formatCents(cents: number, opts: { exact?: boolean } = {}): stri
     : Math.round(abs).toLocaleString("en-US");
   return `${sign}$${s}`;
 }
+
+/** Profit in cents from items sold between `start` and `today`, inclusive. */
+export function profitBetween(items: DepopItemLike[], start: DateString, today: DateString): { cents: number; feesEstimated: boolean } {
+  const sold = items.filter((i) => i.soldOn !== null && i.soldOn >= start && i.soldOn <= today);
+  return { cents: sold.reduce((s, i) => s + (profitCents(i) ?? 0), 0), feesEstimated: sold.some((i) => feesFor(i).estimated) };
+}
