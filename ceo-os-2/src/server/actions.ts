@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq, gte } from "drizzle-orm";
+import { and, eq, gte, isNull } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
@@ -460,6 +460,165 @@ export async function disconnectCalendar(): Promise<ActionResult> {
 export async function signOut(): Promise<void> {
   await auth().api.signOut({ headers: await headers() });
   redirect("/sign-in");
+}
+
+/* ── Depop ────────────────────────────────────────────────────────────────── */
+
+/** Money arrives from the client as whole cents (already parsed in the form). */
+const cents = z.number().int().min(0).max(100_000_000);
+const shortText = z.string().trim().max(80).nullable().optional().transform((v) => (v ? v : null));
+
+const depopItemInput = z
+  .object({
+    title: z.string().trim().min(1).max(160),
+    category: shortText,
+    brand: shortText,
+    size: shortText,
+    costCents: cents.default(0),
+    listPriceCents: cents.nullable().optional(),
+    listedOn: dateStr,
+    soldOn: dateStr.nullable().optional(),
+    salePriceCents: cents.nullable().optional(),
+    feesCents: cents.nullable().optional(),
+    shippingCents: cents.default(0),
+    notes: z.string().trim().max(1000).nullable().optional().transform((v) => (v ? v : null)),
+  })
+  .refine((v) => !v.soldOn || v.salePriceCents != null, { message: "Add the sale price for a sold item." })
+  .refine((v) => !v.soldOn || v.soldOn >= v.listedOn, { message: "The sold date can't be before the listed date." });
+
+function depopValues(t: z.output<typeof depopItemInput>) {
+  const sold = Boolean(t.soldOn);
+  return {
+    title: t.title,
+    category: t.category,
+    brand: t.brand,
+    size: t.size,
+    costCents: t.costCents,
+    listPriceCents: t.listPriceCents ?? null,
+    listedOn: t.listedOn,
+    soldOn: sold ? t.soldOn! : null,
+    salePriceCents: sold ? (t.salePriceCents ?? null) : null,
+    feesCents: sold ? (t.feesCents ?? null) : null,
+    shippingCents: sold ? t.shippingCents : 0,
+    notes: t.notes,
+  };
+}
+
+function depopError(error: z.ZodError) {
+  const custom = error.issues.find((i) => i.code === "custom");
+  return custom?.message ?? "Please check the item details.";
+}
+
+export async function createDepopItem(raw: z.input<typeof depopItemInput>): Promise<ActionResult<{ id: string }>> {
+  const ctx = await requireContext();
+  const parsed = depopItemInput.safeParse(raw);
+  if (!parsed.success) return { ok: false, error: depopError(parsed.error) };
+  const [row] = await withTenant(ctx, async (tx) => {
+    const r = await tx
+      .insert(schema.depopItems)
+      .values({ orgId: ctx.orgId, userId: ctx.userId, ...depopValues(parsed.data) })
+      .returning({ id: schema.depopItems.id });
+    await audit(tx, ctx, "depop.item_created", "depop_item", r[0]!.id, { sold: Boolean(parsed.data.soldOn) });
+    return r;
+  });
+  refresh();
+  return { ok: true, data: { id: row!.id }, message: parsed.data.soldOn ? "Sale logged" : "Listing added" };
+}
+
+export async function updateDepopItem(itemId: string, raw: z.input<typeof depopItemInput>): Promise<ActionResult> {
+  const ctx = await requireContext();
+  if (!id.safeParse(itemId).success) return { ok: false, error: "Item not found." };
+  const parsed = depopItemInput.safeParse(raw);
+  if (!parsed.success) return { ok: false, error: depopError(parsed.error) };
+  const updated = await withTenant(ctx, async (tx) => {
+    const r = await tx
+      .update(schema.depopItems)
+      .set({ ...depopValues(parsed.data), updatedAt: new Date() })
+      .where(and(eq(schema.depopItems.id, itemId), eq(schema.depopItems.userId, ctx.userId), isNull(schema.depopItems.removedAt)))
+      .returning({ id: schema.depopItems.id });
+    if (r.length) await audit(tx, ctx, "depop.item_updated", "depop_item", itemId);
+    return r.length;
+  });
+  if (!updated) return { ok: false, error: "Item not found." };
+  refresh();
+  return { ok: true, message: "Saved" };
+}
+
+const saleInput = z.object({
+  soldOn: dateStr,
+  salePriceCents: cents,
+  feesCents: cents.nullable().optional(),
+  shippingCents: cents.default(0),
+});
+
+export async function markDepopSold(itemId: string, raw: z.input<typeof saleInput>): Promise<ActionResult> {
+  const ctx = await requireContext();
+  if (!id.safeParse(itemId).success) return { ok: false, error: "Item not found." };
+  const parsed = saleInput.safeParse(raw);
+  if (!parsed.success) return { ok: false, error: "Add the sale price and date." };
+  const result = await withTenant(ctx, async (tx) => {
+    const [item] = await tx
+      .select({ listedOn: schema.depopItems.listedOn })
+      .from(schema.depopItems)
+      .where(and(eq(schema.depopItems.id, itemId), eq(schema.depopItems.userId, ctx.userId), isNull(schema.depopItems.removedAt)))
+      .limit(1);
+    if (!item) return "missing" as const;
+    if (parsed.data.soldOn < item.listedOn) return "early" as const;
+    await tx
+      .update(schema.depopItems)
+      .set({ soldOn: parsed.data.soldOn, salePriceCents: parsed.data.salePriceCents, feesCents: parsed.data.feesCents ?? null, shippingCents: parsed.data.shippingCents, updatedAt: new Date() })
+      .where(eq(schema.depopItems.id, itemId));
+    await audit(tx, ctx, "depop.item_sold", "depop_item", itemId);
+    return "ok" as const;
+  });
+  if (result === "missing") return { ok: false, error: "Item not found." };
+  if (result === "early") return { ok: false, error: "The sold date can't be before the listed date." };
+  refresh();
+  return { ok: true, message: "Marked sold" };
+}
+
+/** Puts a sold item back on the active list (undo for Mark sold). */
+export async function unmarkDepopSold(itemId: string): Promise<ActionResult> {
+  const ctx = await requireContext();
+  if (!id.safeParse(itemId).success) return { ok: false, error: "Item not found." };
+  await withTenant(ctx, async (tx) => {
+    await tx
+      .update(schema.depopItems)
+      .set({ soldOn: null, salePriceCents: null, feesCents: null, shippingCents: 0, updatedAt: new Date() })
+      .where(and(eq(schema.depopItems.id, itemId), eq(schema.depopItems.userId, ctx.userId)));
+    await audit(tx, ctx, "depop.item_unsold", "depop_item", itemId);
+  });
+  refresh();
+  return { ok: true, message: "Back on your active list" };
+}
+
+/** Removes an item from the shop. Soft-deleted so Undo can restore it. */
+export async function removeDepopItem(itemId: string): Promise<ActionResult> {
+  const ctx = await requireContext();
+  if (!id.safeParse(itemId).success) return { ok: false, error: "Item not found." };
+  await withTenant(ctx, async (tx) => {
+    await tx
+      .update(schema.depopItems)
+      .set({ removedAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(schema.depopItems.id, itemId), eq(schema.depopItems.userId, ctx.userId)));
+    await audit(tx, ctx, "depop.item_removed", "depop_item", itemId);
+  });
+  refresh();
+  return { ok: true, message: "Item removed" };
+}
+
+export async function restoreDepopItem(itemId: string): Promise<ActionResult> {
+  const ctx = await requireContext();
+  if (!id.safeParse(itemId).success) return { ok: false, error: "Item not found." };
+  await withTenant(ctx, async (tx) => {
+    await tx
+      .update(schema.depopItems)
+      .set({ removedAt: null, updatedAt: new Date() })
+      .where(and(eq(schema.depopItems.id, itemId), eq(schema.depopItems.userId, ctx.userId)));
+    await audit(tx, ctx, "depop.item_restored", "depop_item", itemId);
+  });
+  refresh();
+  return { ok: true };
 }
 
 /**

@@ -22,6 +22,13 @@
       "when": 1794164111344,
       "tag": "0002_housecall_pro",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1794269341724,
+      "tag": "0003_depop",
+      "breakpoints": true
     }
   ]
 }

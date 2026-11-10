@@ -76,6 +76,7 @@ describe("row-level security", () => {
       await tx.insert(schema.calendarEvents).values({ orgId: alice.orgId, userId: alice.userId, integrationId: i!.id, externalId: "e1", title: "Meeting", startsAt: new Date(), endsAt: new Date() });
       await tx.insert(schema.weeklyReviews).values({ orgId: alice.orgId, userId: alice.userId, weekStart: "2026-11-02", summary: {} });
       await tx.insert(schema.auditLogs).values({ orgId: alice.orgId, userId: alice.userId, action: "test", entityType: "test" });
+      await tx.insert(schema.depopItems).values({ orgId: alice.orgId, userId: alice.userId, title: "Carhartt jacket", costCents: 1200, listedOn: "2026-11-01" });
     });
     const counts = await withTenant(bob, async (tx) => ({
       routines: (await tx.select().from(schema.routines)).length,
@@ -85,11 +86,22 @@ describe("row-level security", () => {
       integrations: (await tx.select().from(schema.integrations)).length,
       events: (await tx.select().from(schema.calendarEvents)).length,
       reviews: (await tx.select().from(schema.weeklyReviews)).length,
+      depop: (await tx.select().from(schema.depopItems)).length,
       audit: (await tx.select().from(schema.auditLogs).where(eq(schema.auditLogs.orgId, alice.orgId))).length,
       orgs: (await tx.select().from(schema.organizations)).map((o) => o.id),
       memberships: (await tx.select().from(schema.memberships)).map((m) => m.userId),
     }));
-    expect(counts).toEqual({ routines: 0, completions: 0, activities: 0, goals: 0, integrations: 0, events: 0, reviews: 0, audit: 0, orgs: [bob.orgId], memberships: ["bob"] });
+    expect(counts).toEqual({ routines: 0, completions: 0, activities: 0, goals: 0, integrations: 0, events: 0, reviews: 0, depop: 0, audit: 0, orgs: [bob.orgId], memberships: ["bob"] });
+  });
+
+  it("keeps Depop items private and rejects writes into another tenant", async () => {
+    const [own] = await withTenant(alice, (tx) => tx.select().from(schema.depopItems));
+    expect(own?.title).toBe("Carhartt jacket");
+    const updated = await withTenant(bob, (tx) => tx.update(schema.depopItems).set({ salePriceCents: 1 }).where(eq(schema.depopItems.id, own!.id)).returning());
+    expect(updated).toEqual([]);
+    await expect(
+      withTenant(bob, (tx) => tx.insert(schema.depopItems).values({ orgId: alice.orgId, userId: alice.userId, title: "injected", listedOn: "2026-11-01" })),
+    ).rejects.toThrow();
   });
 
   it("restricted role cannot read auth tables (passwords, sessions)", async () => {

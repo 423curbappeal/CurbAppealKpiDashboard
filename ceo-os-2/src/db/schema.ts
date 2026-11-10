@@ -371,9 +371,44 @@ export const auditLogs = pgTable(
   (t) => [index("audit_org_created_idx").on(t.orgId, t.createdAt)],
 );
 
+/**
+ * Depop shop: one row per item, from listing to sale. Money is stored in cents.
+ * sold_on is null while the item is still listed. fees_cents is null when the
+ * user didn't enter fees; the app then shows an estimate, labeled as such.
+ */
+export const depopItems = pgTable(
+  "depop_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    category: text("category"),
+    brand: text("brand"),
+    size: text("size"),
+    costCents: integer("cost_cents").notNull().default(0),
+    listPriceCents: integer("list_price_cents"),
+    listedOn: date("listed_on").notNull(),
+    soldOn: date("sold_on"),
+    salePriceCents: integer("sale_price_cents"),
+    feesCents: integer("fees_cents"),
+    shippingCents: integer("shipping_cents").notNull().default(0),
+    notes: text("notes"),
+    removedAt: timestamp("removed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("depop_items_org_user_idx").on(t.orgId, t.userId), index("depop_items_user_sold_idx").on(t.userId, t.soldOn)],
+);
+
 export type Task = typeof tasks.$inferSelect;
 export type Routine = typeof routines.$inferSelect;
 export type Activity = typeof activities.$inferSelect;
 export type Goal = typeof goals.$inferSelect;
 export type Integration = typeof integrations.$inferSelect;
 export type CalendarEvent = typeof calendarEvents.$inferSelect;
+export type DepopItem = typeof depopItems.$inferSelect;

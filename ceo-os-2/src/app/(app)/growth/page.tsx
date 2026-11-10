@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { ChevronRight, ClipboardCheck, Target } from "lucide-react";
+import { ChevronRight, ClipboardCheck, ShoppingBag, Target } from "lucide-react";
 import { Card, cx, EmptyState, ProgressBar, ProvenanceBadge, Ring, Screen, ScreenHeader, SectionTitle } from "@/components/ui";
 import { requireContext } from "@/server/context";
-import { loadGrowth } from "@/server/data";
+import { loadDepopSummary, loadGrowth } from "@/server/data";
+import { formatCents } from "@/lib/depop";
 import { GoalMenu, NewGoalButton } from "./goals";
 
 export const metadata = { title: "Growth" };
@@ -11,7 +12,7 @@ const AREA_LABEL = { business: "Business", finance: "Finance", fitness: "Fitness
 
 export default async function GrowthPage() {
   const ctx = await requireContext();
-  const g = await loadGrowth(ctx);
+  const [g, shop] = await Promise.all([loadGrowth(ctx), loadDepopSummary(ctx)]);
   const { metrics: m } = g;
   const workoutPct = g.workoutTarget > 0 ? (m.workoutsThisWeek / g.workoutTarget) * 100 : 0;
   const maxBar = Math.max(1, ...g.weekly.map((w) => Math.max(w.workouts, w.tasks)));
@@ -71,6 +72,28 @@ export default async function GrowthPage() {
         </div>
       </Card>
 
+      <SectionTitle>Depop shop</SectionTitle>
+      <Link href="/depop" className="block">
+        <Card className="flex items-center gap-4 p-4 active:bg-raised">
+          <div className="grid size-11 shrink-0 place-items-center rounded-2xl bg-accent/12 text-accent">
+            <ShoppingBag size={20} />
+          </div>
+          {shop.hasItems ? (
+            <div className="grid flex-1 grid-cols-3 gap-2">
+              <ShopStat label="Profit, 30d" value={formatCents(shop.last30.profitCents)} />
+              <ShopStat label="Sold, 30d" value={String(shop.last30.sold)} />
+              <ShopStat label="Active" value={String(shop.active)} />
+            </div>
+          ) : (
+            <div className="flex-1">
+              <p className="text-[15px] font-semibold">Track your Depop sales</p>
+              <p className="text-[13px] text-muted">Profit, sell-through and stale listings</p>
+            </div>
+          )}
+          <ChevronRight size={18} className="text-faint" />
+        </Card>
+      </Link>
+
       <SectionTitle action={<NewGoalButton />}>Goals</SectionTitle>
       {g.goals.length === 0 ? (
         <Card>
@@ -113,6 +136,15 @@ export default async function GrowthPage() {
         </Card>
       </Link>
     </Screen>
+  );
+}
+
+function ShopStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <p className="truncate text-[16px] font-semibold tabular">{value}</p>
+      <p className="truncate text-[11px] text-faint">{label}</p>
+    </div>
   );
 }
 
