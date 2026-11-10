@@ -1,3 +1,4 @@
+import type { DepopSnapshot } from "./depop";
 import { diffDays, formatTime, greetingFor, localParts, toDateString, type DateString } from "./dates";
 import { isRoutineScheduled, type RoutineLike } from "./routines";
 
@@ -44,6 +45,8 @@ export interface BriefingInput {
   calendar: ConnectionState;
   /** Business system summary (Housecall Pro). Null when no business source is connected. */
   business?: BusinessSnapshot | null;
+  /** Depop shop summary. Null when no items have been logged. */
+  depop?: DepopSnapshot | null;
 }
 
 export interface BusinessSnapshot {
@@ -207,6 +210,12 @@ export function buildBriefing(input: BriefingInput): Briefing {
     if (biz.jobsToSchedule > 0) parts.push(`${plural(biz.jobsToSchedule, "job")} to schedule`);
     if (parts.length) summary.push(`${biz.source}: ${parts.join(", ")}.`);
   }
+  const shop = input.depop;
+  if (shop) {
+    if (shop.last7Sold > 0)
+      summary.push(`Depop: ${plural(shop.last7Sold, "sale")} in the last 7 days, ${shop.last7ProfitCents < 0 ? "−" : ""}${dollars(Math.abs(shop.last7ProfitCents))} profit${shop.feesEstimated ? " (fees estimated)" : ""}. ${plural(shop.active, "listing")} active.`);
+    else summary.push(`Depop: no sales in the last 7 days. ${plural(shop.active, "listing")} active.`);
+  }
   if (overdue.length > 0) summary.push(`${plural(overdue.length, "task")} overdue — clear or reschedule ${overdue.length === 1 ? "it" : "them"} first.`);
   if (dueToday.length > 0) summary.push(`${plural(dueToday.length, "task")} due today.`);
   if (input.weeklyWorkoutTarget > 0) {
@@ -239,10 +248,12 @@ export function buildBriefing(input: BriefingInput): Briefing {
   const staleFollowUps = scored.filter(
     ({ t }) => t.kind === "follow_up" && !t.fromIntegration && !t.dueDate && now.getTime() - t.createdAt.getTime() > 5 * 86_400_000,
   );
+  if (shop && shop.stale > 0)
+    alerts.push({ id: "depop-stale", tone: "info", text: `${plural(shop.stale, "Depop listing")} up more than 60 days. A price drop or relist could move ${shop.stale === 1 ? "it" : "them"}.` });
   if (staleFollowUps.length > 1) alerts.push({ id: "stale-follow-ups", tone: "warning", text: `${staleFollowUps.length} follow-ups have been waiting more than 5 days.` });
 
   const isEmpty =
-    open.length === 0 && input.routines.length === 0 && input.events.length === 0 && input.calendar === "not_connected" && (!biz || biz.state === "not_connected");
+    open.length === 0 && input.routines.length === 0 && input.events.length === 0 && input.calendar === "not_connected" && (!biz || biz.state === "not_connected") && !shop;
 
   return {
     greeting: `${greetingFor(p.hour)}${input.firstName ? `, ${input.firstName}` : ""}`,

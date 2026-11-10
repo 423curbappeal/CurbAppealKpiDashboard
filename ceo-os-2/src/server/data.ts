@@ -6,6 +6,7 @@ import { housecallConfiguredFor } from "./integrations/housecall-pro";
 import { addDays, localDate, startOfLocalDay, startOfWeek, type DateString } from "@/lib/dates";
 import { goalProgress, routineConsistency, type GoalLike, type Metrics } from "@/lib/progress";
 import { buildWeeklyReview } from "@/lib/review";
+import { daysListed, daysToSell, depopSnapshot, depopStats, feesFor, profitCents, type DepopItemLike } from "@/lib/depop";
 import type { RoutineLike } from "@/lib/routines";
 import type { AppContext } from "./context";
 
@@ -27,6 +28,31 @@ function toTaskLike(t: typeof schema.tasks.$inferSelect): TaskLike {
     valueCents: t.external?.amountCents ?? null,
     fromIntegration: t.source === "integration",
   };
+}
+
+function toDepopLike(i: typeof schema.depopItems.$inferSelect): DepopItemLike {
+  return {
+    id: i.id,
+    title: i.title,
+    category: i.category,
+    brand: i.brand,
+    size: i.size,
+    costCents: i.costCents,
+    listPriceCents: i.listPriceCents,
+    listedOn: i.listedOn,
+    soldOn: i.soldOn,
+    salePriceCents: i.salePriceCents,
+    feesCents: i.feesCents,
+    shippingCents: i.shippingCents,
+  };
+}
+
+async function depopItemsFor(tx: Tx, userId: string) {
+  return tx
+    .select()
+    .from(schema.depopItems)
+    .where(and(eq(schema.depopItems.userId, userId), isNull(schema.depopItems.removedAt)))
+    .orderBy(desc(schema.depopItems.listedOn), desc(schema.depopItems.createdAt));
 }
 
 function toRoutineLike(r: typeof schema.routines.$inferSelect): RoutineLike {
@@ -141,6 +167,8 @@ export async function loadHome(ctx: AppContext) {
       .where(and(eq(schema.activities.userId, ctx.userId), eq(schema.activities.type, "workout"), eq(schema.activities.localDate, today)))
       .orderBy(desc(schema.activities.occurredAt));
 
+    const shopItems = (await depopItemsFor(tx, ctx.userId)).map(toDepopLike);
+    const shop = depopSnapshot(depopStats(shopItems, today));
     const briefing = buildBriefing({
       now,
       timeZone: ctx.timeZone,
@@ -154,6 +182,7 @@ export async function loadHome(ctx: AppContext) {
       lastWorkoutDate: m.lastWorkoutDate,
       calendar: scheduleState,
       business,
+      depop: shop,
     });
     const weekday = new Date(`${today}T12:00:00Z`).getUTCDay();
     const [thisWeeksReview] = await tx
@@ -416,6 +445,7 @@ export async function exportAll(ctx: AppContext) {
     activities: await tx.select().from(schema.activities).where(eq(schema.activities.userId, ctx.userId)),
     goals: await tx.select().from(schema.goals).where(eq(schema.goals.userId, ctx.userId)),
     weeklyReviews: await tx.select().from(schema.weeklyReviews).where(eq(schema.weeklyReviews.userId, ctx.userId)),
+    depopItems: await tx.select().from(schema.depopItems).where(eq(schema.depopItems.userId, ctx.userId)),
     calendarEvents: await tx
       .select({ title: schema.calendarEvents.title, startsAt: schema.calendarEvents.startsAt, endsAt: schema.calendarEvents.endsAt, source: sql<string>`'google_calendar'` })
       .from(schema.calendarEvents)
@@ -425,4 +455,42 @@ export async function exportAll(ctx: AppContext) {
       .from(schema.integrations)
       .where(eq(schema.integrations.userId, ctx.userId)),
   }));
+}
+
+/* ── Depop ────────────────────────────────────────────────────────────────── */
+
+export type DepopRow = DepopItemLike & {
+  notes: string | null;
+  profitCents: number | null;
+  feesShownCents: number;
+  feesEstimated: boolean;
+  daysListed: number;
+  daysToSell: number | null;
+};
+
+export async function loadDepop(ctx: AppContext) {
+  const today = localDate(new Date(), ctx.timeZone);
+  return withTenant(ctx, async (tx) => {
+    const rows = await depopItemsFor(tx, ctx.userId);
+    const items = rows.map(toDepopLike);
+    const stats = depopStats(items, today);
+    const enrich = (r: (typeof rows)[number]): DepopRow => {
+      const i = toDepopLike(r);
+      const f = feesFor(i);
+      return { ...i, notes: r.notes, profitCents: profitCents(i), feesShownCents: f.cents, feesEstimated: f.estimated, daysListed: daysListed(i, today), daysToSell: daysToSell(i) };
+    };
+    const active = rows.filter((r) => r.soldOn === null).map(enrich).sort((a, b) => b.daysListed - a.daysListed);
+    const sold = rows
+      .filter((r) => r.soldOn !== null)
+      .map(enrich)
+      .sort((a, b) => (b.soldOn! < a.soldOn! ? -1 : b.soldOn! > a.soldOn! ? 1 : 0));
+    const categories = [...new Set(rows.map((r) => r.category?.trim()).filter((c): c is string => Boolean(c)))].sort();
+    return { today, stats, active, sold, categories };
+  });
+}
+
+/** Compact numbers for the Growth screen's Depop card. */
+export async function loadDepopSummary(ctx: AppContext) {
+  const today = localDate(new Date(), ctx.timeZone);
+  return withTenant(ctx, async (tx) => depopStats((await depopItemsFor(tx, ctx.userId)).map(toDepopLike), today));
 }

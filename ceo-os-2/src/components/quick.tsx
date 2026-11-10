@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Check, Dumbbell, House, ListChecks, Sprout, UserRound } from "lucide-react";
+import { Check, Dumbbell, House, ListChecks, ShoppingBag, Sprout, UserRound } from "lucide-react";
 import { adoptDeviceTimezone, deleteActivity, logWorkout, syncStaleSources, toggleRoutine } from "@/server/actions";
 import { useAction, useToast } from "./feedback";
 import { cx } from "./ui";
@@ -97,6 +97,7 @@ const TABS = [
   { href: "/", label: "Home", icon: House },
   { href: "/execute", label: "Execute", icon: ListChecks },
   { href: "/growth", label: "Growth", icon: Sprout },
+  { href: "/depop", label: "Shop", icon: ShoppingBag },
   { href: "/you", label: "You", icon: UserRound },
 ];
 
@@ -104,7 +105,7 @@ export function TabBar() {
   const path = usePathname();
   return (
     <nav aria-label="Primary" className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-bg/80 pb-safe backdrop-blur-2xl backdrop-saturate-150">
-      <ul className="mx-auto grid h-[4.75rem] max-w-[560px] grid-cols-4">
+      <ul className="mx-auto grid h-[4.75rem] max-w-[560px] grid-cols-5">
         {TABS.map(({ href, label, icon: Icon }) => {
           const active = href === "/" ? path === "/" : path.startsWith(href) || (href === "/growth" && path.startsWith("/review"));
           return (
