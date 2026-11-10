@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#07070a">
+<title>Offline · CEO OS</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { height: 100%; margin: 0; background: #07070a; color: #f4f4f7; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, system-ui, sans-serif; }
+  main { min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px; text-align: center; box-sizing: border-box; }
+  img { width: 56px; height: 56px; border-radius: 14px; }
+  h1 { margin: 8px 0 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
+  p { margin: 0; max-width: 32ch; color: #a0a0ab; font-size: 15px; line-height: 1.5; }
+  button { margin-top: 12px; height: 48px; padding: 0 24px; border: 0; border-radius: 999px; background: #8fa2ff; color: #07070a; font: inherit; font-weight: 600; font-size: 16px; }
+  button:focus-visible { outline: 2px solid #f4f4f7; outline-offset: 3px; }
+</style>
+</head>
+<body>
+<main>
+  <img src="/apple-touch-icon.png" alt="">
+  <h1>You're offline</h1>
+  <p>CEO OS needs a connection to show your live numbers. It'll be right here when you're back online.</p>
+  <button type="button" id="retry">Try again</button>
+</main>
+<script>
+  document.getElementById("retry").addEventListener("click", () => location.reload());
+  window.addEventListener("online", () => location.reload());
+</script>
+</body>
+</html>

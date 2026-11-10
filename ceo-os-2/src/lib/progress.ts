@@ -1,4 +1,4 @@
-import { addDays, type DateString } from "./dates";
+import { addDays, startOfWeek, type DateString } from "./dates";
 import { isRoutineScheduled, type RoutineLike } from "./routines";
 
 /**
@@ -13,7 +13,7 @@ export interface GoalLike {
   id: string;
   title: string;
   area: "business" | "finance" | "fitness" | "personal" | "career";
-  metric: "workouts_per_week" | "routine_consistency" | "tasks_completed_per_week" | "revenue" | "manual";
+  metric: "workouts_per_week" | "routine_consistency" | "tasks_completed_per_week" | "revenue" | "depop_profit" | "manual";
   period: "week" | "month" | "quarter" | "year";
   target: number;
   unit: string | null;
@@ -25,7 +25,24 @@ export interface Metrics {
   workoutsThisWeek: number;
   tasksCompletedThisWeek: number;
   routineConsistency7d: number | null; // 0–100, null if nothing scheduled
-  revenue: { amount: number; asOf: Date; source: string } | null;
+  /** Dollars per period-to-date, from a verified source. Null when none is connected. */
+  revenue: { byPeriod: Record<GoalPeriod, number>; asOf: Date; source: string } | null;
+  /** Depop profit in dollars per period-to-date. Null when no items are logged. */
+  depopProfit: { byPeriod: Record<GoalPeriod, number>; feesEstimated: boolean } | null;
+}
+
+export type GoalPeriod = GoalLike["period"];
+
+const PERIOD_WORDS: Record<GoalPeriod, string> = { week: "this week", month: "this month", quarter: "this quarter", year: "this year" };
+
+/** First day of the period that contains `today` (weeks start Monday, like the rest of the app). */
+export function periodStart(today: DateString, period: GoalPeriod): DateString {
+  const [y, m] = today.split("-").map(Number) as [number, number];
+  const pad = (n: number) => String(n).padStart(2, "0");
+  if (period === "week") return startOfWeek(today);
+  if (period === "month") return `${y}-${pad(m)}-01`;
+  if (period === "quarter") return `${y}-${pad(Math.floor((m - 1) / 3) * 3 + 1)}-01`;
+  return `${y}-01-01`;
 }
 
 export interface GoalProgress {
@@ -89,12 +106,25 @@ export function goalProgress(goal: GoalLike, m: Metrics): GoalProgress {
         };
       return {
         ...base,
-        current: m.revenue.amount,
-        percent: pct(m.revenue.amount),
+        current: m.revenue.byPeriod[goal.period],
+        percent: pct(m.revenue.byPeriod[goal.period]),
         provenance: "actual",
         sourceLabel: `From ${m.revenue.source}`,
-        display: `${formatValue(m.revenue.amount, "$")} of ${formatValue(goal.target, "$")}`,
+        display: `${formatValue(m.revenue.byPeriod[goal.period], "$")} of ${formatValue(goal.target, "$")} ${PERIOD_WORDS[goal.period]}`,
       };
+    case "depop_profit": {
+      if (!m.depopProfit)
+        return { ...base, current: null, percent: null, provenance: "unavailable", sourceLabel: "No Depop items logged yet", display: `Target ${formatValue(goal.target, "$")}` };
+      const cur = m.depopProfit.byPeriod[goal.period];
+      return {
+        ...base,
+        current: cur,
+        percent: pct(cur),
+        provenance: "actual",
+        sourceLabel: m.depopProfit.feesEstimated ? "From your Depop sales (some fees estimated)" : "From your Depop sales",
+        display: `${formatValue(cur, "$")} of ${formatValue(goal.target, "$")} ${PERIOD_WORDS[goal.period]}`,
+      };
+    }
     case "manual":
       if (goal.manualCurrent === null)
         return { ...base, current: null, percent: null, provenance: "unavailable", sourceLabel: "Not updated yet", display: `Target ${formatValue(goal.target, goal.unit)}` };

@@ -1,8 +1,11 @@
 import "server-only";
 import { and, eq, gte, inArray, like, lte, notInArray } from "drizzle-orm";
 import { schema, withTenant, type TenantContext, type Tx } from "@/db";
+import { zonedTimeToUtc } from "@/lib/dates";
 import {
+  businessKpis,
   classifyEstimate,
+  kpiWindowStart,
   estimateTask,
   isUnscheduledJob,
   jobClosedReason,
@@ -26,6 +29,15 @@ const BASE = "https://api.housecallpro.com";
 const ESTIMATE_WINDOW_DAYS = 60;
 const EVENT_PAST_DAYS = 1;
 const EVENT_FUTURE_DAYS = 21;
+
+function localDateIn(instant: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(instant);
+}
+
+/** Midnight of a local date in `timeZone`, as a UTC ISO string. */
+function zonedMidnightIso(d: string, timeZone: string): string {
+  return zonedTimeToUtc(d, "00:00", timeZone).toISOString();
+}
 
 export type HcpFetch = (path: string) => Promise<Response>;
 
@@ -60,13 +72,14 @@ async function fetchRecentEstimates(f: HcpFetch, since: Date): Promise<HcpEstima
   return out;
 }
 
-async function fetchJobs(f: HcpFetch, query: string): Promise<HcpJob[]> {
-  const out: HcpJob[] = [];
-  for (let page = 1; page <= 5; page++) {
+async function fetchJobs(f: HcpFetch, query: string, maxPages = 5): Promise<HcpJob[] & { cut?: boolean }> {
+  const out: HcpJob[] & { cut?: boolean } = [];
+  for (let page = 1; page <= maxPages; page++) {
     const body = await getJson<{ jobs: HcpJob[]; total_pages: number }>(f, `/jobs?page=${page}&page_size=100&${query}`);
     out.push(...body.jobs);
-    if (page >= body.total_pages) break;
+    if (page >= body.total_pages) return out;
   }
+  out.cut = true;
   return out;
 }
 
@@ -116,6 +129,10 @@ export async function syncHousecallPro(
     const min = new Date(now.getTime() - EVENT_PAST_DAYS * 86_400_000).toISOString();
     const max = new Date(now.getTime() + EVENT_FUTURE_DAYS * 86_400_000).toISOString();
     const scheduled = await fetchJobs(f, `scheduled_start_min=${encodeURIComponent(min)}&scheduled_start_max=${encodeURIComponent(max)}`);
+    // KPI window: jobs scheduled from the start of the year (or last month, in January) up to now.
+    const windowStart = zonedMidnightIso(kpiWindowStart(localDateIn(now, ctx.timeZone)), ctx.timeZone);
+    const history = await fetchJobs(f, `scheduled_start_min=${encodeURIComponent(windowStart)}&scheduled_start_max=${encodeURIComponent(now.toISOString())}`, 20);
+    const kpis = businessKpis({ completedWindowJobs: history, upcomingJobs: scheduled, estimates, now, timeZone: ctx.timeZone, cut: Boolean(history.cut) });
 
     // What should be open right now, keyed by source_ref.
     const wanted = new Map<string, TaskDraft>();
@@ -238,7 +255,10 @@ export async function syncHousecallPro(
       await tx.delete(schema.calendarEvents).where(keep.length ? and(inWindow, notInArray(schema.calendarEvents.externalId, keep)) : inWindow);
       result.events = events.length;
 
-      await tx.update(schema.integrations).set({ status: "connected", lastSyncedAt: now, lastError: null, updatedAt: now }).where(eq(schema.integrations.id, integration.id));
+      await tx
+        .update(schema.integrations)
+        .set({ status: "connected", lastSyncedAt: now, lastError: null, metrics: kpis as unknown as Record<string, unknown>, updatedAt: now })
+        .where(eq(schema.integrations.id, integration.id));
     });
     return result;
   } catch (error) {

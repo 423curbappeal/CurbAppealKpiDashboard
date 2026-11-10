@@ -1,6 +1,7 @@
 "use server";
 
 import { and, eq, gte, isNull } from "drizzle-orm";
+import { normalizeDepopUrl, parseDepopListing, type ImportedListing } from "@/lib/depop-import";
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
@@ -291,7 +292,7 @@ export async function archiveRoutine(routineId: string): Promise<ActionResult> {
 const goalInput = z.object({
   title: z.string().trim().min(1).max(120),
   area: z.enum(["business", "finance", "fitness", "personal", "career"]),
-  metric: z.enum(["workouts_per_week", "routine_consistency", "tasks_completed_per_week", "revenue", "manual"]),
+  metric: z.enum(["workouts_per_week", "routine_consistency", "tasks_completed_per_week", "revenue", "depop_profit", "manual"]),
   period: z.enum(["week", "month", "quarter", "year"]).default("year"),
   target: z.number().positive().max(1e12),
   unit: z.string().trim().max(20).nullable().optional(),
@@ -619,6 +620,37 @@ export async function restoreDepopItem(itemId: string): Promise<ActionResult> {
   });
   refresh();
   return { ok: true };
+}
+
+/**
+ * Reads a public Depop listing link into form fields. Read-only: it fetches the
+ * page once and never stores it. Fails softly so the user can type it in.
+ */
+export async function importDepopListing(link: string): Promise<ActionResult<ImportedListing>> {
+  await requireContext();
+  const url = normalizeDepopUrl(link);
+  if (!url) return { ok: false, error: "That doesn't look like a Depop listing link. It should look like depop.com/products/…" };
+  let html: string;
+  try {
+    const res = await fetch(url, {
+      headers: {
+        accept: "text/html,application/xhtml+xml",
+        "accept-language": "en-US,en;q=0.9",
+        "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1",
+      },
+      redirect: "follow",
+      cache: "no-store",
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (res.status === 404) return { ok: false, error: "Depop says that listing doesn't exist anymore." };
+    if (!res.ok) return { ok: false, error: "Depop didn't let us read that listing right now. Fill it in below instead." };
+    html = (await res.text()).slice(0, 2_000_000);
+  } catch {
+    return { ok: false, error: "Couldn't reach Depop. Check the link or fill it in below." };
+  }
+  const listing = parseDepopListing(html, url);
+  if (!listing) return { ok: false, error: "Couldn't find the item details on that page. Fill it in below instead." };
+  return { ok: true, data: listing };
 }
 
 /**

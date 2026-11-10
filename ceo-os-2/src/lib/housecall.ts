@@ -175,3 +175,115 @@ export function jobEvent(j: HcpJob) {
   const location = [j.address?.street, j.address?.city].filter(Boolean).join(", ") || null;
   return { externalId: `job:${j.id}`, title: `${type}${who ? ` · ${who}` : ""}`, startsAt, endsAt, allDay: false, location, htmlLink: null };
 }
+
+/* ── Business KPIs ──────────────────────────────────────────────────────────
+ * Figures come only from Housecall Pro records: a completed job's total_amount,
+ * dated by its scheduled start in the owner's timezone. Nothing is estimated.
+ */
+
+export interface BusinessKpis {
+  asOf: string;
+  today: string;
+  /** Completed-job totals, period to date, in cents. */
+  revenueCents: { week: number; month: number; quarter: number; year: number };
+  /** Same days of last month (1st through today's day number), for comparison. */
+  lastMonthToDateCents: number;
+  jobsCompletedMonth: number;
+  avgTicketCentsMonth: number | null;
+  /** Estimates sent in the last 60 days that reached a decision. */
+  closeRate: { won: number; lost: number; pct: number | null };
+  scheduledNext7: number;
+  scheduledNext7ValueCents: number;
+  /** True when the job list hit the page cap, so totals may be low. */
+  cut: boolean;
+}
+
+const COMPLETE = /^complete/i;
+
+export function isCompletedJob(j: HcpJob): boolean {
+  return COMPLETE.test(j.work_status ?? "") && !j.deleted_at && !j.canceled_at;
+}
+
+function localDay(iso: string, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(iso));
+}
+
+function shiftDays(d: string, n: number): string {
+  const t = new Date(`${d}T12:00:00Z`);
+  t.setUTCDate(t.getUTCDate() + n);
+  return t.toISOString().slice(0, 10);
+}
+
+/** Monday-start week, matching the rest of the app. */
+function weekStartOf(d: string): string {
+  const dow = new Date(`${d}T12:00:00Z`).getUTCDay();
+  return shiftDays(d, -((dow + 6) % 7));
+}
+
+export function kpiWindowStart(today: string): string {
+  const [y, m] = today.split("-").map(Number) as [number, number];
+  const lastMonth = new Date(Date.UTC(y, m - 2, 1)).toISOString().slice(0, 10);
+  const yearStart = `${y}-01-01`;
+  return lastMonth < yearStart ? lastMonth : yearStart;
+}
+
+export function businessKpis(input: {
+  completedWindowJobs: HcpJob[];
+  upcomingJobs: HcpJob[];
+  estimates: HcpEstimate[];
+  now: Date;
+  timeZone: string;
+  cut: boolean;
+}): BusinessKpis {
+  const { now, timeZone } = input;
+  const today = localDay(now.toISOString(), timeZone);
+  const [y, m, d] = today.split("-").map(Number) as [number, number, number];
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const starts = {
+    week: weekStartOf(today),
+    month: `${y}-${pad(m)}-01`,
+    quarter: `${y}-${pad(Math.floor((m - 1) / 3) * 3 + 1)}-01`,
+    year: `${y}-01-01`,
+  };
+  const lm = new Date(Date.UTC(y, m - 2, 1));
+  const lmStart = lm.toISOString().slice(0, 10);
+  const lmDays = new Date(Date.UTC(y, m - 1, 0)).getUTCDate();
+  const lmEnd = `${lmStart.slice(0, 8)}${pad(Math.min(d, lmDays))}`;
+
+  const seen = new Set<string>();
+  const done = input.completedWindowJobs
+    .filter((j) => isCompletedJob(j) && j.schedule?.scheduled_start && !seen.has(j.id) && seen.add(j.id))
+    .map((j) => ({ day: localDay(j.schedule!.scheduled_start!, timeZone), cents: j.total_amount ?? 0 }))
+    .filter((j) => j.day <= today);
+  const sum = (from: string, to = today) => done.filter((j) => j.day >= from && j.day <= to).reduce((s, j) => s + j.cents, 0);
+  const monthJobs = done.filter((j) => j.day >= starts.month);
+
+  let won = 0;
+  let lost = 0;
+  const since = now.getTime() - 60 * 86_400_000;
+  for (const e of input.estimates) {
+    if (new Date(e.created_at).getTime() < since) continue;
+    const s = classifyEstimate(e);
+    if (s.kind === "approved_unscheduled" || (s.kind === "closed" && (s.outcome === "converted" || s.outcome === "approved"))) won++;
+    else if (s.kind === "closed" && (s.outcome === "declined" || s.outcome === "expired")) lost++;
+  }
+
+  const horizon = now.getTime() + 7 * 86_400_000;
+  const upcoming = input.upcomingJobs.filter((j) => {
+    const t = j.schedule?.scheduled_start ? new Date(j.schedule.scheduled_start).getTime() : NaN;
+    return t >= now.getTime() && t <= horizon && !j.deleted_at && !j.canceled_at && !/canceled/i.test(j.work_status ?? "") && !isCompletedJob(j);
+  });
+
+  return {
+    asOf: now.toISOString(),
+    today,
+    revenueCents: { week: sum(starts.week), month: sum(starts.month), quarter: sum(starts.quarter), year: sum(starts.year) },
+    lastMonthToDateCents: sum(lmStart, lmEnd),
+    jobsCompletedMonth: monthJobs.length,
+    avgTicketCentsMonth: monthJobs.length ? Math.round(monthJobs.reduce((s, j) => s + j.cents, 0) / monthJobs.length) : null,
+    closeRate: { won, lost, pct: won + lost > 0 ? (won / (won + lost)) * 100 : null },
+    scheduledNext7: upcoming.length,
+    scheduledNext7ValueCents: upcoming.reduce((s, j) => s + (j.total_amount ?? 0), 0),
+    cut: input.cut,
+  };
+}

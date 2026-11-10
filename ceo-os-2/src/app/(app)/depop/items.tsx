@@ -1,14 +1,32 @@
 "use client";
 
 import { useState } from "react";
-import { ArchiveRestore, BadgeDollarSign, PenLine, Plus, Tag, Trash2 } from "lucide-react";
-import { createDepopItem, markDepopSold, removeDepopItem, restoreDepopItem, unmarkDepopSold, updateDepopItem } from "@/server/actions";
+import { useRouter } from "next/navigation";
+import { ArchiveRestore, BadgeDollarSign, Link2, PenLine, Plus, Tag, Trash2, Zap } from "lucide-react";
+import { createDepopItem, importDepopListing, markDepopSold, removeDepopItem, restoreDepopItem, unmarkDepopSold, updateDepopItem } from "@/server/actions";
 import { Sheet, SheetOption, useAction } from "@/components/feedback";
 import { Badge, buttonClass, Card, cx, EmptyState, SectionTitle } from "@/components/ui";
 import { estimateFeesCents, formatCents, parseMoneyToCents, STALE_AFTER_DAYS } from "@/lib/depop";
 import type { DepopRow } from "@/server/data";
 
 const DEFAULT_CATEGORIES = ["Tops", "Bottoms", "Outerwear", "Dresses", "Shoes", "Accessories", "Vintage"];
+const LAST_CATEGORY_KEY = "ceo-os.depop.last-category";
+
+/** The last category used, kept on this device only as a convenience. */
+function readLastCategory(): string {
+  try {
+    return window.localStorage.getItem(LAST_CATEGORY_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+function saveLastCategory(c: string) {
+  try {
+    if (c) window.localStorage.setItem(LAST_CATEGORY_KEY, c);
+  } catch {
+    // Private mode or storage disabled: nothing to remember.
+  }
+}
 
 const field = "h-14 w-full rounded-2xl border border-line bg-surface px-4 outline-none focus:border-accent/60";
 const money = (cents: number | null | undefined) => (cents == null ? "" : (cents / 100).toFixed(2).replace(/\.00$/, ""));
@@ -16,8 +34,14 @@ const shortDate = (d: string) => new Date(`${d}T12:00:00Z`).toLocaleDateString("
 
 /* ── Add ─────────────────────────────────────────────────────────────────── */
 
-export function AddItemButton({ today, categories, variant = "link" }: { today: string; categories: string[]; variant?: "link" | "button" }) {
-  const [open, setOpen] = useState(false);
+export function AddItemButton({ today, categories, variant = "link", autoOpen = false }: { today: string; categories: string[]; variant?: "link" | "button"; autoOpen?: boolean }) {
+  const [open, setOpen] = useState(autoOpen);
+  const router = useRouter();
+  // Opened from the home-screen shortcut: once closed, drop ?add=1 so a refresh doesn't reopen it.
+  const close = () => {
+    setOpen(false);
+    if (autoOpen) router.replace("/depop", { scroll: false });
+  };
   return (
     <>
       {variant === "link" ? (
@@ -29,8 +53,8 @@ export function AddItemButton({ today, categories, variant = "link" }: { today: 
           <Plus size={18} /> Add an item
         </button>
       )}
-      <Sheet open={open} onClose={() => setOpen(false)} title="New item">
-        {open && <ItemForm today={today} categories={categories} onDone={() => setOpen(false)} />}
+      <Sheet open={open} onClose={close} title="New item">
+        {open && <ItemForm today={today} categories={categories} onDone={close} />}
       </Sheet>
     </>
   );
@@ -41,7 +65,11 @@ export function AddItemButton({ today, categories, variant = "link" }: { today: 
 function ItemForm({ today, categories, item, onDone }: { today: string; categories: string[]; item?: DepopRow; onDone: () => void }) {
   const { run, pending } = useAction();
   const [title, setTitle] = useState(item?.title ?? "");
-  const [category, setCategory] = useState(item?.category ?? "");
+  const [category, setCategory] = useState(() => item?.category ?? (typeof window === "undefined" ? "" : readLastCategory()));
+  const [link, setLink] = useState("");
+  const [importNote, setImportNote] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [added, setAdded] = useState(0);
   const [brand, setBrand] = useState(item?.brand ?? "");
   const [size, setSize] = useState(item?.size ?? "");
   const [cost, setCost] = useState(money(item?.costCents));
@@ -58,12 +86,46 @@ function ItemForm({ today, categories, item, onDone }: { today: string; categori
   const moneyOk = [cost, listPrice, ...(isSold ? [salePrice, fees, shipping] : [])].every((v) => v === "" || parseMoneyToCents(v) !== null);
   const canSave = title.trim() && moneyOk && (!isSold || parseMoneyToCents(salePrice) !== null);
 
-  return (
-    <form
-      className="space-y-3"
-      onSubmit={async (e) => {
-        e.preventDefault();
-        const payload = {
+  const reset = () => {
+    setTitle("");
+    setBrand("");
+    setSize("");
+    setCost("");
+    setListPrice("");
+    setLink("");
+    setImportNote(null);
+    setIsSold(false);
+    setSalePrice("");
+    setFees("");
+    setShipping("");
+    setNotes("");
+    requestAnimationFrame(() => document.getElementById("depop-title")?.focus());
+  };
+
+  const doImport = async () => {
+    setImporting(true);
+    setImportNote(null);
+    // Called directly (not through run) so a failure shows once, inline, instead of also as a toast.
+    const r = await importDepopListing(link).catch(() => null);
+    setImporting(false);
+    if (!r) return setImportNote({ tone: "error", text: "Couldn't reach CEO OS. Check your connection and try again." });
+    if (!r.ok) return setImportNote({ tone: "error", text: r.error });
+    const d = r.data!;
+    setTitle(d.title);
+    if (d.brand) setBrand(d.brand);
+    if (d.size) setSize(d.size);
+    if (d.category) setCategory(d.category);
+    if (d.listPriceCents != null) setListPrice(money(d.listPriceCents));
+    setNotes((n) => n || d.url);
+    setImportNote({
+      tone: "ok",
+      text: d.listPriceCents == null && d.currency && d.currency !== "USD" ? `Filled in. Price is in ${d.currency}, so add your list price in dollars.` : "Filled in from Depop. Add what you paid.",
+    });
+    requestAnimationFrame(() => document.getElementById("depop-cost")?.focus());
+  };
+
+  const submit = async (another: boolean) => {
+    const payload = {
           title,
           category: category || null,
           brand: brand || null,
@@ -77,10 +139,54 @@ function ItemForm({ today, categories, item, onDone }: { today: string; categori
           shippingCents: isSold ? (parseMoneyToCents(shipping) ?? 0) : 0,
           notes: notes || null,
         };
-        const r = await run(() => (item ? updateDepopItem(item.id, payload) : createDepopItem(payload)));
-        if (r?.ok) onDone();
+    const r = await run(() => (item ? updateDepopItem(item.id, payload) : createDepopItem(payload)));
+    if (!r?.ok) return;
+    if (!item) saveLastCategory(category);
+    if (another) {
+      setAdded((n) => n + 1);
+      reset();
+    } else onDone();
+  };
+
+  return (
+    <form
+      className="space-y-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void submit(false);
       }}
     >
+      {!item && (
+        <div className="rounded-2xl border border-dashed border-line-strong p-3">
+          <div className="flex gap-2">
+            <div className="flex h-12 min-w-0 flex-1 items-center gap-2 rounded-xl bg-surface px-3">
+              <Link2 size={16} className="shrink-0 text-faint" />
+              <input
+                id="depop-link"
+                type="url"
+                inputMode="url"
+                aria-label="Depop listing link"
+                value={link}
+                onChange={(e) => setLink(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    if (link.trim()) void doImport();
+                  }
+                }}
+                placeholder="Paste a Depop listing link"
+                className="h-full min-w-0 flex-1 bg-transparent text-[15px] outline-none"
+              />
+            </div>
+            <button type="button" onClick={() => void doImport()} disabled={!link.trim() || importing} className={buttonClass("secondary", "md")}>
+              {importing ? "Reading…" : "Fill in"}
+            </button>
+          </div>
+          {importNote && <p className={cx("mt-2 px-1 text-[13px]", importNote.tone === "error" ? "text-warn" : "text-good")}>{importNote.text}</p>}
+          {added > 0 && !importNote && <p className="mt-2 px-1 text-[13px] text-good">{added} added. Next item.</p>}
+        </div>
+      )}
+
       <Field label="Item">
         <input id="depop-title" required value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Vintage Carhartt jacket" className={field} />
       </Field>
@@ -135,6 +241,11 @@ function ItemForm({ today, categories, item, onDone }: { today: string; categori
       <button className={cx(buttonClass("primary", "lg"), "w-full")} disabled={pending || !canSave}>
         {item ? "Save changes" : isSold ? "Log sale" : "Add listing"}
       </button>
+      {!item && (
+        <button type="button" onClick={() => void submit(true)} className={cx(buttonClass("ghost", "md"), "w-full")} disabled={pending || !canSave}>
+          Save and add another
+        </button>
+      )}
     </form>
   );
 }
@@ -270,7 +381,7 @@ function ItemRow({ item, today, categories }: { item: DepopRow; today: string; c
       </button>
 
       <Sheet open={open} onClose={close} title={mode === "sell" ? "Mark sold" : mode === "edit" ? "Edit item" : item.title}>
-        {mode === "menu" && <ItemMenu item={item} onSell={() => setMode("sell")} onEdit={() => setMode("edit")} onDone={close} />}
+        {mode === "menu" && <ItemMenu item={item} today={today} onSell={() => setMode("sell")} onEdit={() => setMode("edit")} onDone={close} />}
         {mode === "sell" && <SellForm item={item} today={today} onDone={close} />}
         {mode === "edit" && <ItemForm item={item} today={today} categories={categories} onDone={close} />}
       </Sheet>
@@ -278,7 +389,7 @@ function ItemRow({ item, today, categories }: { item: DepopRow; today: string; c
   );
 }
 
-function ItemMenu({ item, onSell, onEdit, onDone }: { item: DepopRow; onSell: () => void; onEdit: () => void; onDone: () => void }) {
+function ItemMenu({ item, today, onSell, onEdit, onDone }: { item: DepopRow; today: string; onSell: () => void; onEdit: () => void; onDone: () => void }) {
   const { run } = useAction();
   return (
     <>
@@ -304,7 +415,22 @@ function ItemMenu({ item, onSell, onEdit, onDone }: { item: DepopRow; onSell: ()
       )}
       <div className="-mx-2">
         {!item.soldOn ? (
-          <SheetOption icon={<BadgeDollarSign size={18} />} label="Mark sold" detail="Enter what it sold for" onClick={onSell} />
+          <>
+            {item.listPriceCents != null && (
+              <SheetOption
+                icon={<Zap size={18} />}
+                label={`Sold at ${formatCents(item.listPriceCents, { exact: true })} today`}
+                detail="One tap. Fees estimated, no shipping"
+                onClick={async () => {
+                  const r = await run(() => markDepopSold(item.id, { soldOn: today, salePriceCents: item.listPriceCents!, feesCents: null, shippingCents: 0 }), {
+                    undo: () => () => unmarkDepopSold(item.id),
+                  });
+                  if (r?.ok) onDone();
+                }}
+              />
+            )}
+            <SheetOption icon={<BadgeDollarSign size={18} />} label="Mark sold" detail="Enter price, fees and shipping" onClick={onSell} />
+          </>
         ) : (
           <SheetOption
             icon={<ArchiveRestore size={18} />}

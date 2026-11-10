@@ -250,6 +250,7 @@ export const goalMetric = pgEnum("goal_metric", [
   "routine_consistency",
   "tasks_completed_per_week",
   "revenue",
+  "depop_profit",
   "manual",
 ]);
 export const goalPeriod = pgEnum("goal_period", ["week", "month", "quarter", "year"]);
@@ -298,6 +299,8 @@ export const integrations = pgTable(
     scopes: text("scopes"),
     /** AES-256-GCM ciphertext of the provider token set. Never sent to the browser. */
     encryptedTokens: text("encrypted_tokens"),
+    /** Latest computed KPIs from this source (Housecall Pro: BusinessKpis). Derived data only. */
+    metrics: jsonb("metrics").$type<Record<string, unknown>>(),
     tokenExpiresAt: timestamp("token_expires_at", { withTimezone: true }),
     lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
     lastError: text("last_error"),

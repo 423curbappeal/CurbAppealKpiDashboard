@@ -12,5 +12,5 @@ export function middleware(request: NextRequest) {
 
 export const config = {
   runtime: "nodejs",
-  matcher: ["/((?!api|sign-in|sign-up|_next|icon|apple-touch-icon|manifest|favicon|.*\\.(?:png|svg|ico|webmanifest)$).*)"],
+  matcher: ["/((?!api|sign-in|sign-up|_next|icon|apple-touch-icon|manifest|favicon|sw\\.js|offline\\.html|.*\\.(?:png|svg|ico|webmanifest)$).*)"],
 };

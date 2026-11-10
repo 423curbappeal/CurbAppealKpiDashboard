@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Clock, ShoppingBag } from "lucide-react";
 import { Badge, Card, cx, EmptyState, Screen, ScreenHeader, SectionTitle } from "@/components/ui";
 import { formatCents } from "@/lib/depop";
@@ -7,15 +8,16 @@ import { AddItemButton, ItemLists } from "./items";
 
 export const metadata = { title: "Depop" };
 
-export default async function DepopPage() {
+export default async function DepopPage({ searchParams }: { searchParams: Promise<{ add?: string }> }) {
+  const autoOpen = (await searchParams).add === "1";
   const ctx = await requireContext();
-  const { today, stats: s, active, sold, categories } = await loadDepop(ctx);
+  const { today, stats: s, active, sold, categories, goals } = await loadDepop(ctx);
   const maxMonth = Math.max(1, ...s.months.map((m) => Math.max(m.revenueCents, m.profitCents)));
   const maxCat = Math.max(1, ...s.categories.map((c) => Math.max(0, c.profitCents)));
 
   return (
     <Screen>
-      <ScreenHeader eyebrow="Shop" title="Depop" trailing={<AddItemButton today={today} categories={categories} />} />
+      <ScreenHeader eyebrow="Shop" title="Depop" trailing={<AddItemButton today={today} categories={categories} autoOpen={autoOpen} />} />
 
       {!s.hasItems ? (
         <Card>
@@ -41,6 +43,19 @@ export default async function DepopPage() {
               {formatCents(s.last30.revenueCents)} in sales from {s.last30.sold} {s.last30.sold === 1 ? "item" : "items"}
               {s.last30.feesEstimated && <span className="text-faint"> · some fees estimated</span>}
             </p>
+            {goals.map((g) => (
+              <Link key={g.id} href="/growth" className="mt-4 block border-t border-line pt-3">
+                <div className="flex items-baseline justify-between gap-3 text-[13px]">
+                  <span className="truncate text-muted">{g.title}</span>
+                  <span className="shrink-0 tabular text-ink">
+                    {formatCents(Math.round(g.current * 100))} <span className="text-faint">of {formatCents(Math.round(g.target * 100))} this {g.period}</span>
+                  </span>
+                </div>
+                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/[0.07]">
+                  <div className={cx("h-full rounded-full", g.percent >= 100 ? "bg-good" : "bg-accent")} style={{ width: `${Math.max(2, g.percent)}%` }} />
+                </div>
+              </Link>
+            ))}
           </Card>
 
           <div className="mt-2 grid grid-cols-2 gap-2">

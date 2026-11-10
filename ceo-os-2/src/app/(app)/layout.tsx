@@ -1,3 +1,4 @@
+import { PullToRefresh, ServiceWorker } from "@/components/app-shell";
 import { CaptureButton, CaptureProvider } from "@/components/capture";
 import { ToastProvider } from "@/components/feedback";
 import { TabBar, TimezoneAdopter } from "@/components/quick";
@@ -10,10 +11,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   return (
     <ToastProvider>
       <CaptureProvider>
+        <PullToRefresh />
         {children}
         <CaptureButton />
         <TabBar />
         <TimezoneAdopter needed={!ctx.onboarded} />
+        <ServiceWorker />
       </CaptureProvider>
     </ToastProvider>
   );
